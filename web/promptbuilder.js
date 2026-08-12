@@ -275,7 +275,7 @@ const TAG_CLASS = { Subject: "subj", Picture: "pic", Video: "vid", Audio: "aud" 
 /* Small DOM helpers                                                   */
 /* ------------------------------------------------------------------ */
 
-function el(tag, props = {}, ...children) {
+export function el(tag, props = {}, ...children) {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
     if (k === "style" && typeof v === "object") Object.assign(e.style, v);
@@ -428,17 +428,32 @@ function widgetValue(n, names) {
  * Ordinals are 1-based per type and follow connection order, not slot
  * index, so gaps in the slots close up.
  */
-function slotsFromBundle(node) {
-  // The Media Loader keeps its inventory in a widget, so the tags it will
-  // produce can be read straight off the graph without a round trip.
+/** The media-panel state backing this node's tags, and where it came from.
+ *
+ * The Prompt Studio owns its panel outright, so its own `media_state` widget
+ * is the source. The Prompt Builder has no panel and reads the state off the
+ * Media Loader wired into its `references` input. Either way the inventory is
+ * a widget on the graph, so the tags H3 will assign can be computed without a
+ * round trip to the server. */
+function mediaSource(node) {
+  const own = node.widgets?.find((w) => w.name === "media_state");
+  if (own) return { raw: own.value, label: "Media" };
   const idx = (node.inputs || []).findIndex((i) => i.name === "references");
   if (idx < 0 || node.inputs[idx].link == null) return null;
   const loader = originNode(node, idx);
   if (!loader || loader.type !== LOADER_NAME) return null;
+  return {
+    raw: loader.widgets?.find((w) => w.name === "media_state")?.value,
+    label: "Media Loader",
+  };
+}
+
+function slotsFromBundle(node) {
+  const src = mediaSource(node);
+  if (!src) return null;
   let items = [];
   try {
-    items = JSON.parse(
-      loader.widgets?.find((w) => w.name === "media_state")?.value || "[]");
+    items = JSON.parse(src.raw || "[]");
   } catch (e) { return null; }
   if (!Array.isArray(items)) return null;
   items = items.filter(isOn);      // switched-off media never reaches the model
@@ -450,7 +465,7 @@ function slotsFromBundle(node) {
     out.push({
       tag, kind, idx: n, cls: TAG_CLASS[kind], note,
       slotName: `loader:${item.name}`,
-      source: `Media Loader \u2022 ${item.name}`,
+      source: `${src.label} \u2022 ${item.name}`,
       preview: { type: previewKind, url: loaderViewURL(item.file) },
     });
   };
@@ -468,6 +483,7 @@ function slotsFromBundle(node) {
       push(extra.get(i), "Audio", i, "split from " + tags.get(i), "audio");
   });
   out.bundled = true;
+  out.own = src.label === "Media";   // this node's own panel, not a wired loader
   return out;
 }
 
@@ -1036,7 +1052,7 @@ const CSS = `
 `;
 
 let cssInjected = false;
-function injectCSS() {
+export function injectCSS() {
   if (cssInjected) return;
   document.head.append(el("style", { textContent: CSS }));
   cssInjected = true;
@@ -2413,7 +2429,7 @@ class Editor {
 /* Node integration                                                    */
 /* ------------------------------------------------------------------ */
 
-function hideWidget(node, name) {
+export function hideWidget(node, name) {
   const w = node.widgets?.find((w) => w.name === name);
   if (!w) return;
   w.hidden = true;                       // respected by the new frontend
@@ -2457,7 +2473,7 @@ function addMediaLoader(node) {
   toast("Media Loader added and connected");
 }
 
-function openEditor(node) {
+export function openEditor(node) {
   try {
     new Editor(node);
   } catch (err) {
@@ -2467,7 +2483,7 @@ function openEditor(node) {
   }
 }
 
-function updateSummary(node) {
+export function updateSummary(node) {
   if (!node._mmh3Summary) return;
   const state = loadState(node);
   const pw = node.widgets?.find((w) => w.name === "prompt_text");
@@ -2482,7 +2498,8 @@ function updateSummary(node) {
     : "";
   const cap = MODE_CAPACITY[state.mode] || {};
   let refSeg = refs
-    ? ` \u2022 ${refs} ref${refs > 1 ? "s" : ""}${allSlots.bundled ? " (loader)" : ""}`
+    ? ` \u2022 ${refs} ref${refs > 1 ? "s" : ""}` +
+      `${allSlots.bundled && !allSlots.own ? " (loader)" : ""}`
     : "";
   if (state.mode === "REF" && cap.total && refs > cap.total)
     refSeg = ` \u2022 <span style="color:#f07070">${refs} refs \u2014 over the ` +

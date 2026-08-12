@@ -74,6 +74,177 @@ def _media_names():
     )
 
 
+# Bundle key <-> slot-name group, in the native node's presentation order.
+_BUNDLE_GROUPS = (
+    ("pictures", "picture", PICTURES),
+    ("videos", "video", VIDEOS),
+    ("video_audios", "video_audio", VIDEO_AUDIOS),
+    ("audios", "audio", AUDIOS),
+)
+
+
+def gate_bundle(bundle, mode, label="PromptStudio"):
+    """Blank out media the chosen mode can't send.
+
+    Same rule the Prompt Builder applies to its pass-throughs, expressed over
+    a bundle instead of individual slots: base modes take their pictures as
+    the native node's first/last frame and carry no references at all, so
+    anything they can't use is dropped here rather than surprising the model.
+    Withholding is always printed, never silent.
+    """
+    out, withheld = {}, []
+    for key, group, cap in _BUNDLE_GROUPS:
+        kept = []
+        for index, value in enumerate(list(bundle.get(key) or [])[:cap]):
+            name = f"{group}_{index + 1}"
+            if value is not None and not _usable(name, mode):
+                withheld.append(name)
+                value = None
+            kept.append(value)
+        out[key] = kept
+    if withheld:
+        print(
+            f"[MiniMaxH3 {label}] mode {mode}: {', '.join(withheld)} loaded "
+            "but not sent — this mode doesn't use them. Switch mode in "
+            "the editor (and Save) to send them."
+        )
+    return out, withheld
+
+
+def _partition(items):
+    """Split items into the four native groups, preserving list order.
+
+    A video's split audio goes to the paired group (its <Audio N> is
+    emitted just before its <Video N>) or to the standalone group,
+    depending on the item's audio_mode.
+    """
+    pictures, videos, video_audios, audios = [], [], [], []
+    for item in items:
+        # Items switched off in the loader are kept in the list but never
+        # reach the model, so the tag numbering closes up around them.
+        if isinstance(item, dict) and item.get("enabled") is False:
+            continue
+        kind = item.get("kind")
+        if kind == "picture":
+            pictures.append(item)
+        elif kind == "video":
+            mode = item.get("audio_mode", "paired")
+            has_audio = bool(item.get("has_audio"))
+            videos.append(item)
+            if has_audio and mode == "paired":
+                video_audios.append(item)
+            else:
+                video_audios.append(None)
+            if has_audio and mode == "standalone":
+                audios.append(item)
+        elif kind == "audio":
+            audios.append(item)
+    return pictures, videos, video_audios, audios
+
+
+def _trim_span(item):
+    """(start, end) seconds from an item's trim, ignoring non-positive values."""
+    t = item.get("trim") if isinstance(item, dict) else None
+    if not isinstance(t, dict):
+        return None, None
+
+    def num(v):
+        try:
+            v = float(v)
+            return v if v > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    return num(t.get("start")), num(t.get("end"))
+
+
+def _brief_audio(a):
+    if a is None:
+        return "None"
+    if not (isinstance(a, dict) and "waveform" in a):
+        return f"unexpected type {type(a).__name__}"
+    try:
+        w = a["waveform"]
+        rms = float((w ** 2).mean() ** 0.5)
+        return f"{list(w.shape)}@{a['sample_rate']}Hz rms={rms:.4f}"
+    except Exception as exc:
+        return f"unreadable ({exc})"
+
+
+def build_bundle(media_state="[]", label="Loader"):
+    """Decode a media-panel state string into an H3_REFS bundle.
+
+    Shared by the Media Loader and the Prompt Studio, which keep byte-identical
+    panel state — so both decode it exactly the same way and a workflow can be
+    rebuilt either side of the merge without changing what reaches the model.
+    """
+    try:
+        items = json.loads(media_state or "[]")
+    except Exception:
+        items = []
+    if not isinstance(items, list):
+        items = []
+
+    pictures, videos, video_audios, audios = _partition(items)
+
+    pic_t = [media_io.load_image(i["file"], crop=i.get("crop"),
+                                 mirror=bool(i.get("mirror")))
+             for i in pictures[:PICTURES]]
+    vid_t = [media_io.load_video_frames(i["file"], start=_trim_span(i)[0],
+             end=_trim_span(i)[1], crop=i.get("crop"),
+             mirror=bool(i.get("mirror")),
+             detail=i.get("detail") or "high")
+             for i in videos[:VIDEOS]]
+    vaud_t = [
+        media_io.extract_audio(i["file"], start=_trim_span(i)[0],
+                               end=_trim_span(i)[1]) if i else None
+        for i in video_audios[:VIDEO_AUDIOS]
+    ]
+    aud_t = []
+    for i in audios[:AUDIOS]:
+        if i.get("kind") == "video":
+            aud_t.append(media_io.extract_audio(i["file"],
+                start=_trim_span(i)[0], end=_trim_span(i)[1]))
+        else:
+            aud_t.append(media_io.load_audio(i["file"],
+                start=_trim_span(i)[0], end=_trim_span(i)[1]))
+
+    print(f"[MiniMaxH3 {label}] {len(items)} item(s) in state -> "
+          f"{len(pic_t)} picture(s), {len(vid_t)} video(s), "
+          f"{sum(1 for x in vaud_t if x is not None)} soundtrack(s), "
+          f"{len(aud_t)} standalone audio")
+    for i, a in enumerate(vaud_t):
+        if a is not None:
+            print(f"[MiniMaxH3 {label}]   video_audio_{i+1}: {_brief_audio(a)}")
+    for i, a in enumerate(aud_t):
+        print(f"[MiniMaxH3 {label}]   audio_{i+1}: {_brief_audio(a)}")
+
+    return {
+        "pictures": pic_t,
+        "videos": vid_t,
+        "video_audios": vaud_t,
+        "audios": aud_t,
+        "items": items,
+    }
+
+
+def validate_media_state(media_state="[]"):
+    """Shared panel-state check: readable, a list, within H3's item caps."""
+    try:
+        items = json.loads(media_state or "[]")
+    except Exception:
+        return "Media state is corrupt; clear the node and re-add media."
+    if not isinstance(items, list):
+        return "Media state is corrupt; clear the node and re-add media."
+    pics = sum(1 for i in items if i.get("kind") == "picture")
+    vids = sum(1 for i in items if i.get("kind") == "video")
+    if pics > PICTURES:
+        return f"{pics} pictures loaded; H3 accepts {PICTURES}."
+    if vids > VIDEOS:
+        return f"{vids} videos loaded; H3 accepts {VIDEOS}."
+    return True
+
+
 class MiniMaxH3PromptBuilder:
     CATEGORY = "conditioning/video_models"
     DESCRIPTION = (
@@ -336,125 +507,76 @@ class MiniMaxH3MediaLoader:
 
     @classmethod
     def VALIDATE_INPUTS(cls, media_state="[]", **kwargs):
-        try:
-            items = json.loads(media_state or "[]")
-        except Exception:
-            return "Media Loader state is corrupt; clear the node and re-add media."
-        if not isinstance(items, list):
-            return "Media Loader state is corrupt; clear the node and re-add media."
-        pics = sum(1 for i in items if i.get("kind") == "picture")
-        vids = sum(1 for i in items if i.get("kind") == "video")
-        if pics > PICTURES:
-            return f"{pics} pictures loaded; H3 accepts {PICTURES}."
-        if vids > VIDEOS:
-            return f"{vids} videos loaded; H3 accepts {VIDEOS}."
-        return True
-
-    # -- ordering ---------------------------------------------------------
-
-    @staticmethod
-    def _partition(items):
-        """Split items into the four native groups, preserving list order.
-
-        A video's split audio goes to the paired group (its <Audio N> is
-        emitted just before its <Video N>) or to the standalone group,
-        depending on the item's audio_mode.
-        """
-        pictures, videos, video_audios, audios = [], [], [], []
-        for item in items:
-            # Items switched off in the loader are kept in the list but never
-            # reach the model, so the tag numbering closes up around them.
-            if isinstance(item, dict) and item.get("enabled") is False:
-                continue
-            kind = item.get("kind")
-            if kind == "picture":
-                pictures.append(item)
-            elif kind == "video":
-                mode = item.get("audio_mode", "paired")
-                has_audio = bool(item.get("has_audio"))
-                videos.append(item)
-                if has_audio and mode == "paired":
-                    video_audios.append(item)
-                else:
-                    video_audios.append(None)
-                if has_audio and mode == "standalone":
-                    audios.append(item)
-            elif kind == "audio":
-                audios.append(item)
-        return pictures, videos, video_audios, audios
+        return validate_media_state(media_state)
 
     def load(self, media_state="[]", prompt=None, unique_id=None):
-        try:
-            items = json.loads(media_state or "[]")
-        except Exception:
-            items = []
+        return (build_bundle(media_state),)
 
-        pictures, videos, video_audios, audios = self._partition(items)
 
-        def _trim(i):
-            t = i.get("trim") if isinstance(i, dict) else None
-            if not isinstance(t, dict):
-                return None, None
-            def num(v):
-                try:
-                    v = float(v)
-                    return v if v > 0 else None
-                except (TypeError, ValueError):
-                    return None
-            return num(t.get("start")), num(t.get("end"))
+class MiniMaxH3PromptStudio:
+    """Prompt Builder and Media Loader in one node.
 
-        pic_t = [media_io.load_image(i["file"], crop=i.get("crop"),
-                                     mirror=bool(i.get("mirror")))
-                 for i in pictures[:PICTURES]]
-        vid_t = [media_io.load_video_frames(i["file"], start=_trim(i)[0],
-                 end=_trim(i)[1], crop=i.get("crop"),
-                 mirror=bool(i.get("mirror")),
-                 detail=i.get("detail") or "high")
-                 for i in videos[:VIDEOS]]
-        vaud_t = [
-            media_io.extract_audio(i["file"], start=_trim(i)[0], end=_trim(i)[1]) if i else None
-            for i in video_audios[:VIDEO_AUDIOS]
-        ]
-        aud_t = []
-        for i in audios[:AUDIOS]:
-            if i.get("kind") == "video":
-                aud_t.append(media_io.extract_audio(i["file"],
-                    start=_trim(i)[0], end=_trim(i)[1]))
-            else:
-                aud_t.append(media_io.load_audio(i["file"],
-                    start=_trim(i)[0], end=_trim(i)[1]))
+    Same two panels, no wiring between them: the prompt editor and the media
+    panel share this node's own state, so the tags the editor offers are the
+    tags the bundle will carry. Deliberately input-less — reference media
+    comes from the panel, not from upstream slots — and it emits just the
+    prompt and the mode-gated bundle. Add a Reference Splitter when you want
+    the individual slots for MiniMaxH3ReferenceToVideo.
+    """
 
-        bundle = {
-            "pictures": pic_t,
-            "videos": vid_t,
-            "video_audios": vaud_t,
-            "audios": aud_t,
-            "items": items,
+    CATEGORY = "conditioning/video_models"
+    DESCRIPTION = (
+        "MiniMax H3 prompt writing and reference media in a single node. "
+        "Click 'Edit prompt' to open the guided editor, and load media in the "
+        "panel below it. Outputs the final prompt STRING and an H3_REFS bundle "
+        "holding only what the chosen mode can actually send."
+    )
+
+    RETURN_TYPES = ("STRING", "H3_REFS")
+    RETURN_NAMES = ("prompt", "references")
+    FUNCTION = "build"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                # Written by the editor UI; single-line for the same reason as
+                # the Prompt Builder's (see its INPUT_TYPES).
+                "prompt_text": ("STRING", {"multiline": False, "default": ""}),
+                # Serialized editor state (JSON). Hidden in the UI.
+                "builder_state": ("STRING", {"multiline": False, "default": "{}"}),
+                # JSON list of media items, written by the node's panel.
+                "media_state": ("STRING", {"multiline": False, "default": "[]"}),
+            },
+            "hidden": {"prompt": "PROMPT", "unique_id": "UNIQUE_ID"},
         }
 
-        def _brief(a):
-            if a is None:
-                return "None"
-            if not (isinstance(a, dict) and "waveform" in a):
-                return f"unexpected type {type(a).__name__}"
-            try:
-                w = a["waveform"]
-                rms = float((w ** 2).mean() ** 0.5)
-                return f"{list(w.shape)}@{a['sample_rate']}Hz rms={rms:.4f}"
-            except Exception as exc:
-                return f"unreadable ({exc})"
+    @classmethod
+    def IS_CHANGED(cls, prompt_text="", builder_state="{}", media_state="[]", **kwargs):
+        # Media decoding is driven entirely by widget state, so cache on all
+        # three: without media_state here a re-added clip would be ignored.
+        return f"{prompt_text}\x00{builder_state}\x00{media_state}"
 
-        print(f"[MiniMaxH3 Loader] {len(items)} item(s) in state -> "
-              f"{len(pic_t)} picture(s), {len(vid_t)} video(s), "
-              f"{sum(1 for x in vaud_t if x is not None)} soundtrack(s), "
-              f"{len(aud_t)} standalone audio")
-        for i, a in enumerate(vaud_t):
-            if a is not None:
-                print(f"[MiniMaxH3 Loader]   video_audio_{i+1}: {_brief(a)}")
-        for i, a in enumerate(aud_t):
-            print(f"[MiniMaxH3 Loader]   audio_{i+1}: {_brief(a)}")
+    @classmethod
+    def VALIDATE_INPUTS(cls, media_state="[]", **kwargs):
+        return validate_media_state(media_state)
 
-        return (bundle,)
+    def build(self, prompt_text="", builder_state="{}", media_state="[]",
+              prompt=None, unique_id=None):
+        mode = _mode_of(builder_state)
+        bundle = build_bundle(media_state, label="Studio")
+        gated, _ = gate_bundle(bundle, mode, label="Studio")
+        gated["items"] = bundle.get("items", [])
+        sent = sum(
+            1
+            for key, _group, _cap in _BUNDLE_GROUPS
+            for value in gated.get(key) or []
+            if value is not None
+        )
+        tail = f"{sent} reference(s) on the bundle" if sent else \
+            "prompt only, no references"
+        print(f"[MiniMaxH3 Studio] mode={mode} -> {tail}")
+        return (prompt_text.strip(), gated)
 
 
 def _pad(seq, n):
@@ -633,6 +755,7 @@ class MiniMaxH3FilenamePrefix:
 
 
 NODE_CLASS_MAPPINGS = {
+    "MiniMaxH3PromptStudio": MiniMaxH3PromptStudio,
     "MiniMaxH3PromptBuilder": MiniMaxH3PromptBuilder,
     "MiniMaxH3MediaLoader": MiniMaxH3MediaLoader,
     "MiniMaxH3ReferenceSplitter": MiniMaxH3ReferenceSplitter,
@@ -640,6 +763,7 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "MiniMaxH3PromptStudio": "MiniMax H3 Prompt Studio",
     "MiniMaxH3PromptBuilder": "MiniMax H3 Prompt Builder",
     "MiniMaxH3MediaLoader": "MiniMax H3 Media Loader",
     "MiniMaxH3ReferenceSplitter": "MiniMax H3 Reference Splitter",

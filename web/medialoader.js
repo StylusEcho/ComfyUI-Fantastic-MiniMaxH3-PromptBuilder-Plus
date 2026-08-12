@@ -1404,7 +1404,7 @@ async function uploadFile(file) {
 
 /* --------------------------------------------------------------- panel */
 
-class LoaderPanel {
+export class LoaderPanel {
   constructor(node) {
     this.node = node;
     (node._mmlPanels = node._mmlPanels || []).push(this);
@@ -1522,6 +1522,10 @@ class LoaderPanel {
     (this.node._mmlPanels || []).forEach((p) => {
       if (p !== this) { p.items = p.read(); p.render(); }
     });
+    // The Prompt Studio hangs its summary refresh here: on that node the media
+    // and the prompt live together, so changing one has to redraw the other.
+    // Purely cosmetic, so a failure must never cost the committed state.
+    try { this.node._mmlOnCommit?.(); } catch (e) { /* summary is optional */ }
   }
 
   count(kind) { return this.items.filter((i) => i.kind === kind).length; }
@@ -2079,11 +2083,12 @@ function flash(text) {
   setTimeout(() => t.remove(), 1800);
 }
 
-/** Spawn a Reference Splitter and wire this loader's bundle into it.
+/** Spawn a Reference Splitter and wire this node's bundle into it.
  *  The bundle output takes many links, so this coexists with the Prompt
- *  Builder connection. */
-export function addSplitter(node) {
-  const existing = outputTargets(node, 0).find((n) => n.type === SPLITTER_NAME);
+ *  Builder connection. `slot` is the references output — 0 on the Media
+ *  Loader, but the Prompt Studio emits the prompt first. */
+export function addSplitter(node, slot = 0) {
+  const existing = outputTargets(node, slot).find((n) => n.type === SPLITTER_NAME);
   if (existing) {
     safeCanvasFocus(existing);
     flash("Splitter is already connected");
@@ -2101,13 +2106,13 @@ export function addSplitter(node) {
   try {
     sp.pos = [node.pos[0] + ((node.size?.[0] || NODE_W) + 60), node.pos[1]];
   } catch (e) { /* let the renderer place it */ }
-  node.connect(0, sp, 0);
+  node.connect(slot, sp, 0);
   try { app.graph.setDirtyCanvas(true, true); } catch (e) { /* Vue redraws */ }
   flash("Splitter added \u2014 wire its slots to MiniMaxH3ReferenceToVideo");
   return sp;
 }
 
-export function openLoaderModal(node) {
+export function openLoaderModal(node, title = "MiniMax H3 Media Loader") {
   injectCSS();
   const panel = new LoaderPanel(node);
   const close = () => {
@@ -2121,7 +2126,7 @@ export function openLoaderModal(node) {
   const overlay = el("div", { class: "mml-overlay",
     onmousedown: (e) => { if (e.target === overlay) close(); } },
     el("div", { class: "mml-modal" },
-      el("div", { class: "mml-modalhead" }, "MiniMax H3 Media Loader",
+      el("div", { class: "mml-modalhead" }, title,
         el("button", { title: "Close", onclick: close }, "\u2715")),
       el("div", { class: "mml-modalbody" }, panel.root)));
   window.addEventListener("keydown", esc);

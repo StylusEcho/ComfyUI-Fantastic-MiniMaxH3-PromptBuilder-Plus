@@ -48,6 +48,7 @@ any frame straight out of a video into your picture references.*
 - [What you get](#what-you-get)
 - [Requirements](#requirements)
 - [Install](#install)
+- [Prompt Studio: one node instead of two](#prompt-studio-one-node-instead-of-two)
 - [Quick start](#quick-start)
 - [Writing a prompt](#writing-a-prompt)
 - [Prompt library](#prompt-library)
@@ -60,14 +61,20 @@ any frame straight out of a video into your picture references.*
 
 ## What you get
 
-Three nodes, all under **conditioning → video_models**:
+Five nodes, all under **conditioning → video_models**:
 
 | Node | What it's for |
 |---|---|
-| **MiniMax H3 Prompt Builder** | The main one. An editor with fillable fields for every prompt mode, checks your work as you type, and outputs the finished prompt. |
+| **MiniMax H3 Prompt Studio** | The Prompt Builder and Media Loader in one node. No inputs to wire — just `prompt` and `references` out. Start here. |
+| **MiniMax H3 Prompt Builder** | The editor on its own, with fillable fields for every prompt mode. Takes reference media from a separate Media Loader. |
 | **MiniMax H3 Media Loader** | Drag-and-drop your reference images, videos, and audio. Shows exactly which tag each one will get. |
-| **MiniMax H3 Reference Splitter** | Optional. Fans media out into individual slots when you want it to skip the Prompt Builder. |
+| **MiniMax H3 Reference Splitter** | Optional. Fans media out into individual slots for `MiniMaxH3ReferenceToVideo`. |
 | **MiniMax H3 Filename Prefix** | Optional. Builds a save prefix with the date already filled in, for dated output folders. |
+
+The Studio and the separate Builder + Loader pair do the same job — pick
+whichever suits the graph. Everything below applies to both unless it says
+otherwise, and existing workflows built on the separate nodes keep working
+exactly as they did.
 
 Highlights:
 
@@ -130,9 +137,47 @@ above should be listed.
 
 ---
 
+## Prompt Studio: one node instead of two
+
+**MiniMax H3 Prompt Studio** is the Prompt Builder and the Media Loader on a
+single node. Same editor, same media panel — but the media lives on the node
+that writes the prompt, so there is nothing to wire between them and the tags
+the editor offers are always the tags the output actually carries.
+
+It has **no inputs at all**, and two outputs:
+
+| Output | Type | Goes to |
+|---|---|---|
+| `prompt` | `STRING` | the `prompt` input on **Image to Video** or **Reference to Video** |
+| `references` | `H3_REFS` | a **Reference Splitter**, whose slots feed **Reference to Video** |
+
+Reference media comes from the node's own panel rather than upstream slots, so
+the keyframe and reference media you load are picked up directly. The
+`references` bundle is already **mode-gated**: in T2VA it is empty, in I2VA it
+carries picture 1 only, and so on — the same rule the Prompt Builder applies to
+its pass-throughs, so switching mode never quietly sends media the mode can't
+use. Anything withheld is printed to the console, never dropped silently.
+
+Three buttons on the node:
+
+- **Edit prompt…** — the full editor, exactly as on the Prompt Builder.
+- **Media in a window…** — the media panel in a resizable modal, for when the
+  on-node panel is too small to work in.
+- **+ Native-output splitter** — drops in a Reference Splitter and wires this
+  node's `references` output into it.
+
+Use the separate **Prompt Builder** and **Media Loader** instead when you want
+one media set feeding several prompts, or media routed from other nodes through
+the builder's individual pass-through slots. Both approaches are supported, and
+neither is going away.
+
+---
+
 ## Quick start
 
-This is the same for every mode:
+This is the same for every mode. To do it on a single node, use the
+[Prompt Studio](#prompt-studio-one-node-instead-of-two) and skip step 6's
+wiring — its media panel replaces it.
 
 1. Add a **MiniMax H3 Prompt Builder**.
 2. Click **Edit prompt…**, pick your mode along the top, and fill in the fields.
@@ -497,18 +542,22 @@ This is the fiddly part, so here's the whole picture.
 
 ### Do I have to use the Media Loader?
 
-No. There are three ways to get media in, and they all work:
+No. There are four ways to get media in, and they all work:
 
-1. **Media Loader → Prompt Builder.** One cable. Easiest, and previews plus tag
-   numbering come free.
-2. **Your own loaders → Prompt Builder.** Wire `LoadImage` and friends into the
+1. **Prompt Studio.** No cable at all — the media panel is on the node that
+   writes the prompt. See
+   [Prompt Studio](#prompt-studio-one-node-instead-of-two).
+2. **Media Loader → Prompt Builder.** One cable. Previews plus tag numbering
+   come free.
+3. **Your own loaders → Prompt Builder.** Wire `LoadImage` and friends into the
    Prompt Builder's `picture_1`, `video_1`, `audio_1` inputs.
-3. **Straight to the native node.** Skip this pack's media handling entirely and
+4. **Straight to the native node.** Skip this pack's media handling entirely and
    wire your loaders directly into **MiniMax H3 Reference to Video**. You still
    get a well-formed prompt; you just won't get thumbnails in the editor.
 
-Options 1 and 2 mix freely. If a slot has its own input wired, that wins;
-anything else falls back to the Media Loader's bundle.
+Options 2 and 3 mix freely. If a slot has its own input wired, that wins;
+anything else falls back to the Media Loader's bundle. Option 1 is
+self-contained — the Prompt Studio has no media inputs to mix with.
 
 ### Which output goes where?
 
