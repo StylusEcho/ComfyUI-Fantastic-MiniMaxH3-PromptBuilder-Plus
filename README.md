@@ -132,7 +132,7 @@ end up with `ComfyUI/custom_nodes/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder/`.
 Then **restart ComfyUI completely** — not just a browser refresh. Nodes are only
 registered at startup.
 
-To confirm it worked, search the node menu for "MiniMax H3". All three nodes
+To confirm it worked, search the node menu for "MiniMax H3". All five nodes
 above should be listed.
 
 ---
@@ -160,11 +160,15 @@ use. Anything withheld is printed to the console, never dropped silently.
 
 Three buttons on the node:
 
-- **Edit prompt…** — the full editor, exactly as on the Prompt Builder.
-- **Media in a window…** — the media panel in a resizable modal, for when the
-  on-node panel is too small to work in.
+- **Edit Prompt** — the full editor, exactly as on the Prompt Builder.
+- **Open Media Loader in Window** — the media panel in a resizable modal, for
+  when the on-node panel is too small to work in.
 - **+ Native-output splitter** — drops in a Reference Splitter and wires this
   node's `references` output into it.
+
+Drag the node's bottom edge and the media panel grows with it, so you can give
+the thumbnails as much room as the canvas allows. It won't shrink below the
+standalone Media Loader's size.
 
 Use the separate **Prompt Builder** and **Media Loader** instead when you want
 one media set feeding several prompts, or media routed from other nodes through
@@ -180,7 +184,7 @@ This is the same for every mode. To do it on a single node, use the
 wiring — its media panel replaces it.
 
 1. Add a **MiniMax H3 Prompt Builder**.
-2. Click **Edit prompt…**, pick your mode along the top, and fill in the fields.
+2. Click **Edit Prompt**, pick your mode along the top, and fill in the fields.
    The finished prompt builds live in the right-hand panel.
 3. Click **Save to node**.
 4. Connect the Prompt Builder's `prompt` output to the `prompt` input on
@@ -223,7 +227,7 @@ prompt gets written.
 
 ## Writing a prompt
 
-Click **Edit prompt…** to open the editor, then pick a mode along the top:
+Click **Edit Prompt** to open the editor, then pick a mode along the top:
 
 | Mode | You give it | Good for |
 |---|---|---|
@@ -310,7 +314,7 @@ H3 Reference to Video** and the `ref2va` checkpoint.
    already connected.
 2. Drop your reference files onto it, or click **Load files…**. Images, video,
    and audio can all go in at once — each lands in the right group.
-3. Open **Edit prompt…** and switch to **Reference** mode. Your media now shows
+3. Open **Edit Prompt** and switch to **Reference** mode. Your media now shows
    up as clickable thumbnails; click one to insert its tag into your text.
 4. Fill in the six sections, then **Save to node**.
 5. Connect the Prompt Builder's media outputs — `picture_1`, `video_1`, and so
@@ -800,7 +804,7 @@ that works independently of the on-node panel.
 
 **Something looks squashed or overlapping.** This pack works with both the
 classic node renderer and Nodes 2.0. If a panel misbehaves in one of them, the
-modal buttons (**Edit prompt…**, **Open loader…**) always work regardless.
+modal buttons (**Edit Prompt**, **Open loader…**) always work regardless.
 
 ---
 

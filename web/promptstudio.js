@@ -21,6 +21,49 @@ const STUDIO_NAME = "MiniMaxH3PromptStudio";
 const REFS_SLOT = 1;
 const SUMMARY_H = 46;
 
+/** The panel widget's current height, read back off the widget rather than
+ *  kept in a cache that could drift out of step with it. */
+function panelHeight(widget) {
+  try {
+    const h = widget.computeSize()[1];
+    return Number.isFinite(h) ? h : PANEL_H;
+  } catch (e) { return PANEL_H; }
+}
+
+/** Hand the media panel every pixel the node isn't spending on its buttons and
+ *  summary, so dragging the node taller grows the media grid instead of
+ *  leaving a gap under it.
+ *
+ *  The overhead is measured rather than assumed: computeSize() reports the
+ *  node's minimum with the panel at its current height, so subtracting that
+ *  height leaves exactly what the other widgets occupy — which stays correct
+ *  if the widget set ever changes. Canvas-only, since Vue owns layout in
+ *  Nodes 2.0, so every step has to be harmless when it doesn't apply. */
+function fitPanel(node) {
+  const widget = node.widgets?.find((w) => w.name === "mml_panel");
+  if (!widget) return;
+  const current = panelHeight(widget);
+  let height;
+  try {
+    const overhead = node.computeSize()[1] - current;
+    if (!Number.isFinite(overhead)) return;
+    height = Math.round(node.size[1] - overhead);
+  } catch (e) { return; }
+  if (!Number.isFinite(height)) return;
+  height = Math.max(PANEL_H, height);       // never below the loader's own size
+  if (height === current) return;
+
+  widget.computedHeight = height;
+  widget.computeSize = () => [NODE_W, height];
+  // Inline styles beat .mml-panel's fixed height without touching the shared
+  // rule the standalone Media Loader still relies on.
+  const root = node._mmlPanel?.root;
+  if (root) {
+    root.style.height = `${height}px`;
+    root.style.minHeight = `${height}px`;
+  }
+}
+
 app.registerExtension({
   name: "MiniMaxH3.PromptStudio",
   async beforeRegisterNodeDef(nodeType, nodeData) {
@@ -37,8 +80,8 @@ app.registerExtension({
 
       // Every canvas button first: in Nodes 2.0 a plain widget added after a
       // DOM widget anchors to the node's bottom and leaves a gap on resize.
-      this.addWidget("button", "Edit prompt…", null, () => openEditor(this));
-      this.addWidget("button", "Media in a window…", null,
+      this.addWidget("button", "Edit Prompt", null, () => openEditor(this));
+      this.addWidget("button", "Open Media Loader in Window", null,
         () => openLoaderModal(this, "MiniMax H3 Prompt Studio — media"));
       this.addWidget("button", "+ Native-output splitter", null,
         () => addSplitter(this, REFS_SLOT));
@@ -77,11 +120,20 @@ app.registerExtension({
     const onResize = nodeType.prototype.onResize;
     nodeType.prototype.onResize = function (size) {
       try {
+        // Measure the floor with the panel at its minimum, or the panel's
+        // current height becomes its own floor and the node can only grow.
+        const widget = this.widgets?.find((w) => w.name === "mml_panel");
+        const held = widget && panelHeight(widget);
+        if (widget) widget.computeSize = () => [NODE_W, PANEL_H];
         const min = this.computeSize();
+        if (widget) widget.computeSize = () => [NODE_W, held];
+
         size[0] = Math.max(NODE_W, size[0]);
         size[1] = Math.max(min[1], size[1]);
       } catch (e) { /* leave the size alone */ }
-      return onResize?.apply(this, arguments);
+      const r = onResize?.apply(this, arguments);
+      fitPanel(this);
+      return r;
     };
 
     const onDblClick = nodeType.prototype.onDblClick;
@@ -102,6 +154,8 @@ app.registerExtension({
         }
         applyCanvasSizing(this, this.widgets?.find((w) => w.name === "mml_panel"),
           NODE_W, PANEL_H);
+        // A saved node restores its own height, so re-fit after that lands.
+        fitPanel(this);
         updateSummary(this);
       }, 0);
       return r;
