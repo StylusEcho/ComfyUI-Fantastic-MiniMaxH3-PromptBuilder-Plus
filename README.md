@@ -65,7 +65,7 @@ Five nodes, all under **conditioning → video_models**:
 
 | Node | What it's for |
 |---|---|
-| **MiniMax H3 Prompt Studio** | The Prompt Builder and Media Loader in one node. No inputs to wire — just `prompt` and `references` out. Start here. |
+| **MiniMax H3 Prompt Studio** | The Prompt Builder and Media Loader in one node. No inputs to wire — `prompt`, `references`, and two keyframe images out. Start here. |
 | **MiniMax H3 Prompt Builder** | The editor on its own, with fillable fields for every prompt mode. Takes reference media from a separate Media Loader. |
 | **MiniMax H3 Media Loader** | Drag-and-drop your reference images, videos, and audio. Shows exactly which tag each one will get. |
 | **MiniMax H3 Reference Splitter** | Optional. Fans media out into individual slots for `MiniMaxH3ReferenceToVideo`. |
@@ -144,19 +144,32 @@ single node. Same editor, same media panel — but the media lives on the node
 that writes the prompt, so there is nothing to wire between them and the tags
 the editor offers are always the tags the output actually carries.
 
-It has **no inputs at all**, and two outputs:
+It has **no inputs at all**, and four outputs:
 
 | Output | Type | Goes to |
 |---|---|---|
 | `prompt` | `STRING` | the `prompt` input on **Image to Video** or **Reference to Video** |
 | `references` | `H3_REFS` | a **Reference Splitter**, whose slots feed **Reference to Video** |
+| `picture_1` | `IMAGE` | `first_frame` on **Image to Video** (or `last_frame` for L2VA) |
+| `picture_2` | `IMAGE` | `last_frame` on **Image to Video**, for FL2VA |
+
+`picture_1` and `picture_2` are the first two pictures in the panel on their
+own, which is everything the keyframe modes need — no splitter, no separate
+**Load Image**:
+
+| Mode | Wire |
+|---|---|
+| **I2VA** | `picture_1` → `first_frame` |
+| **L2VA** | `picture_1` → `last_frame` |
+| **FL2VA** | `picture_1` → `first_frame`, `picture_2` → `last_frame` |
 
 Reference media comes from the node's own panel rather than upstream slots, so
 the keyframe and reference media you load are picked up directly. The
-`references` bundle is already **mode-gated**: in T2VA it is empty, in I2VA it
-carries picture 1 only, and so on — the same rule the Prompt Builder applies to
-its pass-throughs, so switching mode never quietly sends media the mode can't
-use. Anything withheld is printed to the console, never dropped silently.
+`references` bundle and both picture outputs are **mode-gated**: T2VA leaves
+all three empty, I2VA and L2VA fill `picture_1` only, and FL2VA fills both —
+the same rule the Prompt Builder applies to its pass-throughs, so switching
+mode never quietly sends media the mode can't use. Anything withheld is printed
+to the console, never dropped silently.
 
 Three buttons on the node:
 
