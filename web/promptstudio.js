@@ -17,7 +17,8 @@ import {
 } from "./promptbuilder.js";
 
 const STUDIO_NAME = "MiniMaxH3PromptStudio";
-// Outputs are (prompt, references) — the splitter wants the second one.
+// Outputs are (prompt, references, picture_1, picture_2, ref2va_needed) —
+// the splitter wants the bundle, which is the second one.
 const REFS_SLOT = 1;
 const SUMMARY_H = 46;
 
@@ -80,7 +81,7 @@ app.registerExtension({
 
       // Every canvas button first: in Nodes 2.0 a plain widget added after a
       // DOM widget anchors to the node's bottom and leaves a gap on resize.
-      this.addWidget("button", "Edit Prompt", null, () => openEditor(this));
+      this.addWidget("button", "Prompt Builder", null, () => openEditor(this));
       this.addWidget("button", "Open Media Loader in Window", null,
         () => openLoaderModal(this, "MiniMax H3 Prompt Studio — media"));
       this.addWidget("button", "+ Native-output splitter", null,
