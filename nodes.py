@@ -519,21 +519,31 @@ class MiniMaxH3PromptStudio:
     Same two panels, no wiring between them: the prompt editor and the media
     panel share this node's own state, so the tags the editor offers are the
     tags the bundle will carry. Deliberately input-less — reference media
-    comes from the panel, not from upstream slots — and it emits just the
-    prompt and the mode-gated bundle. Add a Reference Splitter when you want
-    the individual slots for MiniMaxH3ReferenceToVideo.
+    comes from the panel, not from upstream slots.
+
+    Emits the prompt, the mode-gated bundle, and the first two pictures on
+    their own IMAGE outputs, so a plain I2VA / L2VA / FL2VA graph needs nothing
+    else. Add a Reference Splitter when you want the full set of individual
+    slots for MiniMaxH3ReferenceToVideo.
     """
 
     CATEGORY = "conditioning/video_models"
     DESCRIPTION = (
         "MiniMax H3 prompt writing and reference media in a single node. "
-        "Click 'Edit prompt' to open the guided editor, and load media in the "
-        "panel below it. Outputs the final prompt STRING and an H3_REFS bundle "
-        "holding only what the chosen mode can actually send."
+        "Click 'Edit Prompt' to open the guided editor, and load media in the "
+        "panel below it. Outputs the final prompt STRING, an H3_REFS bundle "
+        "holding only what the chosen mode can actually send, and the first "
+        "two loaded pictures as IMAGEs for first_frame / last_frame."
     )
 
-    RETURN_TYPES = ("STRING", "H3_REFS")
-    RETURN_NAMES = ("prompt", "references")
+    RETURN_TYPES = ("STRING", "H3_REFS", "IMAGE", "IMAGE")
+    RETURN_NAMES = ("prompt", "references", "picture_1", "picture_2")
+    # The first two loaded pictures on their own, so I2VA / L2VA / FL2VA reach
+    # first_frame and last_frame on MiniMaxH3ImageToVideo with no Reference
+    # Splitter in between — those modes never use more than two. Appended
+    # after references rather than sitting beside the prompt: inserting them
+    # earlier would renumber references in every workflow already built on
+    # this node.
     FUNCTION = "build"
 
     @classmethod
@@ -573,10 +583,18 @@ class MiniMaxH3PromptStudio:
             for value in gated.get(key) or []
             if value is not None
         )
+        # Taken from the gated bundle, not the raw one, so these obey the same
+        # mode rule as the rest: T2VA sends no pictures and I2VA / L2VA only
+        # one, so the spare output holds nothing rather than quietly leaking a
+        # frame the mode drops.
+        keyframes = _pad(gated.get("pictures"), 2)[:2]
         tail = f"{sent} reference(s) on the bundle" if sent else \
             "prompt only, no references"
-        print(f"[MiniMaxH3 Studio] mode={mode} -> {tail}")
-        return (prompt_text.strip(), gated)
+        named = [f"picture_{i + 1}" for i, v in enumerate(keyframes)
+                 if v is not None]
+        print(f"[MiniMaxH3 Studio] mode={mode} -> {tail}"
+              f"{', ' + ' + '.join(named) + ' on their own outputs' if named else ''}")
+        return (prompt_text.strip(), gated, *keyframes)
 
 
 def _pad(seq, n):
