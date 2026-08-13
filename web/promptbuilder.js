@@ -828,7 +828,10 @@ function validate(state, slots) {
 const CSS = `
 .mmh3-overlay{position:fixed;inset:0;z-index:10000;background:rgba(8,10,14,.62);
   display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;}
-.mmh3-modal{width:min(1240px,95vw);height:min(860px,92vh);display:flex;flex-direction:column;
+/* The pixel cap, not the viewport one, is what usually decides this modal's
+   height — 92vh only bites on a short screen. Raising the cap by half is what
+   makes the editor use more of a tall screen. */
+.mmh3-modal{width:min(1240px,95vw);height:min(1290px,92vh);display:flex;flex-direction:column;
   background:#191c22;color:#d7dbe2;border:1px solid #303642;border-radius:10px;
   box-shadow:0 24px 64px rgba(0,0,0,.55);overflow:hidden;}
 .mmh3-head{display:flex;align-items:center;gap:14px;padding:10px 16px;
@@ -2527,7 +2530,7 @@ app.registerExtension({
       hideWidget(this, "builder_state");
 
       // Canvas buttons first so no DOM widget can sit on top of them.
-      this.addWidget("button", "Edit prompt\u2026", null, () => openEditor(this));
+      this.addWidget("button", "Edit Prompt", null, () => openEditor(this));
       this.addWidget("button", "+ Media loader", null, () => addMediaLoader(this));
 
       // Clickable DOM summary as a second, layout-independent way in.
