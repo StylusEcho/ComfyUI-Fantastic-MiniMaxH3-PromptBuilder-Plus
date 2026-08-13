@@ -532,12 +532,18 @@ class MiniMaxH3PromptStudio:
         "MiniMax H3 prompt writing and reference media in a single node. "
         "Click 'Edit Prompt' to open the guided editor, and load media in the "
         "panel below it. Outputs the final prompt STRING, an H3_REFS bundle "
-        "holding only what the chosen mode can actually send, and the first "
-        "two loaded pictures as IMAGEs for first_frame / last_frame."
+        "holding only what the chosen mode can actually send, the first two "
+        "loaded pictures as IMAGEs for first_frame / last_frame, and a "
+        "ref2va_needed BOOLEAN that is true in full-reference mode."
     )
 
-    RETURN_TYPES = ("STRING", "H3_REFS", "IMAGE", "IMAGE")
-    RETURN_NAMES = ("prompt", "references", "picture_1", "picture_2")
+    RETURN_TYPES = ("STRING", "H3_REFS", "IMAGE", "IMAGE", "BOOLEAN")
+    RETURN_NAMES = ("prompt", "references", "picture_1", "picture_2",
+                    "ref2va_needed")
+    # ref2va_needed is True only in full-reference mode — the one mode whose
+    # prompt has to go to MiniMaxH3ReferenceToVideo rather than ImageToVideo.
+    # Wire it into a switch to pick the branch from the editor's mode instead
+    # of rewiring by hand.
     # The first two loaded pictures on their own, so I2VA / L2VA / FL2VA reach
     # first_frame and last_frame on MiniMaxH3ImageToVideo with no Reference
     # Splitter in between — those modes never use more than two. Appended
@@ -594,7 +600,7 @@ class MiniMaxH3PromptStudio:
                  if v is not None]
         print(f"[MiniMaxH3 Studio] mode={mode} -> {tail}"
               f"{', ' + ' + '.join(named) + ' on their own outputs' if named else ''}")
-        return (prompt_text.strip(), gated, *keyframes)
+        return (prompt_text.strip(), gated, *keyframes, mode == "REF")
 
 
 def _pad(seq, n):

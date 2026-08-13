@@ -65,7 +65,7 @@ Five nodes, all under **conditioning → video_models**:
 
 | Node | What it's for |
 |---|---|
-| **MiniMax H3 Prompt Studio** | The Prompt Builder and Media Loader in one node. No inputs to wire — `prompt`, `references`, and two keyframe images out. Start here. |
+| **MiniMax H3 Prompt Studio** | The Prompt Builder and Media Loader in one node. No inputs to wire — prompt, references, two keyframe images, and a mode flag out. Start here. |
 | **MiniMax H3 Prompt Builder** | The editor on its own, with fillable fields for every prompt mode. Takes reference media from a separate Media Loader. |
 | **MiniMax H3 Media Loader** | Drag-and-drop your reference images, videos, and audio. Shows exactly which tag each one will get. |
 | **MiniMax H3 Reference Splitter** | Optional. Fans media out into individual slots for `MiniMaxH3ReferenceToVideo`. |
@@ -144,7 +144,7 @@ single node. Same editor, same media panel — but the media lives on the node
 that writes the prompt, so there is nothing to wire between them and the tags
 the editor offers are always the tags the output actually carries.
 
-It has **no inputs at all**, and four outputs:
+It has **no inputs at all**, and five outputs:
 
 | Output | Type | Goes to |
 |---|---|---|
@@ -152,6 +152,13 @@ It has **no inputs at all**, and four outputs:
 | `references` | `H3_REFS` | a **Reference Splitter**, whose slots feed **Reference to Video** |
 | `picture_1` | `IMAGE` | `first_frame` on **Image to Video** (or `last_frame` for L2VA) |
 | `picture_2` | `IMAGE` | `last_frame` on **Image to Video**, for FL2VA |
+| `ref2va_needed` | `BOOLEAN` | a switch node, to pick which H3 node runs |
+
+`ref2va_needed` is true only in **Reference** mode — the one mode whose prompt
+goes to **Reference to Video** instead of **Image to Video**. Feed it to a
+boolean switch and the mode you pick in the editor chooses the branch, instead
+of you rewiring by hand. If the editor state is ever unreadable it falls back
+to reference mode, same as the media gate does.
 
 `picture_1` and `picture_2` are the first two pictures in the panel on their
 own, which is everything the keyframe modes need — no splitter, no separate
@@ -173,7 +180,7 @@ to the console, never dropped silently.
 
 Three buttons on the node:
 
-- **Edit Prompt** — the full editor, exactly as on the Prompt Builder.
+- **Prompt Builder** — opens the full prompt editor.
 - **Open Media Loader in Window** — the media panel in a resizable modal, for
   when the on-node panel is too small to work in.
 - **+ Native-output splitter** — drops in a Reference Splitter and wires this
@@ -197,7 +204,7 @@ This is the same for every mode. To do it on a single node, use the
 wiring — its media panel replaces it.
 
 1. Add a **MiniMax H3 Prompt Builder**.
-2. Click **Edit Prompt**, pick your mode along the top, and fill in the fields.
+2. Click **Prompt Builder**, pick your mode along the top, and fill in the fields.
    The finished prompt builds live in the right-hand panel.
 3. Click **Save to node**.
 4. Connect the Prompt Builder's `prompt` output to the `prompt` input on
@@ -240,7 +247,7 @@ prompt gets written.
 
 ## Writing a prompt
 
-Click **Edit Prompt** to open the editor, then pick a mode along the top:
+Click **Prompt Builder** to open the editor, then pick a mode along the top:
 
 | Mode | You give it | Good for |
 |---|---|---|
@@ -327,7 +334,7 @@ H3 Reference to Video** and the `ref2va` checkpoint.
    already connected.
 2. Drop your reference files onto it, or click **Load files…**. Images, video,
    and audio can all go in at once — each lands in the right group.
-3. Open **Edit Prompt** and switch to **Reference** mode. Your media now shows
+3. Open **Prompt Builder** and switch to **Reference** mode. Your media now shows
    up as clickable thumbnails; click one to insert its tag into your text.
 4. Fill in the six sections, then **Save to node**.
 5. Connect the Prompt Builder's media outputs — `picture_1`, `video_1`, and so
@@ -817,7 +824,7 @@ that works independently of the on-node panel.
 
 **Something looks squashed or overlapping.** This pack works with both the
 classic node renderer and Nodes 2.0. If a panel misbehaves in one of them, the
-modal buttons (**Edit Prompt**, **Open loader…**) always work regardless.
+modal buttons (**Prompt Builder**, **Open loader…**) always work regardless.
 
 ---
 

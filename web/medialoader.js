@@ -213,7 +213,9 @@ const CSS = `
 .mml-modal .mml-panel{border:0;height:100%;min-height:0;}
 .mml-overlay{position:fixed;inset:0;z-index:10040;background:rgba(8,10,14,.62);
   display:flex;align-items:center;justify-content:center;}
-.mml-modal{width:min(760px,94vw);height:min(520px,92vh);background:#191c22;
+/* As with the prompt editor, the pixel cap is what decides this modal's height
+   on a tall screen — 92vh only bites on a short one. */
+.mml-modal{width:min(760px,94vw);height:min(780px,92vh);background:#191c22;
   border:1px solid #303642;border-radius:10px;display:flex;flex-direction:column;
   overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.55);}
 .mml-modalhead{display:flex;align-items:center;gap:10px;padding:9px 13px;

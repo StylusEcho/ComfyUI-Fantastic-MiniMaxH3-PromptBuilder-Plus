@@ -866,12 +866,12 @@ const CSS = `
 .mmh3-pinbar .mmh3-x:hover{color:#e05a5a;}
 .mmh3-pinempty{border:1px dashed #2e3440;border-radius:7px;padding:8px 6px;text-align:center;
   font-size:10px;color:#5c6472;line-height:1.4;}
-.mmh3-card{width:64px;flex:0 0 auto;border:1px solid #2e3440;border-radius:7px;
+.mmh3-card{width:128px;flex:0 0 auto;border:1px solid #2e3440;border-radius:7px;
   overflow:hidden;background:#12151b;cursor:pointer;user-select:none;}
 .mmh3-card:hover{border-color:#59637a;}
 .mmh3-card.pic{border-color:#6d5527;} .mmh3-card.vid{border-color:#255c6b;}
 .mmh3-card.aud{border-color:#4c3d6e;}
-.mmh3-card .mmh3-thumb{width:100%;height:40px;object-fit:cover;display:block;
+.mmh3-card .mmh3-thumb{width:100%;height:80px;object-fit:cover;display:block;
   background:#0d1015;}
 .mmh3-wave{background:#0d1015;}
 .mmh3-cardbar{display:flex;align-items:center;gap:3px;padding:2px 4px;}
@@ -885,10 +885,10 @@ const CSS = `
 .mmh3-card.unusable:hover{opacity:.5;border-color:#3a4252 !important;}
 .mmh3-card.unusable .mmh3-tagname{color:#6b7484 !important;}
 .mmh3-cardnote{display:block;font-size:8px;color:#8a7ab0;padding:0 4px 3px;}
-.mmh3-peek{position:fixed;z-index:10002;width:240px;background:#1e222a;
+.mmh3-peek{position:fixed;z-index:10002;width:360px;background:#1e222a;
   border:1px solid #3a4252;border-radius:9px;overflow:hidden;
   box-shadow:0 12px 32px rgba(0,0,0,.5);}
-.mmh3-peekmedia{width:100%;max-height:180px;object-fit:contain;display:block;
+.mmh3-peekmedia{width:100%;max-height:270px;object-fit:contain;display:block;
   background:#0d1015;}
 .mmh3-peekmeta{padding:6px 8px;}
 .mmh3-peekrow{display:flex;align-items:center;gap:6px;}
@@ -898,7 +898,17 @@ const CSS = `
   text-overflow:ellipsis;white-space:nowrap;}
 .mmh3-peekbtns{display:flex;gap:5px;}
 .mmh3-peekbtns .mmh3-btn{flex:1;padding:3px 6px;font-size:10px;}
-.mmh3-form{overflow-y:auto;padding:14px 16px 24px;min-width:0;}
+.mmh3-form{overflow-y:auto;padding:14px 16px 24px;min-width:0;
+  display:flex;flex-direction:column;}
+/* Sections keep their natural height; the one marked grow takes the slack, so
+   the audio sections after it sit at the bottom of the form instead of
+   floating under a short description box. When the content is genuinely
+   taller than the form, min-height stops the growing box collapsing and the
+   form scrolls as before. */
+.mmh3-form>*{flex:0 0 auto;}
+.mmh3-sec.mmh3-grow{flex:1 1 auto;display:flex;flex-direction:column;
+  min-height:220px;}
+.mmh3-sec.mmh3-grow textarea{flex:1 1 auto;min-height:140px;}
 .mmh3-side{border-left:1px solid #2a2f3a;display:flex;flex-direction:column;min-height:0;background:#15181e;}
 .mmh3-sec{margin-bottom:16px;}
 .mmh3-rowpow{cursor:pointer;font-size:11px;color:#3f4855;user-select:none;
@@ -949,6 +959,8 @@ const CSS = `
   border-left:1px solid #4a4260;padding-left:5px;margin-left:1px;}
 .mmh3-subjrow{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;}
 .mmh3-tools{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center;}
+/* Zero-height full-width flex item: forces the row after it onto a new line. */
+.mmh3-toolbreak{flex:0 0 100%;height:0;margin:0;}
 .mmh3-tools select{width:auto;background:#12151b;color:#c9cfda;border:1px solid #2e3440;
   border-radius:6px;padding:4px 6px;font-size:12px;}
 .mmh3-tools input[type=number]{width:84px;background:#12151b;color:#c9cfda;
@@ -1665,8 +1677,11 @@ class Editor {
         loop: true, preload: "metadata",
         onmouseenter: (e) => e.target.play().catch(() => {}),
         onmouseleave: (e) => e.target.pause() });
+    // Drawing-buffer size, kept in step with .mmh3-card / .mmh3-peek in the
+    // stylesheet so the waveform isn't drawn at the wrong resolution and
+    // stretched by the browser.
     const cv = el("canvas", { class: "mmh3-thumb mmh3-wave",
-      width: big ? 220 : 62, height: big ? 60 : 40 });
+      width: big ? 330 : 124, height: big ? 90 : 80 });
     if (s.preview?.url) setTimeout(() => this.drawWave(cv, s.preview.url), 0);
     return cv;
   }
@@ -1703,7 +1718,8 @@ class Editor {
               this.pins.includes(s.tag) ? "Unpin" : "Pin"))));
 
       const r = card.getBoundingClientRect();
-      box.style.left = `${Math.min(r.left, window.innerWidth - 250)}px`;
+      // Keep the wider peek on screen: .mmh3-peek is 360px plus a 10px margin.
+      box.style.left = `${Math.max(0, Math.min(r.left, window.innerWidth - 370))}px`;
       box.style.top = `${r.bottom + 6}px`;
       box.addEventListener("mouseenter", () => clearTimeout(this._peekClose));
       box.addEventListener("mouseleave", () => this.closePeek());
@@ -1910,6 +1926,10 @@ class Editor {
         ? el("div", { class: "mmh3-subjrow" }, extraChips) : null,
       el("div", { class: "mmh3-tools" },
         timeIn, shotBtn, camMove, camAmp, camSpd, camBtn,
+        // Force a wrap so the dialogue controls always start a fresh line
+        // with the speaker picker first, instead of trailing the camera row
+        // at whatever point it happens to run out of width.
+        el("div", { class: "mmh3-toolbreak" }),
         spk, lang, diaBtn, voBtn,
         el("button", { class: "mmh3-btn", title: "Dialogue crossing a cut",
           onclick: () => this.insert("<scenetrans>") }, "+ scenetrans"),
@@ -2008,7 +2028,7 @@ class Editor {
       FL2VA: "first-frame state \u2192 observable intermediate changes \u2192 narrowing differences \u2192 last-frame state",
       L2VA: "plausible preceding state \u2192 action/transition path \u2192 gradual convergence \u2192 last-frame landing",
     };
-    f.append(el("div", { class: "mmh3-sec" },
+    f.append(el("div", { class: "mmh3-sec mmh3-grow" },
       el("label", {}, "integrated_multimodal_description"),
       this.ta(s, "imd", 12,
         `[Shot 1] Live-action, cinematic, ...\nRecommended: ${structures[s.mode]}`),
@@ -2332,7 +2352,7 @@ class Editor {
       el("label", {}, "detailed_description \u2014 style opening (before [Shot 1])"),
       this.ta(r, "styleLine", 2,
         "The target video is in a realistic multi-camera sitcom style with warm indoor lighting.")));
-    f.append(el("div", { class: "mmh3-sec" },
+    f.append(el("div", { class: "mmh3-sec mmh3-grow" },
       el("label", {}, "detailed_description \u2014 shots"),
       detTa, wcSpan));
 
@@ -2530,7 +2550,7 @@ app.registerExtension({
       hideWidget(this, "builder_state");
 
       // Canvas buttons first so no DOM widget can sit on top of them.
-      this.addWidget("button", "Edit Prompt", null, () => openEditor(this));
+      this.addWidget("button", "Prompt Builder", null, () => openEditor(this));
       this.addWidget("button", "+ Media loader", null, () => addMediaLoader(this));
 
       // Clickable DOM summary as a second, layout-independent way in.
