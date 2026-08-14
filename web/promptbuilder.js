@@ -6,7 +6,8 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { LOADER_NAME, computeTags, viewURL as loaderViewURL,
-  safeCanvasFocus, openLoaderModal, isOn, TrimModal } from "./medialoader.js";
+  safeCanvasFocus, openLoaderModal, isOn, TrimModal,
+  fileCount } from "./medialoader.js";
 
 const NODE_NAME = "MiniMaxH3PromptBuilder";
 // Private drag type: marks a drag as "reorder the rail" so a drop on another
@@ -938,16 +939,22 @@ const CSS = `
 .mmh3-card.unusable:hover{opacity:.5;border-color:#3a4252 !important;}
 .mmh3-card.unusable .mmh3-tagname{color:#6b7484 !important;}
 .mmh3-cardnote{display:block;font-size:8px;color:#8a7ab0;padding:0 4px 3px;}
-.mmh3-peek{position:fixed;z-index:10002;width:360px;background:#1e222a;
+/* max-content so the frame takes the picture's rendered width: a portrait
+   shot capped by max-height makes a narrow box, a landscape one a wide box,
+   instead of every image letterboxing inside one fixed width. */
+.mmh3-peek{position:fixed;z-index:10002;box-sizing:border-box;width:max-content;
+  min-width:240px;max-width:540px;background:#1e222a;
   border:1px solid #3a4252;border-radius:9px;overflow:hidden;
   box-shadow:0 12px 32px rgba(0,0,0,.5);}
-.mmh3-peekmedia{width:100%;max-height:270px;object-fit:contain;display:block;
-  background:#0d1015;}
+/* auto on both axes with a cap on each: the image keeps its own proportions
+   and the box above shrinks to whatever width that leaves. */
+.mmh3-peekmedia{display:block;margin:0 auto;width:auto;height:auto;
+  max-width:540px;max-height:70vh;background:#0d1015;}
 .mmh3-peekmeta{padding:6px 8px;}
 .mmh3-peekrow{display:flex;align-items:center;gap:6px;}
 .mmh3-peekcite{margin-left:auto;font-size:9px;color:#7a8393;}
 .mmh3-peekcite.zero{color:#e0a94c;}
-.mmh3-peeksrc{font-size:9px;color:#6b7484;margin:2px 0 6px;overflow:hidden;
+.mmh3-peeksrc{font-size:9px;color:#6b7484;margin:2px 0 6px;max-width:520px;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;}
 .mmh3-peekbtns{display:flex;gap:5px;}
 .mmh3-peekbtns .mmh3-btn{flex:1;padding:3px 6px;font-size:10px;}
@@ -1004,13 +1011,18 @@ const CSS = `
 .mmh3-chips::-webkit-scrollbar{width:6px;height:6px;}
 .mmh3-chips::-webkit-scrollbar-thumb{background:#2e3440;border-radius:3px;}
 .mmh3-card.mmh3-dropinto{outline:2px solid #6f86b8;outline-offset:1px;}
+.mmh3-card.mmh3-drop{display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:3px;height:104px;border-style:dashed;
+  border-color:#2b313d;background:#141820;color:#5c6472;cursor:pointer;}
+.mmh3-card.mmh3-drop:hover{border-color:#59637a;color:#8a93a3;}
+.mmh3-card.mmh3-drop.hot{border-color:#6f86b8;background:#1b2230;color:#9db4dc;}
+.mmh3-dropplus{font-size:18px;line-height:1;}
+.mmh3-dropkinds{font-size:9px;text-transform:uppercase;letter-spacing:.06em;}
 .mmh3-cardtools{display:flex;align-items:center;gap:8px;padding:0 4px 3px;}
 .mmh3-cardtool{cursor:pointer;font-size:11px;line-height:1;color:#5a6373;
   user-select:none;}
 .mmh3-cardtool:hover{color:#c9cfda;}
 .mmh3-cardtool.on{color:#e0a94c;}
-.mmh3-cardtool.lit{color:#7ec87e;}
-.mmh3-cardtool.lit:hover{color:#a8e6a8;}
 /* The two audio sections sit side by side at the foot of the form. */
 .mmh3-audiopair{display:flex;gap:14px;align-items:flex-start;}
 .mmh3-audiopair>.mmh3-sec{flex:1 1 0;min-width:0;margin-bottom:16px;}
@@ -1773,7 +1785,7 @@ class Editor {
     // stylesheet so the waveform isn't drawn at the wrong resolution and
     // stretched by the browser.
     const cv = el("canvas", { class: "mmh3-thumb mmh3-wave",
-      width: big ? 330 : 124, height: big ? 90 : 80 });
+      width: big ? 495 : 124, height: big ? 135 : 80 });
     if (s.preview?.url) setTimeout(() => this.drawWave(cv, s.preview.url), 0);
     return cv;
   }
@@ -1810,8 +1822,8 @@ class Editor {
               this.pins.includes(s.tag) ? "Unpin" : "Pin"))));
 
       const r = card.getBoundingClientRect();
-      // Keep the wider peek on screen: .mmh3-peek is 360px plus a 10px margin.
-      box.style.left = `${Math.max(0, Math.min(r.left, window.innerWidth - 370))}px`;
+      // Keep the peek on screen: .mmh3-peek is 540px plus a 10px margin.
+      box.style.left = `${Math.max(0, Math.min(r.left, window.innerWidth - 550))}px`;
       box.style.top = `${r.bottom + 6}px`;
       box.addEventListener("mouseenter", () => clearTimeout(this._peekClose));
       box.addEventListener("mouseleave", () => this.closePeek());
@@ -1897,12 +1909,87 @@ class Editor {
 
   /* --- the rail ---------------------------------------------------- */
 
+  /** The panel backing this editor's media, if there is one. */
+  ownerPanel() {
+    return this.slots.find((s) => s.panel)?.panel
+      || mediaSource(this.node)?.owner?._mmlPanel
+      || null;
+  }
+
+  /** What the current mode could still take, by kind. Mirrors the node's empty
+   *  slots: an offer to add media only where the mode can actually use it. */
+  roomLeft(panel) {
+    const cap = MODE_CAPACITY[this.state.mode] || {};
+    const held = { Picture: 0, Video: 0, Audio: 0 };
+    for (const it of panel.items || []) {
+      if (!isOn(it)) continue;
+      if (it.kind === "picture") held.Picture += 1;
+      else if (it.kind === "video") held.Video += 1;
+      else if (it.kind === "audio") held.Audio += 1;
+    }
+    const kinds = [];
+    for (const [label, kind] of [["Picture", "picture"], ["Video", "video"],
+                                 ["Audio", "audio"]]) {
+      // Both gates have to agree: the mode's own ceiling, and the loader's
+      // real capacity check (which also counts split soundtracks).
+      if ((cap[label] || 0) > held[label] && !panel.capacityError(kind, "x"))
+        kinds.push(kind);
+    }
+    if (cap.total && fileCount(panel.items) >= cap.total) return [];
+    return kinds;
+  }
+
+  /** Dashed tile at the end of the rail: click, drop or right-click-paste to
+   *  add media without leaving the editor. Delegates every path to the panel,
+   *  so uploads and budget refusals behave exactly as they do on the node. */
+  dropTile() {
+    const panel = this.ownerPanel();
+    if (!panel) return null;
+    const kinds = this.roomLeft(panel);
+    if (!kinds.length) return null;
+
+    const after = () => { this.slots = getRefSlots(this.node); this.render(); };
+    const tile = el("div", {
+      class: "mmh3-card mmh3-drop",
+      title: `Add ${kinds.join(" / ")} \u2014 click to browse, drop a file, `
+        + `or right-click to paste`,
+      onclick: () => panel.picker.click(),
+      oncontextmenu: (e) => panel.slotMenu(e, null),
+    }, el("span", { class: "mmh3-dropplus" }, "+"),
+       el("span", { class: "mmh3-dropkinds" }, kinds.join(" / ")));
+
+    tile.addEventListener("dragover", (e) => {
+      if (!e.dataTransfer?.types?.includes("Files")) return;
+      e.preventDefault(); e.stopPropagation();
+      tile.classList.add("hot");
+    });
+    tile.addEventListener("dragleave", () => tile.classList.remove("hot"));
+    tile.addEventListener("drop", async (e) => {
+      tile.classList.remove("hot");
+      if (!e.dataTransfer?.files?.length) return;
+      e.preventDefault(); e.stopPropagation();
+      await panel.add([...e.dataTransfer.files]);
+      after();
+    });
+    // The panel commits on its own (paste, upload), so mirror the result back
+    // into the editor. Wrapped once per panel — re-wrapping every render would
+    // nest the calls — and pointed at whichever editor is currently open.
+    if (!panel._mmh3Hooked) {
+      panel._mmh3Hooked = true;
+      const base = panel.commit.bind(panel);
+      panel.commit = () => { base(); panel._mmh3Refresh?.(); };
+    }
+    panel._mmh3Refresh = () => { if (this.overlay?.isConnected) after(); };
+    return tile;
+  }
+
   refChips() {
     const live = this.slots.filter((s) => s.tag);
+    const tile = this.dropTile();
     if (!live.length) {
-      return el("span", { class: "hint" },
+      return [tile, el("span", { class: "hint" },
         "No reference media on this node yet \u2014 use '+ Media loader', or wire " +
-        "loaders into the picture_/video_/audio_ inputs.");
+        "loaders into the picture_/video_/audio_ inputs.")].filter(Boolean);
     }
     return live.map((s) => {
       const ok = this.usable(s);
@@ -1949,7 +2036,6 @@ class Editor {
   cardTools(s) {
     if (!s.item || !s.panel) return null;
     const still = s.item.kind === "picture";
-    const on = isOn(s.item);
     const after = () => {
       // The panel owns the state; re-read it so the rail, the pins and the
       // validation all reflect the edit.
@@ -1971,17 +2057,7 @@ class Editor {
           const shut = modal.close.bind(modal);
           modal.close = () => { shut(); after(); };
         },
-      }, still ? "\u25a3" : "\u2702"),
-      el("span", {
-        class: "mmh3-cardtool" + (on ? " lit" : ""),
-        title: on ? "Switch off \u2014 kept, but not sent to the model" : "Switch on",
-        onclick: (e) => {
-          e.stopPropagation();
-          s.item.enabled = !on;
-          s.panel.commit();
-          after();
-        },
-      }, on ? "\u25c9" : "\u25cb"));
+      }, still ? "\u25a3" : "\u2702"));
   }
 
   /** Drag one rail card onto another to reorder the underlying media. */

@@ -287,6 +287,10 @@ const CSS = `
   text-transform:uppercase;letter-spacing:.07em;color:#6b7484;}
 .mml-sec span{margin-left:auto;text-transform:none;letter-spacing:0;color:#5c6472;
   font-family:ui-monospace,monospace;}
+/* In the videos header the detail picker takes over the push-right, so the
+   count sits immediately to its right instead of the two being split apart. */
+.mml-sec .mml-detail{margin-left:auto;}
+.mml-sec .mml-detail + span{margin-left:6px;}
 
 .mml-pics{flex:1;min-height:0;display:grid;
   grid-template-columns:repeat(3,minmax(0,1fr));
@@ -2045,29 +2049,33 @@ export class LoaderPanel {
           this.render();
         } }, "Delete"));
 
+    // Video decode detail. Rendered in the videos section header rather than
+    // up here, so it sits beside the count it applies to.
+    const detailSel = this.count("video") ? el("select", { class: "mml-detail",
+      title: "How much detail to decode from reference video.\n" +
+             "The model rescales references to your generation size anyway, " +
+             "so lower settings mainly save RAM.",
+      onclick: (e) => e.stopPropagation(),
+      onchange: (e) => this.setDetail(e.target.value) },
+      [["high", "detail: high"], ["standard", "detail: standard"],
+       ["low", "detail: low"], ["full", "detail: full"]].map(([v, label]) =>
+        el("option", { value: v, selected: this.detail() === v }, label)))
+      : null;
+
     kids.push(el("div", { class: "mml-top" },
       el("button", { class: "mml-btn", onclick: () => this.picker.click(),
         title: `Load reference files. You can also drop them on any slot, or ` +
           `paste with Ctrl+V.\n${total}/${MAX.total} files, ` +
           `${audioCount(this.items)}/${MAX.audio} audio in play.` },
         this.busy ? `uploading ${this.busy}\u2026` : "Load files\u2026"),
-      presetGroup,
-      el("span", { class: "mml-topspace" }),
-      (this.count("video") ? el("select", { class: "mml-detail",
-        title: "How much detail to decode from reference video.\n" +
-               "The model rescales references to your generation size anyway, " +
-               "so lower settings mainly save RAM.",
-        onchange: (e) => this.setDetail(e.target.value) },
-        [["high", "detail: high"], ["standard", "detail: standard"],
-         ["low", "detail: low"], ["full", "detail: full"]].map(([v, label]) =>
-          el("option", { value: v, selected: this.detail() === v }, label)))
-        : null),
       this.items.length
         ? el("button", { class: "mml-btn mml-sm",
             title: "Remove every loaded reference from this node",
             onclick: () => { this.unloadPrompt = true; this.render(); } },
             "Unload media")
-        : null));
+        : null,
+      presetGroup,
+      el("span", { class: "mml-topspace" })));
     // The x/12 and audio counters used to sit here. Every state they warned
     // about is already spelled out in the problem line below, in words and in
     // red, so they were spending prime space to repeat it \u2014 the running
@@ -2225,6 +2233,7 @@ export class LoaderPanel {
       el("button", { class: "mml-helpbtn",
         title: "What do off / paired / alone do?",
         onclick: (e) => { e.stopPropagation(); splitHelp(e.currentTarget); } }, "?"),
+      detailSel,
       el("span", {}, `${vids.length}/${MAX.video}`)));
     const vidCells = [];
     vids.forEach((it) => {
