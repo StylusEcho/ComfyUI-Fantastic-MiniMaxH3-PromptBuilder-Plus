@@ -9,11 +9,11 @@
  */
 import { app } from "../../scripts/app.js";
 import {
-  LoaderPanel, addSplitter, openLoaderModal, applyCanvasSizing,
-  PANEL_H, NODE_W,
+  LoaderPanel, applyCanvasSizing, PANEL_H, NODE_W,
 } from "./medialoader.js";
 import {
-  openEditor, updateSummary, hideWidget, el, injectCSS,
+  openEditor, openQuickEdit, updateSummary, promptFields, hideWidget, el,
+  injectCSS,
 } from "./promptbuilder.js";
 
 // Logged at module scope: if this line is missing from the console the file
@@ -22,10 +22,48 @@ import {
 console.log("[MiniMaxH3 PromptStudio] module loaded");
 
 const STUDIO_NAME = "MiniMaxH3PromptStudio";
-// Outputs are (prompt, references, picture_1, picture_2, ref2va_needed) —
-// the splitter wants the bundle, which is the second one.
-const REFS_SLOT = 1;
 const SUMMARY_H = 52;   // two clamped preview lines + padding
+const EDITOR_H = 300;   // the bar expanded into the three prompt fields
+
+/** In T2VA there is no reference media, so the mode-shaped loader steps aside
+ *  and the prompt bar takes the room instead — the three fields inline, using
+ *  the same block the quick-edit window mounts. Anything else keeps the bar.
+ *
+ *  Saves as you type rather than on a button, since there is nothing to
+ *  dismiss; the save is the full editor's own, so this cannot diverge. */
+function refreshBar(node) {
+  const bar = node._mmh3Summary;
+  const widget = node.widgets?.find((w) => w.name === "mmh3_summary");
+  if (!bar || !widget) return;
+  const sh = node._mmlPanel?.shape?.();
+  const expand = !!sh && sh.pictures === 0;
+
+  if (!expand) {
+    if (node._mmh3Expanded) {
+      node._mmh3Expanded = false;
+      bar.classList.remove("mmh3-summary-open");
+      widget.computedHeight = SUMMARY_H;
+      widget.computeSize = () => [NODE_W, SUMMARY_H];
+    }
+    updateSummary(node);
+    return;
+  }
+
+  // Rebuilt only on the way in, so typing doesn't tear down the field the
+  // caret is in every keystroke.
+  if (node._mmh3Expanded) return;
+  node._mmh3Expanded = true;
+  const fields = promptFields(node);
+  let timer = null;
+  fields.root.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fields.save(), 300);
+  });
+  bar.classList.add("mmh3-summary-open");
+  bar.replaceChildren(fields.root);
+  widget.computedHeight = EDITOR_H;
+  widget.computeSize = () => [NODE_W, EDITOR_H];
+}
 
 /** The panel widget's current height, read back off the widget rather than
  *  kept in a cache that could drift out of step with it. */
@@ -106,17 +144,9 @@ app.registerExtension({
     nodeType.prototype.onNodeCreated = function () {
       const r = onNodeCreated?.apply(this, arguments);
 
-      // The buttons come first and are the one part that must never be lost:
-      // both open a modal, so the node stays fully usable even if the on-node
-      // panel or summary below fails to build. (They also have to precede any
-      // DOM widget — in Nodes 2.0 a plain widget added after one anchors to
-      // the node's bottom and leaves a gap on resize.)
-      this.addWidget("button", "Prompt Builder", null, () => openEditor(this));
-      this.addWidget("button", "Open Media Loader in Window", null,
-        () => openLoaderModal(this, "MiniMax H3 Prompt Studio — media"));
-      this.addWidget("button", "+ Native-output splitter", null,
-        () => addSplitter(this, REFS_SLOT));
-
+      // No widget buttons on the node. The prompt bar's scroll opens the
+      // editor and the media panel is right here, so the rule about plain
+      // widgets having to precede DOM widgets no longer binds either.
       try {
         injectCSS();
         hideWidget(this, "prompt_text");
@@ -127,16 +157,32 @@ app.registerExtension({
           + "widgets; they stay visible but still work:", e);
       }
 
-      // Clickable summary, as on the Prompt Builder: a layout-independent way
-      // into the editor when the canvas button is hard to hit.
+      // Media panel first: the prompt bar reads as a summary of what is above
+      // it rather than a header floating over an empty node.
+      try {
+        // Media and prompt share this node, so a change to the inventory has
+        // to redraw the summary's count. LoaderPanel.commit calls this.
+        this._mmlOnCommit = () => refreshBar(this);
+
+        this._mmlPanel = new LoaderPanel(this);
+        const widget = this.addDOMWidget("mml_panel", "div",
+          this._mmlPanel.root, { serialize: false });
+        applyCanvasSizing(this, widget, NODE_W, PANEL_H);
+      } catch (e) {
+        console.error("[MiniMaxH3 PromptStudio] on-node media panel failed; "
+          + "right-click a slot, or open the loader window, instead:", e);
+      }
+
+      // The prompt bar sits under it: preview, audio marks and the mode
+      // button, with the scroll at its left opening the full editor.
       try {
         if (this.addDOMWidget) {
           const summary = el("div", {
             class: "mmh3-summary",
-            title: "Open the prompt editor",
+            title: "Quick-edit the prompt \u2014 the scroll opens the full editor",
             style: { cursor: "pointer", height: `${SUMMARY_H}px`,
                      minHeight: `${SUMMARY_H}px` },
-            onclick: () => openEditor(this),
+            onclick: () => openQuickEdit(this),
           });
           this._mmh3Summary = summary;
           const sw = this.addDOMWidget("mmh3_summary", "div", summary,
@@ -148,21 +194,7 @@ app.registerExtension({
         console.error("[MiniMaxH3 PromptStudio] summary panel failed:", e);
       }
 
-      try {
-        // Media and prompt share this node, so a change to the inventory has
-        // to redraw the summary's count. LoaderPanel.commit calls this.
-        this._mmlOnCommit = () => updateSummary(this);
-
-        this._mmlPanel = new LoaderPanel(this);
-        const widget = this.addDOMWidget("mml_panel", "div",
-          this._mmlPanel.root, { serialize: false });
-        applyCanvasSizing(this, widget, NODE_W, PANEL_H);
-      } catch (e) {
-        console.error("[MiniMaxH3 PromptStudio] on-node media panel failed; "
-          + "use the 'Open Media Loader in Window' button instead:", e);
-      }
-
-      setTimeout(() => { try { updateSummary(this); } catch (e) { /* cosmetic */ } }, 0);
+      setTimeout(() => { try { refreshBar(this); } catch (e) { /* cosmetic */ } }, 0);
       return r;
     };
 
@@ -202,7 +234,7 @@ app.registerExtension({
           NODE_W, PANEL_H);
         // A saved node restores its own height, so re-fit after that lands.
         fitPanel(this, baseComputeSize);
-        updateSummary(this);
+        refreshBar(this);
       }, 0);
       return r;
     };

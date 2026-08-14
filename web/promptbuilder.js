@@ -6,7 +6,8 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { LOADER_NAME, computeTags, viewURL as loaderViewURL,
-  safeCanvasFocus, openLoaderModal, isOn, TrimModal } from "./medialoader.js";
+  safeCanvasFocus, openLoaderModal, isOn, TrimModal,
+  fileCount, MODE_CAPACITY } from "./medialoader.js";
 
 const NODE_NAME = "MiniMaxH3PromptBuilder";
 // Private drag type: marks a drag as "reorder the rail" so a drop on another
@@ -227,14 +228,6 @@ const AUDIO_ROLES = [
    Base modes have no reference slots at all — their pictures are the native
    node's first_frame / last_frame. Reference mode takes up to 9 images,
    3 videos, and 3 audios, capped at 12 files in total. */
-const MODE_CAPACITY = {
-  T2VA: { Picture: 0, Video: 0, Audio: 0, roles: {} },
-  I2VA: { Picture: 1, Video: 0, Audio: 0, roles: { "Picture 1": "first frame" } },
-  FL2VA: { Picture: 2, Video: 0, Audio: 0,
-    roles: { "Picture 1": "first frame", "Picture 2": "last frame" } },
-  L2VA: { Picture: 1, Video: 0, Audio: 0, roles: { "Picture 1": "last frame" } },
-  REF: { Picture: 9, Video: 3, Audio: 3, total: 12, roles: {} },
-};
 
 /* Roles a definition line states outright. Used to seed a sensible marker and
    an example note — never to overwrite anything the user has written, since a
@@ -472,7 +465,7 @@ function slotsFromBundle(node) {
   const out = [];
   const push = (tag, kind, item, note, previewKind) => {
     const n = +(tag.match(/(\d+)>/) || [])[1];
-    out.push({
+    const slot = {
       tag, kind, idx: n, cls: TAG_CLASS[kind], note,
       slotName: `loader:${item.name}`,
       source: `${src.label} \u2022 ${item.name}`,
@@ -480,15 +473,26 @@ function slotsFromBundle(node) {
       // The live item and the panel that owns it, so the rail can offer the
       // same per-clip tools the node tile does.
       item, panel,
-    });
+    };
+    out.push(slot);
+    return slot;
   };
   items.filter((i) => i.kind === "picture")
     .forEach((i) => push(tags.get(i), "Picture", i, null, "img"));
   items.filter((i) => i.kind === "video").forEach((i) => {
-    if (extra.has(i) && (i.audio_mode || "off") === "paired")
-      push(extra.get(i), "Audio", i,
+    // A paired soundtrack is the same underlying item as its video, and H3
+    // receives its <Audio n> first. On screen the video reads better first, so
+    // the two are pushed video-then-audio and flagged as a joined pair. Only
+    // the display order changes \u2014 `tag` still carries the numbering H3 was
+    // given, so nothing downstream sees a different sequence.
+    const paired = extra.has(i) && (i.audio_mode || "off") === "paired";
+    const vid = push(tags.get(i), "Video", i, null, "video");
+    if (paired) {
+      const aud = push(extra.get(i), "Audio", i,
         `soundtrack of ${tags.get(i)}`, "audio");
-    push(tags.get(i), "Video", i, null, "video");
+      vid.joinRight = true;
+      aud.joinLeft = true;
+    }
   });
   items.forEach((i) => {
     if (i.kind === "audio") push(tags.get(i), "Audio", i, "standalone", "audio");
@@ -875,6 +879,26 @@ const CSS = `
 .mmh3-body{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 0 440px;min-height:0;
   transition:grid-template-columns .16s ease;}
 .mmh3-body.haspins{grid-template-columns:minmax(0,1fr) 176px 400px;}
+/* Sidebar view: a media column at the left edge. .mmh3-rail is always in the
+   DOM so the grid's track count only changes with the class, never with what
+   happens to be rendered. */
+.mmh3-rail{display:none;}
+.mmh3-body.sidebar{grid-template-columns:186px minmax(0,1fr) 0 440px;}
+.mmh3-body.sidebar.haspins{grid-template-columns:186px minmax(0,1fr) 176px 400px;}
+.mmh3-body.sidebar .mmh3-rail{display:flex;flex-direction:column;gap:6px;
+  min-height:0;overflow-y:auto;padding:10px 8px;background:#15181e;
+  border-right:1px solid #2a2f3a;}
+.mmh3-railhead{flex:0 0 auto;font-size:10px;text-transform:uppercase;
+  letter-spacing:.08em;color:#8a93a3;}
+/* One column: the same cards, stacked. A joined video+audio pair meets
+   top-to-bottom here, so the squared corners move to the horizontal edges. */
+.mmh3-body.sidebar .mmh3-rail .mmh3-chips{flex-direction:column;flex-wrap:nowrap;
+  max-height:none;overflow:visible;align-items:stretch;}
+.mmh3-body.sidebar .mmh3-rail .mmh3-card{width:auto;}
+.mmh3-body.sidebar .mmh3-rail .mmh3-card.joinR{margin-right:0;margin-bottom:-6px;
+  border-radius:7px 7px 0 0;}
+.mmh3-body.sidebar .mmh3-rail .mmh3-card.joinL{border-left-width:1px;
+  border-top-width:0;border-radius:0 0 7px 7px;}
 @media (max-width:980px){.mmh3-body,.mmh3-body.haspins{grid-template-columns:1fr;}}
 .mmh3-pins{overflow:hidden auto;background:#15181e;border-left:1px solid #2a2f3a;
   padding:0;display:flex;flex-direction:column;gap:6px;}
@@ -898,7 +922,15 @@ const CSS = `
    Below this width the overlay margin is too narrow to be worth it and the
    pane stays in its in-modal column. */
 @media (min-width:1800px){
-  .mmh3-body.haspins{grid-template-columns:minmax(0,1fr) 0 400px;}
+  /* Two columns, not three: up here the pane is never an in-flow grid item —
+     display:none when empty, out of flow when floating — so a third track
+     would leave the side panel sitting in the empty middle one, collapsed to
+     nothing with the footer buttons spilling out of it. */
+  .mmh3-body,.mmh3-body.haspins{grid-template-columns:minmax(0,1fr) 400px;}
+  /* Sidebar keeps its rail track, but still drops the pin one for the same
+     reason — three in-flow items, three tracks. */
+  .mmh3-body.sidebar,.mmh3-body.sidebar.haspins{
+    grid-template-columns:186px minmax(0,1fr) 400px;}
   .mmh3-body.haspins .mmh3-pins{
     /* border-box, or the 10px padding and 1px border widen the pane past the
        calc and it runs under the modal. */
@@ -934,19 +966,23 @@ const CSS = `
 .mmh3-card.unusable:hover{opacity:.5;border-color:#3a4252 !important;}
 .mmh3-card.unusable .mmh3-tagname{color:#6b7484 !important;}
 .mmh3-cardnote{display:block;font-size:8px;color:#8a7ab0;padding:0 4px 3px;}
-.mmh3-peek{position:fixed;z-index:10002;width:360px;background:#1e222a;
+/* max-content so the frame takes the picture's rendered width: a portrait
+   shot capped by max-height makes a narrow box, a landscape one a wide box,
+   instead of every image letterboxing inside one fixed width. */
+.mmh3-peek{position:fixed;z-index:10002;box-sizing:border-box;width:max-content;
+  min-width:240px;max-width:540px;background:#1e222a;
   border:1px solid #3a4252;border-radius:9px;overflow:hidden;
   box-shadow:0 12px 32px rgba(0,0,0,.5);}
-.mmh3-peekmedia{width:100%;max-height:270px;object-fit:contain;display:block;
-  background:#0d1015;}
+/* auto on both axes with a cap on each: the image keeps its own proportions
+   and the box above shrinks to whatever width that leaves. */
+.mmh3-peekmedia{display:block;margin:0 auto;width:auto;height:auto;
+  max-width:540px;max-height:70vh;background:#0d1015;}
 .mmh3-peekmeta{padding:6px 8px;}
 .mmh3-peekrow{display:flex;align-items:center;gap:6px;}
 .mmh3-peekcite{margin-left:auto;font-size:9px;color:#7a8393;}
 .mmh3-peekcite.zero{color:#e0a94c;}
-.mmh3-peeksrc{font-size:9px;color:#6b7484;margin:2px 0 6px;overflow:hidden;
+.mmh3-peeksrc{font-size:9px;color:#6b7484;margin:2px 0 6px;max-width:520px;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;}
-.mmh3-peekbtns{display:flex;gap:5px;}
-.mmh3-peekbtns .mmh3-btn{flex:1;padding:3px 6px;font-size:10px;}
 .mmh3-form{overflow-y:auto;padding:14px 16px 24px;min-width:0;
   display:flex;flex-direction:column;}
 /* Sections keep their natural height; the one marked grow takes the slack, so
@@ -1000,13 +1036,33 @@ const CSS = `
 .mmh3-chips::-webkit-scrollbar{width:6px;height:6px;}
 .mmh3-chips::-webkit-scrollbar-thumb{background:#2e3440;border-radius:3px;}
 .mmh3-card.mmh3-dropinto{outline:2px solid #6f86b8;outline-offset:1px;}
-.mmh3-cardtools{display:flex;align-items:center;gap:8px;padding:0 4px 3px;}
+/* A video and its split soundtrack read as one unit: the pair closes the 6px
+   rail gap with a negative margin and squares only the two corners that meet,
+   so the teal border sits flush against the purple one. */
+.mmh3-card.joinR{border-top-right-radius:0;border-bottom-right-radius:0;
+  margin-right:-6px;}
+.mmh3-card.joinL{border-top-left-radius:0;border-bottom-left-radius:0;
+  border-left-width:0;}
+.mmh3-card.mmh3-drop{display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:3px;align-self:stretch;min-height:97px;
+  border-style:dashed;
+  border-color:#2b313d;background:#141820;color:#5c6472;cursor:pointer;}
+.mmh3-card.mmh3-drop:hover{border-color:#59637a;color:#8a93a3;}
+.mmh3-card.mmh3-drop.hot{border-color:#6f86b8;background:#1b2230;color:#9db4dc;}
+.mmh3-dropplus{font-size:18px;line-height:1;}
+.mmh3-dropkinds{font-size:9px;text-transform:uppercase;letter-spacing:.06em;}
+/* Sits at the right-hand end of the card's bottom bar, matching where the
+   node's tiles put the same control. */
+.mmh3-cardtools{display:flex;align-items:center;gap:6px;margin-left:5px;
+  flex:0 0 auto;}
 .mmh3-cardtool{cursor:pointer;font-size:11px;line-height:1;color:#5a6373;
   user-select:none;}
 .mmh3-cardtool:hover{color:#c9cfda;}
 .mmh3-cardtool.on{color:#e0a94c;}
-.mmh3-cardtool.lit{color:#7ec87e;}
-.mmh3-cardtool.lit:hover{color:#a8e6a8;}
+.mmh3-pintool{filter:grayscale(1) opacity(.5);}
+.mmh3-pintool:hover{filter:grayscale(.4) opacity(.85);}
+.mmh3-pintool.pinned{filter:none;color:#e05a5a;text-shadow:0 0 6px rgba(224,90,90,.5);}
+.mmh3-rmtool:hover{color:#e05a5a;}
 /* The two audio sections sit side by side at the foot of the form. */
 .mmh3-audiopair{display:flex;gap:14px;align-items:flex-start;}
 .mmh3-audiopair>.mmh3-sec{flex:1 1 0;min-width:0;margin-bottom:16px;}
@@ -1067,6 +1123,12 @@ const CSS = `
 .mmh3-preview .t-aud{color:#b48ce8;} .mmh3-preview .t-subj{color:#7ec87e;}
 .mmh3-preview .t-shot{color:#7ea7d8;font-weight:600;}
 .mmh3-preview .t-d{color:#d8c07e;}
+/* Hues picked from what the tag palette wasn't already using: coral for the
+   language bracket, pink for a speaker, and grey for N/A — which marks a
+   section as deliberately empty, so it should read as absent, not as content. */
+.mmh3-preview .t-lang{color:#e8846a;}
+.mmh3-preview .t-spk{color:#e58fbf;font-weight:600;}
+.mmh3-preview .t-na{color:#6b7484;font-style:italic;}
 .mmh3-issues{max-height:180px;overflow:auto;border-top:1px solid #2a2f3a;padding:8px 14px;font-size:12px;}
 .mmh3-issues .error{color:#f07070;margin:3px 0;font-weight:500;}
 .mmh3-issues .warn{color:#e0a94c;margin:3px 0;}
@@ -1084,6 +1146,33 @@ const CSS = `
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
   max-height:calc(2 * 1.5em);}
 .mmh3-sumtext.empty{font-style:italic;color:#6b7484;}
+.mmh3-sumicon{flex:0 0 auto;align-self:center;font-size:15px;line-height:1;
+  cursor:pointer;opacity:.75;user-select:none;}
+.mmh3-sumicon:hover{opacity:1;}
+.mmh3-summark{flex:0 0 auto;align-self:center;font-size:12px;line-height:1;
+  opacity:.85;user-select:none;}
+/* Quick edit: smaller than the full builder, same chrome. */
+.mmh3-quickmodal{box-sizing:border-box;width:min(900px,92vw);height:min(780px,88vh);
+  display:flex;flex-direction:column;background:#191c22;color:#d7dbe2;
+  border:1px solid #303642;border-radius:10px;overflow:hidden;
+  box-shadow:0 24px 64px rgba(0,0,0,.55);}
+.mmh3-quickbody{flex:1;min-height:0;overflow-y:auto;padding:14px 16px 18px;}
+.mmh3-quick{display:flex;flex-direction:column;min-height:100%;}
+.mmh3-quick>*{flex:0 0 auto;}
+.mmh3-quick .mmh3-sec.mmh3-grow{flex:1 1 auto;display:flex;flex-direction:column;
+  min-height:200px;}
+.mmh3-quick .mmh3-sec.mmh3-grow textarea{flex:1 1 auto;min-height:120px;}
+.mmh3-quick textarea{width:100%;box-sizing:border-box;background:#12151b;
+  color:#dde2ea;border:1px solid #2e3440;border-radius:6px;padding:7px 9px;
+  font-size:13px;font-family:inherit;resize:vertical;line-height:1.5;}
+.mmh3-quick textarea:focus{outline:none;border-color:#4a5568;}
+.mmh3-quick label{display:block;font-size:11px;text-transform:uppercase;
+  letter-spacing:.08em;color:#8a93a3;margin-bottom:5px;}
+/* The node's bar expanded into those fields: it stops being a one-line summary
+   and becomes a small scrolling editor. */
+.mmh3-summary.mmh3-summary-open{display:block;overflow-y:auto;padding:8px 10px;
+  cursor:default;}
+.mmh3-summary.mmh3-summary-open label{margin:6px 0 3px;}
 .mmh3-modebtn{flex:0 0 auto;align-self:center;display:inline-flex;align-items:center;gap:5px;
   background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
   padding:4px 9px;font-size:11px;font-family:inherit;cursor:pointer;white-space:nowrap;}
@@ -1516,6 +1605,7 @@ class Editor {
     this.lastFocus = null;
     this.pins = [];
     this.autoPin = null;
+    this.sidebar = !!node._mmh3Sidebar;
     this.libraryId = null;
     this.libraryName = "";
     this.libraryCategory = "";
@@ -1556,6 +1646,9 @@ class Editor {
   /* ---------- skeleton ---------- */
   build() {
     this.formEl = el("div", { class: "mmh3-form" });
+    // Left-edge column for the sidebar view. Always present so the grid's
+    // column count is stable; empty and hidden unless the view is on.
+    this.railEl = el("div", { class: "mmh3-rail" });
     this.pinsEl = el("div", { class: "mmh3-pins" });
     this.previewEl = el("pre", { class: "mmh3-preview" });
     this.issuesEl = el("div", { class: "mmh3-issues" });
@@ -1596,11 +1689,23 @@ class Editor {
             title: "Clear every field and start over",
             onclick: () => { this.clearPending = !this.clearPending; this.render(); } },
             "Clear"),
+          el("button", { class: "mmh3-btn" + (this.sidebar ? " primary" : ""),
+            title: "Show reference media as a column down the left edge",
+            onclick: () => {
+              this.sidebar = !this.sidebar;
+              try { this.node._mmh3Sidebar = this.sidebar; } catch (e) { /* not fatal */ }
+              this.overlay.querySelector(".mmh3-body")
+                .classList.toggle("sidebar", this.sidebar);
+              this.railEl.replaceChildren();
+              this.closePeek();
+              this.render();
+            } }, "\u25e7 Sidebar"),
           this.modeBar,
           el("button", { class: "mmh3-x", onclick: () => this.close() }, "\u2715"),
         ),
         this.modeSends,
         el("div", { class: "mmh3-body" },
+          this.railEl,
           this.formEl,
           this.pinsEl,
           el("div", { class: "mmh3-side" },
@@ -1693,6 +1798,7 @@ class Editor {
     });
   }
 
+
   /* Waveforms make audio identifiable at a glance; a generic mic icon does not.
      Decoded once per URL and cached for the session. */
   static waveCache = new Map();
@@ -1769,7 +1875,7 @@ class Editor {
     // stylesheet so the waveform isn't drawn at the wrong resolution and
     // stretched by the browser.
     const cv = el("canvas", { class: "mmh3-thumb mmh3-wave",
-      width: big ? 330 : 124, height: big ? 90 : 80 });
+      width: big ? 495 : 124, height: big ? 135 : 80 });
     if (s.preview?.url) setTimeout(() => this.drawWave(cv, s.preview.url), 0);
     return cv;
   }
@@ -1797,18 +1903,19 @@ class Editor {
             el("span", { class: "mmh3-peekcite" + (cites ? "" : " zero") },
               cites ? `cited ${cites}\u00d7` : "not cited")),
           el("div", { class: "mmh3-peeksrc" },
-            s.source + (s.note ? ` \u2022 ${s.note.replace(/[<>]/g, "")}` : "")),
-          el("div", { class: "mmh3-peekbtns" },
-            el("button", { class: "mmh3-btn", onclick: () => {
-              this.insert(s.tag); this.closePeek(); } }, "Insert tag"),
-            el("button", { class: "mmh3-btn", onclick: () => {
-              this.togglePin(s.tag); this.closePeek(); } },
-              this.pins.includes(s.tag) ? "Unpin" : "Pin"))));
+            s.source + (s.note ? ` \u2022 ${s.note.replace(/[<>]/g, "")}` : ""))));
 
       const r = card.getBoundingClientRect();
-      // Keep the wider peek on screen: .mmh3-peek is 360px plus a 10px margin.
-      box.style.left = `${Math.max(0, Math.min(r.left, window.innerWidth - 370))}px`;
-      box.style.top = `${r.bottom + 6}px`;
+      // Beside the thumbnail in the sidebar view, below it otherwise. Both
+      // clamp to the viewport: .mmh3-peek is up to 540px wide.
+      if (this.sidebar) {
+        box.style.left = `${Math.max(0, Math.min(r.right + 8, window.innerWidth - 550))}px`;
+        box.style.top = `${Math.max(4, Math.min(r.top,
+          window.innerHeight - box.offsetHeight - 8))}px`;
+      } else {
+        box.style.left = `${Math.max(0, Math.min(r.left, window.innerWidth - 550))}px`;
+        box.style.top = `${r.bottom + 6}px`;
+      }
       box.addEventListener("mouseenter", () => clearTimeout(this._peekClose));
       box.addEventListener("mouseleave", () => this.closePeek());
       document.body.append(box);
@@ -1869,6 +1976,8 @@ class Editor {
 
     this.overlay.querySelector(".mmh3-body")
       .classList.toggle("haspins", list.length > 0);
+    this.overlay.querySelector(".mmh3-body")
+      .classList.toggle("sidebar", !!this.sidebar);
 
     this.pinsEl.replaceChildren(
       el("div", { class: "mmh3-pinhead" }, "pinned"),
@@ -1893,18 +2002,94 @@ class Editor {
 
   /* --- the rail ---------------------------------------------------- */
 
+  /** The panel backing this editor's media, if there is one. */
+  ownerPanel() {
+    return this.slots.find((s) => s.panel)?.panel
+      || mediaSource(this.node)?.owner?._mmlPanel
+      || null;
+  }
+
+  /** What the current mode could still take, by kind. Mirrors the node's empty
+   *  slots: an offer to add media only where the mode can actually use it. */
+  roomLeft(panel) {
+    const cap = MODE_CAPACITY[this.state.mode] || {};
+    const held = { Picture: 0, Video: 0, Audio: 0 };
+    for (const it of panel.items || []) {
+      if (!isOn(it)) continue;
+      if (it.kind === "picture") held.Picture += 1;
+      else if (it.kind === "video") held.Video += 1;
+      else if (it.kind === "audio") held.Audio += 1;
+    }
+    const kinds = [];
+    for (const [label, kind] of [["Picture", "picture"], ["Video", "video"],
+                                 ["Audio", "audio"]]) {
+      // Both gates have to agree: the mode's own ceiling, and the loader's
+      // real capacity check (which also counts split soundtracks).
+      if ((cap[label] || 0) > held[label] && !panel.capacityError(kind, "x"))
+        kinds.push(kind);
+    }
+    if (cap.total && fileCount(panel.items) >= cap.total) return [];
+    return kinds;
+  }
+
+  /** Dashed tile at the end of the rail: click, drop or right-click-paste to
+   *  add media without leaving the editor. Delegates every path to the panel,
+   *  so uploads and budget refusals behave exactly as they do on the node. */
+  dropTile() {
+    const panel = this.ownerPanel();
+    if (!panel) return null;
+    const kinds = this.roomLeft(panel);
+    if (!kinds.length) return null;
+
+    const after = () => { this.slots = getRefSlots(this.node); this.render(); };
+    const tile = el("div", {
+      class: "mmh3-card mmh3-drop",
+      title: `Add ${kinds.join(" / ")} \u2014 click to browse, drop a file, `
+        + `or right-click to paste`,
+      onclick: () => panel.picker.click(),
+      oncontextmenu: (e) => panel.slotMenu(e, null),
+    }, el("span", { class: "mmh3-dropplus" }, "+"),
+       el("span", { class: "mmh3-dropkinds" }, kinds.join(" / ")));
+
+    tile.addEventListener("dragover", (e) => {
+      if (!e.dataTransfer?.types?.includes("Files")) return;
+      e.preventDefault(); e.stopPropagation();
+      tile.classList.add("hot");
+    });
+    tile.addEventListener("dragleave", () => tile.classList.remove("hot"));
+    tile.addEventListener("drop", async (e) => {
+      tile.classList.remove("hot");
+      if (!e.dataTransfer?.files?.length) return;
+      e.preventDefault(); e.stopPropagation();
+      await panel.add([...e.dataTransfer.files]);
+      after();
+    });
+    // The panel commits on its own (paste, upload), so mirror the result back
+    // into the editor. Wrapped once per panel — re-wrapping every render would
+    // nest the calls — and pointed at whichever editor is currently open.
+    if (!panel._mmh3Hooked) {
+      panel._mmh3Hooked = true;
+      const base = panel.commit.bind(panel);
+      panel.commit = () => { base(); panel._mmh3Refresh?.(); };
+    }
+    panel._mmh3Refresh = () => { if (this.overlay?.isConnected) after(); };
+    return tile;
+  }
+
   refChips() {
     const live = this.slots.filter((s) => s.tag);
+    const tile = this.dropTile();
     if (!live.length) {
-      return el("span", { class: "hint" },
+      return [tile, el("span", { class: "hint" },
         "No reference media on this node yet \u2014 use '+ Media loader', or wire " +
-        "loaders into the picture_/video_/audio_ inputs.");
+        "loaders into the picture_/video_/audio_ inputs.")].filter(Boolean);
     }
     return live.map((s) => {
       const ok = this.usable(s);
       const cites = ok ? this.citationCount(s.tag) : 0;
       const card = el("div", {
-        class: `mmh3-card ${s.cls}` + (ok ? "" : " unusable"),
+        class: `mmh3-card ${s.cls}` + (ok ? "" : " unusable")
+          + (s.joinRight ? " joinR" : "") + (s.joinLeft ? " joinL" : ""),
         draggable: ok,
         title: ok ? `${s.tag} \u2022 ${s.source}` : this.modeNote(s),
         onclick: () => ok ? this.insert(s.tag) : toast(this.modeNote(s), 3200),
@@ -1926,12 +2111,12 @@ class Editor {
                 title: cites ? `cited ${cites}\u00d7` : "not cited yet" },
                 cites || "\u2013")
             : el("span", { class: "mmh3-cite off", title: this.modeNote(s) },
-                "\u2298")),
+                "\u2298"),
+          this.cardTools(s)),
         s.note && s.note !== "standalone"
           ? el("span", { class: "mmh3-cardnote" },
               "\u266a\u2192V" + (s.note.match(/\d+/) || [""])[0])
-          : null,
-        this.cardTools(s));
+          : null);
       if (s.item && s.panel) this.railReorder(card, s);
       if (ok) this.peekFor(card, s);
       return card;
@@ -1943,17 +2128,33 @@ class Editor {
    *  live \u2014 media wired in through the individual inputs has no item behind
    *  it to edit. */
   cardTools(s) {
-    if (!s.item || !s.panel) return null;
-    const still = s.item.kind === "picture";
-    const on = isOn(s.item);
     const after = () => {
       // The panel owns the state; re-read it so the rail, the pins and the
       // validation all reflect the edit.
       this.slots = getRefSlots(this.node);
       this.render();
     };
-    return el("div", { class: "mmh3-cardtools" },
-      el("span", {
+    const tools = [];
+
+    // Pin works off the tag, so it is offered for every reference \u2014 including
+    // media wired straight into the inputs, which has no item behind it.
+    if (s.tag) {
+      const pinned = this.pins.includes(s.tag);
+      tools.push(el("span", {
+        class: "mmh3-cardtool mmh3-pintool" + (pinned ? " pinned" : ""),
+        title: pinned ? "Unpin" : "Pin \u2014 keep this one on screen while you write",
+        onclick: (e) => {
+          e.stopPropagation();
+          this.closePeek();
+          this.togglePin(s.tag);
+          this.render();
+        },
+      }, "\u{1F4CC}"));
+    }
+
+    if (s.item && s.panel && !s.joinRight) {
+      const still = s.item.kind === "picture";
+      tools.push(el("span", {
         class: "mmh3-cardtool" + (s.item.trim || s.item.crop || s.item.rotate
           || s.item.mirror || s.item.resize ? " on" : ""),
         title: still ? "Crop, rotate or mirror this picture"
@@ -1967,17 +2168,23 @@ class Editor {
           const shut = modal.close.bind(modal);
           modal.close = () => { shut(); after(); };
         },
-      }, still ? "\u25a3" : "\u2702"),
-      el("span", {
-        class: "mmh3-cardtool" + (on ? " lit" : ""),
-        title: on ? "Switch off \u2014 kept, but not sent to the model" : "Switch on",
+      }, still ? "\u25a3" : "\u2702"));
+
+      tools.push(el("span", {
+        class: "mmh3-cardtool mmh3-rmtool",
+        title: `Remove ${s.item.name} from the node`,
         onclick: (e) => {
           e.stopPropagation();
-          s.item.enabled = !on;
-          s.panel.commit();
+          this.closePeek();
+          // Drop any pin first, or the rail keeps a tag that no longer exists.
+          if (this.pins.includes(s.tag)) this.togglePin(s.tag);
+          s.panel.remove(s.item);
           after();
         },
-      }, on ? "\u25c9" : "\u25cb"));
+      }, "\u2715"));
+    }
+
+    return tools.length ? el("div", { class: "mmh3-cardtools" }, ...tools) : null;
   }
 
   /** Drag one rail card onto another to reorder the underlying media. */
@@ -2078,8 +2285,15 @@ class Editor {
       if (styleSel.value) { this.insert(styleSel.value + ", "); styleSel.value = ""; }
     });
 
+    const chips = el("div", { class: "mmh3-chips" }, this.refChips());
+    if (this.sidebar) {
+      // Same strip, different column: it stacks into one column by CSS, so
+      // the cards, their drag-reorder and their tools all carry over.
+      this.railEl.replaceChildren(
+        el("div", { class: "mmh3-railhead" }, "media"), chips);
+    }
     return el("div", { class: "mmh3-chipbar" },
-      el("div", { class: "mmh3-chips" }, this.refChips()),
+      this.sidebar ? null : chips,
       extraChips.length
         ? el("div", { class: "mmh3-subjrow" }, extraChips) : null,
       el("div", { class: "mmh3-tools" },
@@ -2194,19 +2408,18 @@ class Editor {
         "Open [Shot 1] with the overall style and initial composition. Later shots: " +
         "\"[Shot N] At MM:SS.mmm, the shot cuts to ...\". Write camera moves as natural sentences.")));
 
+    const soundTa = this.ta(s, "soundscape", 3,
+      "1\u20134 sentences: ambience, physical action sounds, non-verbal human sounds.");
+    const musicTa = this.ta(s, "music", 3,
+      "1\u20133 sentences: instrumentation, tempo, rhythm, dynamics. No abstract mood words.");
     f.append(el("div", { class: "mmh3-audiopair" },
       el("div", { class: "mmh3-sec" },
         this.secLabel("overall_soundscape"),
-        el("div", { class: "mmh3-row" },
-          this.ta(s, "soundscape", 3,
-            "1\u20134 sentences: ambience, physical action sounds, non-verbal human sounds."),
-          this.naButton(s, "soundscape"))),
+        el("div", { class: "mmh3-row" }, soundTa, this.naButton(s, "soundscape"))),
       el("div", { class: "mmh3-sec" },
         this.secLabel("non_diegetic_music"),
-        el("div", { class: "mmh3-row" },
-          this.ta(s, "music", 3,
-            "1\u20133 sentences: instrumentation, tempo, rhythm, dynamics. No abstract mood words."),
-          this.naButton(s, "music")))));
+        el("div", { class: "mmh3-row" }, musicTa, this.naButton(s, "music")))));
+    linkHeights(soundTa, musicTa);
   }
 
   renderRef() {
@@ -2515,21 +2728,20 @@ class Editor {
       detTa, wcSpan));
 
     /* audio sections ---------------------------------------------------- */
+    const refSoundTa = this.ta(r, "soundscape", 3,
+      "Ambience + physical sounds. If copying ambience: \"The copied ambience layer " +
+      "from <Audio 1> continues throughout the target video.\"");
+    const refMusicTa = this.ta(r, "music", 3,
+      "Audience-only score. If reused: \"<Audio 2> is directly reused as the complete " +
+      "audience-only score.\"");
     f.append(el("div", { class: "mmh3-audiopair" },
       el("div", { class: "mmh3-sec" },
         this.secLabel("overall_soundscape"),
-        el("div", { class: "mmh3-row" },
-          this.ta(r, "soundscape", 3,
-            "Ambience + physical sounds. If copying ambience: \"The copied ambience layer " +
-            "from <Audio 1> continues throughout the target video.\""),
-          this.naButton(r, "soundscape"))),
+        el("div", { class: "mmh3-row" }, refSoundTa, this.naButton(r, "soundscape"))),
       el("div", { class: "mmh3-sec" },
         this.secLabel("non_diegetic_music"),
-        el("div", { class: "mmh3-row" },
-          this.ta(r, "music", 3,
-            "Audience-only score. If reused: \"<Audio 2> is directly reused as the complete " +
-            "audience-only score.\""),
-          this.naButton(r, "music")))));
+        el("div", { class: "mmh3-row" }, refMusicTa, this.naButton(r, "music")))));
+    linkHeights(refSoundTa, refMusicTa);
   }
 
   /* ---------- preview + validation ---------- */
@@ -2575,11 +2787,19 @@ class Editor {
     this._paintSubjChips?.();
     const text = generate(this.state);
     this._citeText = text;
+    // Order matters. The language bracket runs before [Shot N] and excludes it
+    // by lookahead, so the two can't claim each other's text; every pattern
+    // after the first excludes < and > so none can match inside a span this
+    // chain has already inserted.
     let html = escapeHtml(text)
       .replace(/&lt;(Subject|Picture|Video|Audio) (\d+)&gt;/g,
         (m, k, n) => `<span class="t-${TAG_CLASS[k]}">&lt;${k} ${n}&gt;</span>`)
+      .replace(/\[(?!Shot\b)([^\]\n<>]{1,24})\]/g,
+        '<span class="t-lang">[$1]</span>')
       .replace(/\[Shot (\d+)\]/g, '<span class="t-shot">[Shot $1]</span>')
-      .replace(/&lt;(\/?d|scenetrans|cutoff)&gt;/g, '<span class="t-d">&lt;$1&gt;</span>');
+      .replace(/&lt;(\/?d|scenetrans|cutoff)&gt;/g, '<span class="t-d">&lt;$1&gt;</span>')
+      .replace(/\((S\d+)\)/g, '<span class="t-spk">($1)</span>')
+      .replace(/\bN\/A\b/g, '<span class="t-na">N/A</span>');
     this.previewEl.innerHTML = html;
 
     const rank = { error: 0, warn: 1, info: 2 };
@@ -2667,6 +2887,127 @@ export function openEditor(node) {
 
 /* ---------- on-node mode button + dropdown ---------------------------- */
 
+/** Keep the two audio boxes the same height: dragging either one's resize
+ *  grip resizes the other, so the pair stays level. Watches the rendered
+ *  height rather than the drag itself, which also covers a height set any
+ *  other way. The guard stops the two observers ping-ponging. */
+/* ---------- quick edit: the three fields, mountable anywhere ------------ */
+
+/** The fields a prompt is really made of, as a block that can be mounted in a
+ *  window or straight onto the node. Both mounts write back through the one
+ *  `save`, which does exactly what the full editor's Save does, so the two
+ *  surfaces cannot end up disagreeing about the node's state. */
+export function promptFields(node) {
+  const state = loadState(node);
+  const isRef = state.mode === "REF";
+  if (isRef && !state.ref) state.ref = {};
+  const target = isRef ? state.ref : state;
+
+  const root = el("div", { class: "mmh3-quick" });
+  const field = (label, obj, key, rows, placeholder, cls) => {
+    const t = el("textarea", {
+      rows, placeholder, value: obj[key] ?? "",
+      oninput: (e) => { obj[key] = e.target.value; },
+    });
+    root.append(el("div", { class: "mmh3-sec" + (cls ? ` ${cls}` : "") },
+      el("label", {}, label), t));
+    return t;
+  };
+
+  if (isRef) {
+    // Reference mode writes detailed_description instead: its style opening
+    // and its shots, the two halves the generator joins.
+    field("detailed_description — style opening", target, "styleLine", 2,
+      "The target video is in a realistic multi-camera sitcom style…");
+    field("detailed_description — shots", target, "detail", 10,
+      "[Shot 1] A medium shot establishes <Subject 1>, …", "mmh3-grow");
+  } else {
+    field("integrated_multimodal_description", state, "imd", 10,
+      "[Shot 1] Live-action, cinematic, …", "mmh3-grow");
+  }
+
+  const pair = el("div", { class: "mmh3-audiopair" });
+  const audioBox = (label, key, placeholder) => {
+    const t = el("textarea", {
+      rows: 3, placeholder, value: target[key] ?? "",
+      oninput: (e) => { target[key] = e.target.value; },
+    });
+    pair.append(el("div", { class: "mmh3-sec" }, el("label", {}, label), t));
+    return t;
+  };
+  const soundTa = audioBox("overall_soundscape", "soundscape",
+    "Ambience, physical action sounds, non-verbal human sounds.");
+  const musicTa = audioBox("non_diegetic_music", "music",
+    "Instrumentation, tempo, rhythm, dynamics. No abstract mood words.");
+  root.append(pair);
+  linkHeights(soundTa, musicTa);
+
+  const save = () => {
+    const pw = node.widgets?.find((w) => w.name === "prompt_text");
+    const sw = node.widgets?.find((w) => w.name === "builder_state");
+    if (pw) pw.value = generate(state);
+    if (sw) sw.value = JSON.stringify(state);
+    updateSummary(node);
+    try {
+      node.setDirtyCanvas?.(true, true);
+      app.graph.setDirtyCanvas(true, true);
+    } catch (e) { /* Vue redraws itself */ }
+  };
+  return { root, save, state };
+}
+
+/** The quick-edit window, opened by clicking the node's prompt bar. The bar's
+ *  scroll still opens the full builder, so both routes stay available. */
+export function openQuickEdit(node) {
+  injectCSS();
+  const fields = promptFields(node);
+  const mode = fields.state.mode;
+  const close = () => {
+    overlay.remove();
+    window.removeEventListener("keydown", esc);
+  };
+  const esc = (e) => { if (e.key === "Escape") close(); };
+  const overlay = el("div", {
+    class: "mmh3-overlay",
+    onmousedown: (e) => { if (e.target === overlay) close(); },
+  },
+    el("div", { class: "mmh3-quickmodal" },
+      el("div", { class: "mmh3-head" },
+        el("div", { class: "mmh3-title" }, "Quick edit",
+          el("small", {}, mode === "REF" ? "Full-reference" : mode)),
+        el("button", { class: "mmh3-btn",
+          title: "Open the full Prompt Builder instead",
+          onclick: () => { close(); openEditor(node); } }, "Full editor…"),
+        el("button", { class: "mmh3-x", onclick: close }, "✕")),
+      el("div", { class: "mmh3-quickbody" }, fields.root),
+      el("div", { class: "mmh3-foot" },
+        el("span", { class: "stats" },
+          "Writes the same fields the full editor does"),
+        el("button", { class: "mmh3-btn", onclick: close }, "Cancel"),
+        el("button", { class: "mmh3-btn primary", onclick: () => {
+          fields.save(); toast("Saved to node"); close();
+        } }, "Save to node"))));
+  window.addEventListener("keydown", esc);
+  document.body.append(overlay);
+  setTimeout(() => fields.root.querySelector("textarea")?.focus(), 0);
+  return overlay;
+}
+
+function linkHeights(a, b) {
+  if (typeof ResizeObserver !== "function" || !a || !b) return;
+  let syncing = false;
+  const pair = (from, to) => new ResizeObserver(() => {
+    if (syncing) return;
+    const h = from.getBoundingClientRect().height;
+    if (!h || Math.abs(h - to.getBoundingClientRect().height) < 1) return;
+    syncing = true;
+    to.style.height = `${h}px`;
+    requestAnimationFrame(() => { syncing = false; });
+  });
+  pair(a, b).observe(a);
+  pair(b, a).observe(b);
+}
+
 let _modeMenu = null;
 
 function closeModeMenu() {
@@ -2698,6 +3039,9 @@ function setMode(node, mode) {
   if (pw && (pw.value || "").trim()) pw.value = generate(state);
 
   updateSummary(node);
+  // A mode change can also change the media panel's shape, and with it whether
+  // the node's prompt bar expands; the node's hook knows, this function does not.
+  try { node._mmlPanel?.render?.(); node._mmlOnCommit?.(); } catch (e) { /* cosmetic */ }
   try {
     node.setDirtyCanvas?.(true, true);
     app.graph.setDirtyCanvas(true, true);
@@ -2742,8 +3086,13 @@ function openModeMenu(node, btn) {
 export function updateSummary(node) {
   if (!node._mmh3Summary) return;
   const state = loadState(node);
-  const pw = node.widgets?.find((w) => w.name === "prompt_text");
-  const text = (pw?.value || "").trim();
+  // The description the mode is actually built around, not the whole assembled
+  // prompt: reference mode writes detailed_description (its style opening plus
+  // the shots), every other mode writes integrated_multimodal_description.
+  const text = (state.mode === "REF"
+    ? [state.ref?.styleLine, state.ref?.detail].filter((v) => (v || "").trim())
+        .join("\n")
+    : state.imd || "").trim();
   const allSlots = getRefSlots(node);
   const refs = allSlots.filter((s) => s.tag).length;
   const orphans = allSlots.filter((s) => s.orphan != null).length;
@@ -2784,8 +3133,32 @@ export function updateSummary(node) {
   }, el("b", {}, MODES.find((m) => m.id === state.mode)?.label || state.mode),
      el("span", { class: "mmh3-modecaret" }, "\u25be"));
 
+  // A scroll on the left marks the bar as the prompt, and is an explicit
+  // target for opening the editor — the whole strip already opens it, but
+  // nothing said so.
+  const scroll = el("span", {
+    class: "mmh3-sumicon",
+    title: "Open the Prompt Builder",
+    onmousedown: (e) => e.stopPropagation(),
+    onclick: (e) => { e.stopPropagation(); openEditor(node); },
+  }, "\u{1F4DC}");
+
+  // Audio indicators, to the left of the mode button. "N/A" is how a section
+  // is written when it deliberately carries nothing, so it must not light the
+  // icon — nor should a section switched off, which never reaches the model.
+  const audioFields = state.mode === "REF" ? (state.ref || {}) : state;
+  const filled = (key, section) => {
+    const v = (audioFields[key] || "").trim();
+    return !!v && !/^n\/?a$/i.test(v) && sectionOn(state, section);
+  };
+  const marks = [];
+  if (filled("soundscape", "overall_soundscape"))
+    marks.push(el("span", { class: "mmh3-summark", title: "overall_soundscape has content" }, "\u{1F50A}"));
+  if (filled("music", "non_diegetic_music"))
+    marks.push(el("span", { class: "mmh3-summark", title: "non_diegetic_music has content" }, "\u{1F3B5}"));
+
   node._mmh3Summary.title = `${detail}\nClick to open the editor`;
-  node._mmh3Summary.replaceChildren(preview, btn);
+  node._mmh3Summary.replaceChildren(scroll, preview, ...marks, btn);
 }
 
 app.registerExtension({
@@ -2809,9 +3182,9 @@ app.registerExtension({
       if (this.addDOMWidget) {
         const summary = el("div", {
           class: "mmh3-summary",
-          title: "Open the prompt editor",
+          title: "Quick-edit the prompt — the scroll opens the full editor",
           style: { cursor: "pointer", height: "52px", minHeight: "52px" },
-          onclick: () => openEditor(this),
+          onclick: () => openQuickEdit(this),
         });
         this._mmh3Summary = summary;
         const sw = this.addDOMWidget("mmh3_summary", "div", summary,

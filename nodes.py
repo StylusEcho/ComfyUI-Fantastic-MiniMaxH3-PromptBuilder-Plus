@@ -539,9 +539,9 @@ class MiniMaxH3PromptStudio:
         "ref2va_needed BOOLEAN that is true in full-reference mode."
     )
 
-    RETURN_TYPES = ("STRING", "H3_REFS", "IMAGE", "IMAGE", "BOOLEAN")
+    RETURN_TYPES = ("STRING", "H3_REFS", "IMAGE", "IMAGE", "BOOLEAN", "MODEL")
     RETURN_NAMES = ("prompt", "references", "picture_1", "picture_2",
-                    "ref2va_needed")
+                    "ref2va_needed", "model")
     # ref2va_needed is True only in full-reference mode — the one mode whose
     # prompt has to go to MiniMaxH3ReferenceToVideo rather than ImageToVideo.
     # Wire it into a switch to pick the branch from the editor's mode instead
@@ -566,8 +566,35 @@ class MiniMaxH3PromptStudio:
                 # JSON list of media items, written by the node's panel.
                 "media_state": ("STRING", {"multiline": False, "default": "[]"}),
             },
+            # Wire both checkpoints once and let the mode pick. Lazy, so the
+            # one this mode isn't using is never pulled into memory — loading
+            # two H3 checkpoints to run on one would be a real cost.
+            "optional": {
+                "fl2va_model": ("MODEL", {"lazy": True}),
+                "ref2va_model": ("MODEL", {"lazy": True}),
+            },
             "hidden": {"prompt": "PROMPT", "unique_id": "UNIQUE_ID"},
         }
+
+    # Which checkpoint a mode runs on: only full-reference uses ref2va, every
+    # other mode is the fl2va family.
+    @staticmethod
+    def _model_input(mode):
+        return "ref2va_model" if mode == "REF" else "fl2va_model"
+
+    def check_lazy_status(self, prompt_text="", builder_state="{}",
+                          media_state="[]", fl2va_model=None,
+                          ref2va_model=None, prompt=None, unique_id=None,
+                          **kwargs):
+        """Pull only the checkpoint this mode actually runs on."""
+        want = self._model_input(_mode_of(builder_state))
+        have = ref2va_model if want == "ref2va_model" else fl2va_model
+        if have is not None:
+            return []
+        # Asking for an input nothing is wired into would stall the prompt, so
+        # check the graph first — the same guard the Prompt Builder uses.
+        linked = MiniMaxH3PromptBuilder._linked_inputs(prompt, unique_id)
+        return [want] if (linked is None or want in linked) else []
 
     @classmethod
     def IS_CHANGED(cls, prompt_text="", builder_state="{}", media_state="[]", **kwargs):
@@ -580,6 +607,7 @@ class MiniMaxH3PromptStudio:
         return validate_media_state(media_state)
 
     def build(self, prompt_text="", builder_state="{}", media_state="[]",
+              fl2va_model=None, ref2va_model=None,
               prompt=None, unique_id=None):
         mode = _mode_of(builder_state)
         bundle = build_bundle(media_state, label="Studio")
@@ -602,7 +630,17 @@ class MiniMaxH3PromptStudio:
                  if v is not None]
         print(f"[MiniMaxH3 Studio] mode={mode} -> {tail}"
               f"{', ' + ' + '.join(named) + ' on their own outputs' if named else ''}")
-        return (prompt_text.strip(), gated, *keyframes, mode == "REF")
+
+        want = self._model_input(mode)
+        model = ref2va_model if want == "ref2va_model" else fl2va_model
+        if model is None:
+            # Say so rather than passing nothing on quietly: an empty model
+            # output fails far downstream, where the cause isn't obvious.
+            print(f"[MiniMaxH3 Studio] mode {mode} runs on {want}, but that "
+                  "input is empty \u2014 the model output carries nothing.")
+        else:
+            print(f"[MiniMaxH3 Studio] mode {mode} -> passing {want} through.")
+        return (prompt_text.strip(), gated, *keyframes, mode == "REF", model)
 
 
 def _pad(seq, n):
