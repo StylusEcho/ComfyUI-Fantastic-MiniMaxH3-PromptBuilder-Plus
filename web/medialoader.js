@@ -523,6 +523,11 @@ const CSS = `
   color:#6f86b8;font-weight:500;margin-bottom:1px;}
 .mml-order div{font-family:ui-monospace,monospace;font-size:9px;color:#9db4dc;
   line-height:1.35;overflow:hidden;}
+/* Same tag colours the prompt preview uses, so a tag looks the same wherever
+   it appears. The arrows stay dim: they are punctuation, not content. */
+.mml-order .t-pic{color:#e0a94c;} .mml-order .t-vid{color:#4cc3e0;}
+.mml-order .t-aud{color:#b48ce8;} .mml-order .t-subj{color:#7ec87e;}
+.mml-orderarrow{color:#4a5568;margin:0 4px;}
 
 .mml-light{position:fixed;inset:0;z-index:10050;background:rgba(8,10,14,.75);
   display:flex;align-items:center;justify-content:center;}
@@ -2471,9 +2476,22 @@ export class LoaderPanel {
       else if (i.kind === "video" && i.audio_mode === "standalone" && extra.has(i))
         order.push(`[${(extra.get(i) || "").slice(1, -1)}]`);
     });
+    // Arrows rather than dots, since this is a sequence and not a set, and each
+    // tag in the palette the editor already gives it, so a tag reads the same
+    // colour in both places. Square brackets mark a soundtrack split off its
+    // video, so they keep the audio colour.
+    const tagClass = (t) => (/^\[?Picture/.test(t) ? "t-pic"
+      : /^\[?Video/.test(t) ? "t-vid"
+      : /^\[?Audio/.test(t) ? "t-aud"
+      : /^\[?Subject/.test(t) ? "t-subj" : "");
+    const seq = [];
+    order.forEach((t, i) => {
+      if (i) seq.push(el("span", { class: "mml-orderarrow" }, "\u2192"));
+      seq.push(el("span", { class: tagClass(t) }, t));
+    });
     kids.push(el("div", { class: "mml-order" },
       el("b", {}, "tag order sent to the model"),
-      el("div", {}, order.length ? order.join(" \u00b7 ") : "nothing loaded yet")));
+      el("div", {}, seq.length ? seq : "nothing loaded yet")));
 
     this.root.replaceChildren(...kids.filter(Boolean));
   }
