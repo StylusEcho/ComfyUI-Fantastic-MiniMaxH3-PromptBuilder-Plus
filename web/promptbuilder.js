@@ -887,6 +887,26 @@ const CSS = `
 .mmh3-body{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 0 440px;min-height:0;
   transition:grid-template-columns .16s ease;}
 .mmh3-body.haspins{grid-template-columns:minmax(0,1fr) 176px 400px;}
+/* Sidebar view: a media column at the left edge. .mmh3-rail is always in the
+   DOM so the grid's track count only changes with the class, never with what
+   happens to be rendered. */
+.mmh3-rail{display:none;}
+.mmh3-body.sidebar{grid-template-columns:186px minmax(0,1fr) 0 440px;}
+.mmh3-body.sidebar.haspins{grid-template-columns:186px minmax(0,1fr) 176px 400px;}
+.mmh3-body.sidebar .mmh3-rail{display:flex;flex-direction:column;gap:6px;
+  min-height:0;overflow-y:auto;padding:10px 8px;background:#15181e;
+  border-right:1px solid #2a2f3a;}
+.mmh3-railhead{flex:0 0 auto;font-size:10px;text-transform:uppercase;
+  letter-spacing:.08em;color:#8a93a3;}
+/* One column: the same cards, stacked. A joined video+audio pair meets
+   top-to-bottom here, so the squared corners move to the horizontal edges. */
+.mmh3-body.sidebar .mmh3-rail .mmh3-chips{flex-direction:column;flex-wrap:nowrap;
+  max-height:none;overflow:visible;align-items:stretch;}
+.mmh3-body.sidebar .mmh3-rail .mmh3-card{width:auto;}
+.mmh3-body.sidebar .mmh3-rail .mmh3-card.joinR{margin-right:0;margin-bottom:-6px;
+  border-radius:7px 7px 0 0;}
+.mmh3-body.sidebar .mmh3-rail .mmh3-card.joinL{border-left-width:1px;
+  border-top-width:0;border-radius:0 0 7px 7px;}
 @media (max-width:980px){.mmh3-body,.mmh3-body.haspins{grid-template-columns:1fr;}}
 .mmh3-pins{overflow:hidden auto;background:#15181e;border-left:1px solid #2a2f3a;
   padding:0;display:flex;flex-direction:column;gap:6px;}
@@ -915,6 +935,10 @@ const CSS = `
      would leave the side panel sitting in the empty middle one, collapsed to
      nothing with the footer buttons spilling out of it. */
   .mmh3-body,.mmh3-body.haspins{grid-template-columns:minmax(0,1fr) 400px;}
+  /* Sidebar keeps its rail track, but still drops the pin one for the same
+     reason — three in-flow items, three tracks. */
+  .mmh3-body.sidebar,.mmh3-body.sidebar.haspins{
+    grid-template-columns:186px minmax(0,1fr) 400px;}
   .mmh3-body.haspins .mmh3-pins{
     /* border-box, or the 10px padding and 1px border widen the pane past the
        calc and it runs under the modal. */
@@ -1567,6 +1591,7 @@ class Editor {
     this.lastFocus = null;
     this.pins = [];
     this.autoPin = null;
+    this.sidebar = !!node._mmh3Sidebar;
     this.libraryId = null;
     this.libraryName = "";
     this.libraryCategory = "";
@@ -1607,6 +1632,9 @@ class Editor {
   /* ---------- skeleton ---------- */
   build() {
     this.formEl = el("div", { class: "mmh3-form" });
+    // Left-edge column for the sidebar view. Always present so the grid's
+    // column count is stable; empty and hidden unless the view is on.
+    this.railEl = el("div", { class: "mmh3-rail" });
     this.pinsEl = el("div", { class: "mmh3-pins" });
     this.previewEl = el("pre", { class: "mmh3-preview" });
     this.issuesEl = el("div", { class: "mmh3-issues" });
@@ -1647,11 +1675,23 @@ class Editor {
             title: "Clear every field and start over",
             onclick: () => { this.clearPending = !this.clearPending; this.render(); } },
             "Clear"),
+          el("button", { class: "mmh3-btn" + (this.sidebar ? " primary" : ""),
+            title: "Show reference media as a column down the left edge",
+            onclick: () => {
+              this.sidebar = !this.sidebar;
+              try { this.node._mmh3Sidebar = this.sidebar; } catch (e) { /* not fatal */ }
+              this.overlay.querySelector(".mmh3-body")
+                .classList.toggle("sidebar", this.sidebar);
+              this.railEl.replaceChildren();
+              this.closePeek();
+              this.render();
+            } }, "\u25e7 Sidebar"),
           this.modeBar,
           el("button", { class: "mmh3-x", onclick: () => this.close() }, "\u2715"),
         ),
         this.modeSends,
         el("div", { class: "mmh3-body" },
+          this.railEl,
           this.formEl,
           this.pinsEl,
           el("div", { class: "mmh3-side" },
@@ -1852,9 +1892,16 @@ class Editor {
             s.source + (s.note ? ` \u2022 ${s.note.replace(/[<>]/g, "")}` : ""))));
 
       const r = card.getBoundingClientRect();
-      // Keep the peek on screen: .mmh3-peek is 540px plus a 10px margin.
-      box.style.left = `${Math.max(0, Math.min(r.left, window.innerWidth - 550))}px`;
-      box.style.top = `${r.bottom + 6}px`;
+      // Beside the thumbnail in the sidebar view, below it otherwise. Both
+      // clamp to the viewport: .mmh3-peek is up to 540px wide.
+      if (this.sidebar) {
+        box.style.left = `${Math.max(0, Math.min(r.right + 8, window.innerWidth - 550))}px`;
+        box.style.top = `${Math.max(4, Math.min(r.top,
+          window.innerHeight - box.offsetHeight - 8))}px`;
+      } else {
+        box.style.left = `${Math.max(0, Math.min(r.left, window.innerWidth - 550))}px`;
+        box.style.top = `${r.bottom + 6}px`;
+      }
       box.addEventListener("mouseenter", () => clearTimeout(this._peekClose));
       box.addEventListener("mouseleave", () => this.closePeek());
       document.body.append(box);
@@ -1915,6 +1962,8 @@ class Editor {
 
     this.overlay.querySelector(".mmh3-body")
       .classList.toggle("haspins", list.length > 0);
+    this.overlay.querySelector(".mmh3-body")
+      .classList.toggle("sidebar", !!this.sidebar);
 
     this.pinsEl.replaceChildren(
       el("div", { class: "mmh3-pinhead" }, "pinned"),
@@ -2222,8 +2271,15 @@ class Editor {
       if (styleSel.value) { this.insert(styleSel.value + ", "); styleSel.value = ""; }
     });
 
+    const chips = el("div", { class: "mmh3-chips" }, this.refChips());
+    if (this.sidebar) {
+      // Same strip, different column: it stacks into one column by CSS, so
+      // the cards, their drag-reorder and their tools all carry over.
+      this.railEl.replaceChildren(
+        el("div", { class: "mmh3-railhead" }, "media"), chips);
+    }
     return el("div", { class: "mmh3-chipbar" },
-      el("div", { class: "mmh3-chips" }, this.refChips()),
+      this.sidebar ? null : chips,
       extraChips.length
         ? el("div", { class: "mmh3-subjrow" }, extraChips) : null,
       el("div", { class: "mmh3-tools" },
