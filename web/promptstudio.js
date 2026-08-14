@@ -9,8 +9,7 @@
  */
 import { app } from "../../scripts/app.js";
 import {
-  LoaderPanel, addSplitter, openLoaderModal, applyCanvasSizing,
-  PANEL_H, NODE_W,
+  LoaderPanel, applyCanvasSizing, PANEL_H, NODE_W,
 } from "./medialoader.js";
 import {
   openEditor, updateSummary, hideWidget, el, injectCSS,
@@ -22,9 +21,6 @@ import {
 console.log("[MiniMaxH3 PromptStudio] module loaded");
 
 const STUDIO_NAME = "MiniMaxH3PromptStudio";
-// Outputs are (prompt, references, picture_1, picture_2, ref2va_needed) —
-// the splitter wants the bundle, which is the second one.
-const REFS_SLOT = 1;
 const SUMMARY_H = 52;   // two clamped preview lines + padding
 
 /** The panel widget's current height, read back off the widget rather than
@@ -106,17 +102,9 @@ app.registerExtension({
     nodeType.prototype.onNodeCreated = function () {
       const r = onNodeCreated?.apply(this, arguments);
 
-      // The buttons come first and are the one part that must never be lost:
-      // both open a modal, so the node stays fully usable even if the on-node
-      // panel or summary below fails to build. (They also have to precede any
-      // DOM widget — in Nodes 2.0 a plain widget added after one anchors to
-      // the node's bottom and leaves a gap on resize.)
-      this.addWidget("button", "Prompt Builder", null, () => openEditor(this));
-      this.addWidget("button", "Open Media Loader in Window", null,
-        () => openLoaderModal(this, "MiniMax H3 Prompt Studio — media"));
-      this.addWidget("button", "+ Native-output splitter", null,
-        () => addSplitter(this, REFS_SLOT));
-
+      // No widget buttons on the node. The prompt bar's scroll opens the
+      // editor and the media panel is right here, so the rule about plain
+      // widgets having to precede DOM widgets no longer binds either.
       try {
         injectCSS();
         hideWidget(this, "prompt_text");
@@ -127,8 +115,24 @@ app.registerExtension({
           + "widgets; they stay visible but still work:", e);
       }
 
-      // Clickable summary, as on the Prompt Builder: a layout-independent way
-      // into the editor when the canvas button is hard to hit.
+      // Media panel first: the prompt bar reads as a summary of what is above
+      // it rather than a header floating over an empty node.
+      try {
+        // Media and prompt share this node, so a change to the inventory has
+        // to redraw the summary's count. LoaderPanel.commit calls this.
+        this._mmlOnCommit = () => updateSummary(this);
+
+        this._mmlPanel = new LoaderPanel(this);
+        const widget = this.addDOMWidget("mml_panel", "div",
+          this._mmlPanel.root, { serialize: false });
+        applyCanvasSizing(this, widget, NODE_W, PANEL_H);
+      } catch (e) {
+        console.error("[MiniMaxH3 PromptStudio] on-node media panel failed; "
+          + "right-click a slot, or open the loader window, instead:", e);
+      }
+
+      // The prompt bar sits under it: preview, audio marks and the mode
+      // button, with the scroll at its left opening the full editor.
       try {
         if (this.addDOMWidget) {
           const summary = el("div", {
@@ -146,20 +150,6 @@ app.registerExtension({
         }
       } catch (e) {
         console.error("[MiniMaxH3 PromptStudio] summary panel failed:", e);
-      }
-
-      try {
-        // Media and prompt share this node, so a change to the inventory has
-        // to redraw the summary's count. LoaderPanel.commit calls this.
-        this._mmlOnCommit = () => updateSummary(this);
-
-        this._mmlPanel = new LoaderPanel(this);
-        const widget = this.addDOMWidget("mml_panel", "div",
-          this._mmlPanel.root, { serialize: false });
-        applyCanvasSizing(this, widget, NODE_W, PANEL_H);
-      } catch (e) {
-        console.error("[MiniMaxH3 PromptStudio] on-node media panel failed; "
-          + "use the 'Open Media Loader in Window' button instead:", e);
       }
 
       setTimeout(() => { try { updateSummary(this); } catch (e) { /* cosmetic */ } }, 0);

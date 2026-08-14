@@ -473,7 +473,7 @@ function slotsFromBundle(node) {
   const out = [];
   const push = (tag, kind, item, note, previewKind) => {
     const n = +(tag.match(/(\d+)>/) || [])[1];
-    out.push({
+    const slot = {
       tag, kind, idx: n, cls: TAG_CLASS[kind], note,
       slotName: `loader:${item.name}`,
       source: `${src.label} \u2022 ${item.name}`,
@@ -481,15 +481,26 @@ function slotsFromBundle(node) {
       // The live item and the panel that owns it, so the rail can offer the
       // same per-clip tools the node tile does.
       item, panel,
-    });
+    };
+    out.push(slot);
+    return slot;
   };
   items.filter((i) => i.kind === "picture")
     .forEach((i) => push(tags.get(i), "Picture", i, null, "img"));
   items.filter((i) => i.kind === "video").forEach((i) => {
-    if (extra.has(i) && (i.audio_mode || "off") === "paired")
-      push(extra.get(i), "Audio", i,
+    // A paired soundtrack is the same underlying item as its video, and H3
+    // receives its <Audio n> first. On screen the video reads better first, so
+    // the two are pushed video-then-audio and flagged as a joined pair. Only
+    // the display order changes \u2014 `tag` still carries the numbering H3 was
+    // given, so nothing downstream sees a different sequence.
+    const paired = extra.has(i) && (i.audio_mode || "off") === "paired";
+    const vid = push(tags.get(i), "Video", i, null, "video");
+    if (paired) {
+      const aud = push(extra.get(i), "Audio", i,
         `soundtrack of ${tags.get(i)}`, "audio");
-    push(tags.get(i), "Video", i, null, "video");
+      vid.joinRight = true;
+      aud.joinLeft = true;
+    }
   });
   items.forEach((i) => {
     if (i.kind === "audio") push(tags.get(i), "Audio", i, "standalone", "audio");
@@ -1009,6 +1020,13 @@ const CSS = `
 .mmh3-chips::-webkit-scrollbar{width:6px;height:6px;}
 .mmh3-chips::-webkit-scrollbar-thumb{background:#2e3440;border-radius:3px;}
 .mmh3-card.mmh3-dropinto{outline:2px solid #6f86b8;outline-offset:1px;}
+/* A video and its split soundtrack read as one unit: the pair closes the 6px
+   rail gap with a negative margin and squares only the two corners that meet,
+   so the teal border sits flush against the purple one. */
+.mmh3-card.joinR{border-top-right-radius:0;border-bottom-right-radius:0;
+  margin-right:-6px;}
+.mmh3-card.joinL{border-top-left-radius:0;border-bottom-left-radius:0;
+  border-left-width:0;}
 .mmh3-card.mmh3-drop{display:flex;flex-direction:column;align-items:center;
   justify-content:center;gap:3px;align-self:stretch;min-height:97px;
   border-style:dashed;
@@ -2025,7 +2043,8 @@ class Editor {
       const ok = this.usable(s);
       const cites = ok ? this.citationCount(s.tag) : 0;
       const card = el("div", {
-        class: `mmh3-card ${s.cls}` + (ok ? "" : " unusable"),
+        class: `mmh3-card ${s.cls}` + (ok ? "" : " unusable")
+          + (s.joinRight ? " joinR" : "") + (s.joinLeft ? " joinL" : ""),
         draggable: ok,
         title: ok ? `${s.tag} \u2022 ${s.source}` : this.modeNote(s),
         onclick: () => ok ? this.insert(s.tag) : toast(this.modeNote(s), 3200),
@@ -2088,7 +2107,7 @@ class Editor {
       }, "\u{1F4CC}"));
     }
 
-    if (s.item && s.panel) {
+    if (s.item && s.panel && !s.joinRight) {
       const still = s.item.kind === "picture";
       tools.push(el("span", {
         class: "mmh3-cardtool" + (s.item.trim || s.item.crop || s.item.rotate
