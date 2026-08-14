@@ -1012,13 +1012,17 @@ const CSS = `
 .mmh3-chips::-webkit-scrollbar-thumb{background:#2e3440;border-radius:3px;}
 .mmh3-card.mmh3-dropinto{outline:2px solid #6f86b8;outline-offset:1px;}
 .mmh3-card.mmh3-drop{display:flex;flex-direction:column;align-items:center;
-  justify-content:center;gap:3px;height:104px;border-style:dashed;
+  justify-content:center;gap:3px;align-self:stretch;min-height:97px;
+  border-style:dashed;
   border-color:#2b313d;background:#141820;color:#5c6472;cursor:pointer;}
 .mmh3-card.mmh3-drop:hover{border-color:#59637a;color:#8a93a3;}
 .mmh3-card.mmh3-drop.hot{border-color:#6f86b8;background:#1b2230;color:#9db4dc;}
 .mmh3-dropplus{font-size:18px;line-height:1;}
 .mmh3-dropkinds{font-size:9px;text-transform:uppercase;letter-spacing:.06em;}
-.mmh3-cardtools{display:flex;align-items:center;gap:8px;padding:0 4px 3px;}
+/* Sits at the right-hand end of the card's bottom bar, matching where the
+   node's tiles put the same control. */
+.mmh3-cardtools{display:flex;align-items:center;gap:6px;margin-left:5px;
+  flex:0 0 auto;}
 .mmh3-cardtool{cursor:pointer;font-size:11px;line-height:1;color:#5a6373;
   user-select:none;}
 .mmh3-cardtool:hover{color:#c9cfda;}
@@ -2039,12 +2043,12 @@ class Editor {
                 title: cites ? `cited ${cites}\u00d7` : "not cited yet" },
                 cites || "\u2013")
             : el("span", { class: "mmh3-cite off", title: this.modeNote(s) },
-                "\u2298")),
+                "\u2298"),
+          this.cardTools(s)),
         s.note && s.note !== "standalone"
           ? el("span", { class: "mmh3-cardnote" },
               "\u266a\u2192V" + (s.note.match(/\d+/) || [""])[0])
-          : null,
-        this.cardTools(s));
+          : null);
       if (s.item && s.panel) this.railReorder(card, s);
       if (ok) this.peekFor(card, s);
       return card;

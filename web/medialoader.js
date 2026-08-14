@@ -394,6 +394,10 @@ const CSS = `
   background:#191c22;border:1px solid #303642;
   border-radius:10px;box-shadow:0 24px 64px rgba(0,0,0,.55);display:flex;
   flex-direction:column;overflow:hidden;font-family:system-ui,sans-serif;}
+/* Audio has no frame to show, so it keeps its original compact window
+   rather than the full-height one video and stills were given. */
+.mml-tmmodal.audio{width:min(640px,92vw);height:auto;max-height:92vh;}
+.mml-tmmodal.audio .mml-tmstage{flex:0 0 auto;}
 .mml-tmhead{display:flex;align-items:center;gap:8px;padding:8px 12px;
   border-bottom:1px solid #2a2f3a;background:#1b1f27;}
 .mml-tmtitle{flex:1;min-width:0;font-size:12px;color:#dde2ea;overflow:hidden;

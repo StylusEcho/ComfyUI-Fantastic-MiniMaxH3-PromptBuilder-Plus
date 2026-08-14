@@ -17,10 +17,12 @@
   * The bar now shows the description the mode is built around rather than the whole assembled prompt: `integrated_multimodal_description` in T2VA/I2VA/FL2VA/L2VA, and `detailed_description` (style opening + shots) in Reference. Verified across all three cases.
 * 🟩 resizing overall\_soundscape or non\_diegetic\_music should also resize the other.
   * The two boxes are height-linked by a pair of ResizeObservers with a re-entrancy guard, so dragging either grip resizes the other and the pair stays level; applied in both the base and reference layouts. Degrades silently where ResizeObserver is unavailable. ⚠ The drag itself needs a pointer, so it is a manual check — the wiring and guards are verified, the gesture is not.
-* 🟦 the button I've asked to be added to the thumbnails in the prompt builder, they should be in the bottom right to match them on the node interface.
+* 🟩 the button I've asked to be added to the thumbnails in the prompt builder, they should be in the bottom right to match them on the node interface.
+  * The crop/trim control moved into the card's bottom bar, at its right-hand end, matching where the node's tiles put the same control — measured 5px from the card's right edge and 3px from its bottom. It no longer occupies a row of its own, so cards are shorter (130x97) and the dashed add-tile stretches to stay level with them.
 * 🟦 add a Pin button. red if enabled. remove the bottom buttons in the hover-over preview if you think they're redundant.
 * 🟦 add an x like the node as well for removal.
-* 🟦 the audio trim window needs to be reverted to its original size.
+* 🟩 the audio trim window needs to be reverted to its original size.
+  * The trim window already carried an `audio` variant class, so audio-only clips now keep the original compact window (measured 640x258, height driven by content) while video and stills keep the full-height one (1240x994). Audio has a waveform and a few fields, not a frame to show.
 * 🟦 <> tags in the prompt builder should be colour coded (orange for <Picture x>, green for <Subject x>, etc). \[Shot x],<d>\[language] </d> tags should get their own colour too, decide that based on what's unused. same for (Sx) and N/A
 * 🟦 the prompt preview on the node, there should be icons on the right (to the left of the mode dropdown).
 🔊 if overall\_soundscape has content. 🎵 if non\_diegetic\_music has content. but not if they are just N/A.
