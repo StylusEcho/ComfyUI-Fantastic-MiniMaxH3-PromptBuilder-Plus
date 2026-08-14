@@ -589,6 +589,20 @@ and loading is instant. If you later delete one of those files, loading the
 preset skips it and tells you which one is missing. Deleting a preset never
 deletes your media.
 
+### Pinned references
+
+Pinning keeps a reference on screen while you write about it. Pin from a
+thumbnail's hover preview, up to three at a time; putting the text caret inside
+a tag like `<Picture 2>` pins that one automatically, marked `auto`, until the
+caret moves.
+
+On a screen 1800px or wider the pin pane lifts out of the editor and stands in
+the empty space to its left, clearing the screen edge by the same margin the
+editor clears the top and bottom. Pins then get as much room as the screen
+allows — around 280px wide at 1080p and 570px at 1440p, against the 176px
+column inside the editor. Below that width there isn't enough room beside the
+editor to be worth it, so the pane stays in its column.
+
 ### Copying media between slots
 
 Right-click any slot for **Copy**, **Duplicate**, **Paste**, **Switch on/off**

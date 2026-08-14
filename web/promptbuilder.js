@@ -827,11 +827,18 @@ function validate(state, slots) {
 
 const CSS = `
 .mmh3-overlay{position:fixed;inset:0;z-index:10000;background:rgba(8,10,14,.62);
-  display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;}
+  display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;
+  /* The modal's size lives here so the floating pin pane can derive its own
+     margin from it. --mmh3-gap is the strip of overlay above and below the
+     centred modal; the pane uses the same figure on the left, so all three
+     edges sit the same distance from the screen. */
+  --mmh3-mw:min(1240px,95vw);
+  --mmh3-mh:min(1290px,92vh);
+  --mmh3-gap:calc((100vh - var(--mmh3-mh)) / 2);}
 /* The pixel cap, not the viewport one, is what usually decides this modal's
    height — 92vh only bites on a short screen. Raising the cap by half is what
    makes the editor use more of a tall screen. */
-.mmh3-modal{width:min(1240px,95vw);height:min(1290px,92vh);display:flex;flex-direction:column;
+.mmh3-modal{width:var(--mmh3-mw);height:var(--mmh3-mh);display:flex;flex-direction:column;
   background:#191c22;color:#d7dbe2;border:1px solid #303642;border-radius:10px;
   box-shadow:0 24px 64px rgba(0,0,0,.55);overflow:hidden;}
 .mmh3-head{display:flex;align-items:center;gap:14px;padding:10px 16px;
@@ -855,11 +862,33 @@ const CSS = `
 .mmh3-pins{overflow:hidden auto;background:#15181e;border-left:1px solid #2a2f3a;
   padding:0;display:flex;flex-direction:column;gap:6px;}
 .mmh3-body.haspins .mmh3-pins{padding:10px 8px;}
-.mmh3-pinhead{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#8a93a3;}
-.mmh3-pincard{border:1px solid #363d4a;border-radius:7px;overflow:hidden;background:#12151b;}
-.mmh3-pincard .mmh3-thumb{width:100%;height:auto;max-height:150px;object-fit:contain;
-  display:block;background:#0d1015;}
-.mmh3-pinbar{display:flex;align-items:center;gap:6px;padding:3px 6px;}
+.mmh3-pinhead{flex:0 0 auto;font-size:10px;text-transform:uppercase;
+  letter-spacing:.08em;color:#8a93a3;}
+/* Cards share the pane's height evenly and the picture takes whatever the tag
+   bar and any audio control don't, so a pin is as large as the space allows.
+   min-height:0 is what lets a flex item shrink below its content. */
+.mmh3-pincard{flex:1 1 0;min-height:0;display:flex;flex-direction:column;
+  border:1px solid #363d4a;border-radius:7px;overflow:hidden;background:#12151b;}
+.mmh3-pincard .mmh3-thumb{flex:1 1 auto;min-height:0;width:100%;height:auto;
+  object-fit:contain;display:block;background:#0d1015;}
+.mmh3-pinbar{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:3px 6px;}
+.mmh3-pincard audio{flex:0 0 auto;}
+
+/* Wide screens: lift the pane out of the modal and stand it in the empty
+   overlay to the left, where a pin can be far bigger than a 176px column
+   allows. Its left/top/bottom insets are all --mmh3-gap, so it clears the
+   screen edge by exactly what the modal clears the top and bottom by.
+   Below this width the overlay margin is too narrow to be worth it and the
+   pane stays in its in-modal column. */
+@media (min-width:1800px){
+  .mmh3-body.haspins{grid-template-columns:minmax(0,1fr) 0 400px;}
+  .mmh3-body.haspins .mmh3-pins{
+    position:fixed;top:var(--mmh3-gap);bottom:var(--mmh3-gap);left:var(--mmh3-gap);
+    width:calc((100vw - var(--mmh3-mw)) / 2 - var(--mmh3-gap) - 14px);
+    border:1px solid #303642;border-left:1px solid #303642;border-radius:10px;
+    box-shadow:0 24px 64px rgba(0,0,0,.55);padding:10px;overflow:hidden;}
+  .mmh3-body:not(.haspins) .mmh3-pins{display:none;}
+}
 .mmh3-auto{font-size:9px;color:#6f86b8;border:1px solid #2b3a52;border-radius:7px;
   padding:0 5px;margin-left:auto;}
 .mmh3-pinbar .mmh3-x{margin-left:auto;cursor:pointer;color:#6b7484;font-size:11px;}
