@@ -1089,6 +1089,12 @@ const CSS = `
 .mmh3-preview .t-aud{color:#b48ce8;} .mmh3-preview .t-subj{color:#7ec87e;}
 .mmh3-preview .t-shot{color:#7ea7d8;font-weight:600;}
 .mmh3-preview .t-d{color:#d8c07e;}
+/* Hues picked from what the tag palette wasn't already using: coral for the
+   language bracket, pink for a speaker, and grey for N/A — which marks a
+   section as deliberately empty, so it should read as absent, not as content. */
+.mmh3-preview .t-lang{color:#e8846a;}
+.mmh3-preview .t-spk{color:#e58fbf;font-weight:600;}
+.mmh3-preview .t-na{color:#6b7484;font-style:italic;}
 .mmh3-issues{max-height:180px;overflow:auto;border-top:1px solid #2a2f3a;padding:8px 14px;font-size:12px;}
 .mmh3-issues .error{color:#f07070;margin:3px 0;font-weight:500;}
 .mmh3-issues .warn{color:#e0a94c;margin:3px 0;}
@@ -1109,6 +1115,8 @@ const CSS = `
 .mmh3-sumicon{flex:0 0 auto;align-self:center;font-size:15px;line-height:1;
   cursor:pointer;opacity:.75;user-select:none;}
 .mmh3-sumicon:hover{opacity:1;}
+.mmh3-summark{flex:0 0 auto;align-self:center;font-size:12px;line-height:1;
+  opacity:.85;user-select:none;}
 .mmh3-modebtn{flex:0 0 auto;align-self:center;display:inline-flex;align-items:center;gap:5px;
   background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
   padding:4px 9px;font-size:11px;font-family:inherit;cursor:pointer;white-space:nowrap;}
@@ -2708,11 +2716,19 @@ class Editor {
     this._paintSubjChips?.();
     const text = generate(this.state);
     this._citeText = text;
+    // Order matters. The language bracket runs before [Shot N] and excludes it
+    // by lookahead, so the two can't claim each other's text; every pattern
+    // after the first excludes < and > so none can match inside a span this
+    // chain has already inserted.
     let html = escapeHtml(text)
       .replace(/&lt;(Subject|Picture|Video|Audio) (\d+)&gt;/g,
         (m, k, n) => `<span class="t-${TAG_CLASS[k]}">&lt;${k} ${n}&gt;</span>`)
+      .replace(/\[(?!Shot\b)([^\]\n<>]{1,24})\]/g,
+        '<span class="t-lang">[$1]</span>')
       .replace(/\[Shot (\d+)\]/g, '<span class="t-shot">[Shot $1]</span>')
-      .replace(/&lt;(\/?d|scenetrans|cutoff)&gt;/g, '<span class="t-d">&lt;$1&gt;</span>');
+      .replace(/&lt;(\/?d|scenetrans|cutoff)&gt;/g, '<span class="t-d">&lt;$1&gt;</span>')
+      .replace(/\((S\d+)\)/g, '<span class="t-spk">($1)</span>')
+      .replace(/\bN\/A\b/g, '<span class="t-na">N/A</span>');
     this.previewEl.innerHTML = html;
 
     const rank = { error: 0, warn: 1, info: 2 };
@@ -2932,8 +2948,22 @@ export function updateSummary(node) {
     onclick: (e) => { e.stopPropagation(); openEditor(node); },
   }, "\u{1F4DC}");
 
+  // Audio indicators, to the left of the mode button. "N/A" is how a section
+  // is written when it deliberately carries nothing, so it must not light the
+  // icon — nor should a section switched off, which never reaches the model.
+  const audioFields = state.mode === "REF" ? (state.ref || {}) : state;
+  const filled = (key, section) => {
+    const v = (audioFields[key] || "").trim();
+    return !!v && !/^n\/?a$/i.test(v) && sectionOn(state, section);
+  };
+  const marks = [];
+  if (filled("soundscape", "overall_soundscape"))
+    marks.push(el("span", { class: "mmh3-summark", title: "overall_soundscape has content" }, "\u{1F50A}"));
+  if (filled("music", "non_diegetic_music"))
+    marks.push(el("span", { class: "mmh3-summark", title: "non_diegetic_music has content" }, "\u{1F3B5}"));
+
   node._mmh3Summary.title = `${detail}\nClick to open the editor`;
-  node._mmh3Summary.replaceChildren(scroll, preview, btn);
+  node._mmh3Summary.replaceChildren(scroll, preview, ...marks, btn);
 }
 
 app.registerExtension({
