@@ -898,7 +898,11 @@ const CSS = `
    Below this width the overlay margin is too narrow to be worth it and the
    pane stays in its in-modal column. */
 @media (min-width:1800px){
-  .mmh3-body.haspins{grid-template-columns:minmax(0,1fr) 0 400px;}
+  /* Two columns, not three: up here the pane is never an in-flow grid item —
+     display:none when empty, out of flow when floating — so a third track
+     would leave the side panel sitting in the empty middle one, collapsed to
+     nothing with the footer buttons spilling out of it. */
+  .mmh3-body,.mmh3-body.haspins{grid-template-columns:minmax(0,1fr) 400px;}
   .mmh3-body.haspins .mmh3-pins{
     /* border-box, or the 10px padding and 1px border widen the pane past the
        calc and it runs under the modal. */
