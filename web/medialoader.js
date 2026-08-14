@@ -200,6 +200,18 @@ export function safeCanvasFocus(node) {
 
 /* ------------------------------------------------------------------ css */
 
+/* What each prompt mode can actually carry. Lives here rather than in the
+   prompt builder so the media panel can shape itself to the mode without the
+   two files importing each other. */
+export const MODE_CAPACITY = {
+  T2VA: { Picture: 0, Video: 0, Audio: 0, roles: {} },
+  I2VA: { Picture: 1, Video: 0, Audio: 0, roles: { "Picture 1": "first frame" } },
+  FL2VA: { Picture: 2, Video: 0, Audio: 0,
+    roles: { "Picture 1": "first frame", "Picture 2": "last frame" } },
+  L2VA: { Picture: 1, Video: 0, Audio: 0, roles: { "Picture 1": "last frame" } },
+  REF: { Picture: 9, Video: 3, Audio: 3, total: 12, roles: {} },
+};
+
 export const PANEL_H = 476;
 export const NODE_W = 660;
 
@@ -228,6 +240,17 @@ const CSS = `
   display:flex;flex-direction:column;gap:6px;box-sizing:border-box;
   width:100%;height:476px;min-height:476px;overflow:hidden;}
 .mml-cols{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+/* Mode-shaped layout: one big slot for a single keyframe, two side by side
+   for first+last. The slots grow to the panel instead of the fixed tile size,
+   since there are only one or two of them. */
+.mml-shape{flex:1;min-height:0;display:grid;gap:9px;}
+.mml-shape.one{grid-template-columns:1fr;}
+.mml-shape.two{grid-template-columns:1fr 1fr;}
+.mml-shape .mml-slot{width:auto;height:auto;min-height:0;}
+.mml-shape .mml-pic{object-fit:contain;}
+.mml-shapenone{flex:0 0 auto;padding:10px 8px;border:1px dashed #2e3440;
+  border-radius:7px;color:#6b7484;font-size:11px;text-align:center;}
+.mml-panel.mml-min{height:auto;min-height:0;}
 .mml-col{display:flex;flex-direction:column;gap:5px;min-width:0;}
 .mml-modal .mml-panel{border:0;height:100%;min-height:0;}
 .mml-overlay{position:fixed;inset:0;z-index:10040;background:rgba(8,10,14,.62);
@@ -269,6 +292,12 @@ const CSS = `
   font-family:system-ui,sans-serif;}
 .mml-preset:focus{outline:none;border-color:#4a5568;}
 .mml-btn.mml-sm{padding:3px 9px;font-size:10px;}
+.mml-btn.mml-on{border-color:#4a6fa5;background:#22304a;color:#c9dcf5;}
+.mml-winbtn{position:relative;}
+.mml-winbtn.mml-hasHidden{border-color:#7a5a2a;color:#e0a94c;}
+.mml-badge{position:absolute;top:-5px;right:-5px;min-width:13px;height:13px;
+  padding:0 3px;border-radius:7px;background:#e0a94c;color:#191c22;font-size:9px;
+  line-height:13px;text-align:center;font-weight:600;box-sizing:border-box;}
 .mml-btn.mml-danger{border-color:#7a3a3a;color:#f0a0a0;}
 .mml-btn.mml-danger:hover{background:#3a2020;}
 .mml-presetname{flex:1;min-width:0;background:#12151b;color:#dde2ea;
@@ -1585,7 +1614,8 @@ async function uploadFile(file) {
 /* --------------------------------------------------------------- panel */
 
 export class LoaderPanel {
-  constructor(node) {
+  constructor(node, opts = {}) {
+    this.modal = !!opts.modal;
     this.node = node;
     (node._mmlPanels = node._mmlPanels || []).push(this);
     this.items = this.read();
@@ -1850,6 +1880,149 @@ export class LoaderPanel {
     this.commit();
   }
 
+  /** One filled picture cell. Extracted so the standard grid and the
+   *  mode-shaped layout render the identical tile rather than two that
+   *  drift apart. */
+  picCell(it, tags) {
+      const tag = (tags.get(it) || "").slice(1, -1);
+      return (this.reorderable(el("div",
+        { class: "mml-slot filled pic" + (isOn(it) ? "" : " off") },
+        (() => {
+          // Badge and img are SIBLINGS in the slot: .mml-pic is absolutely
+          // positioned against the slot, so wrapping it breaks its sizing.
+          const [ow, oh] = outSize(it);
+          const badge = el("span", { class: "mml-dims" + (it.crop ? " cut" : "") },
+            dimsLabel(ow, oh));
+          // Declared before the crop block below, which reads both. As const
+          // they sit in the temporal dead zone until this point, so leaving
+          // them further down threw ReferenceError on any cropped picture.
+          const turn = ((parseInt(it.rotate, 10) || 0) % 360 + 360) % 360;
+          const quarter = turn === 90 || turn === 270;
+          // The file is untouched, so the thumbnail shows the whole picture
+          // with everything outside the crop dimmed — you can see what was
+          // dropped, not just what's left.
+          let marquee = null;
+          if (it.crop) {
+            const box = el("div", { class: "mml-cropbox" },
+              el("div", { class: "mml-cropmark", style: {
+                left: `${(it.crop.x ?? 0) * 100}%`,
+                top: `${(it.crop.y ?? 0) * 100}%`,
+                width: `${(it.crop.w ?? 1) * 100}%`,
+                height: `${(it.crop.h ?? 1) * 100}%`,
+              } }));
+            marquee = el("div", { class: "mml-cropfit",
+              style: (it.mirror || turn)
+                ? { transform: `${it.mirror ? "scaleX(-1) " : ""}rotate(${turn}deg)` }
+                : {} }, box);
+            // Fit against the post-rotation shape: a quarter turn swaps the
+            // sides the drawn image occupies.
+            requestAnimationFrame(() => fitToMedia(
+              img, box,
+              quarter ? it.height : it.width,
+              quarter ? it.width : it.height));
+            if (quarter) requestAnimationFrame(() => fitTurned(img));
+          }
+          const img = el("img", { class: "mml-pic" + (quarter ? " turned" : ""),
+            src: viewURL(it.file),
+            style: (it.mirror || turn)
+              ? { transform: `${it.mirror ? "scaleX(-1) " : ""}rotate(${turn}deg)` }
+              : {},
+            title: dimsTitle(it.name, it.width, it.height)
+              + (turn ? `\nrotated ${turn}\u00b0` : "")
+              + (it.crop ? `\ncropped to ${ow}\u00d7${oh}` : "")
+              + (it.mirror ? "\nmirrored" : ""),
+            onload: () => {
+              // Items from before dimensions were stored learn them here.
+              if (!it.width && img.naturalWidth) {
+                it.width = img.naturalWidth;
+                it.height = img.naturalHeight;
+                const [nw, nh] = outSize(it);
+                badge.textContent = dimsLabel(nw, nh);
+                img.title = dimsTitle(it.name, it.width, it.height);
+                this.commit();
+              }
+            },
+            onclick: () => lightbox(it, tags.get(it) || "") });
+          return [img, marquee, badge];
+        })(),
+        el("div", { class: "mml-picbar" },
+          this.powerBtn(it),
+          el("span", { class: "mml-tag pic" }, isOn(it) ? tag : "off"),
+          this.trimBtn(it),
+          el("span", { class: "mml-drag", title: "Drag to reorder" }, "\u2630"),
+          el("span", { class: "mml-x", title: "Remove",
+            onclick: () => this.remove(it) }, "\u2715"))), it));
+  }
+
+  /** Top-right controls: the layout toggle, and a way into the full-size
+   *  window. Neither belongs in the modal — it is already the full-size
+   *  window, and it always shows the standard layout. */
+  topRight() {
+    if (this.modal) return [];
+    const out = [];
+    const m = this.mode();
+    if (m && m !== "REF") {
+      out.push(el("button", {
+        class: "mml-btn mml-sm" + (this.compact ? " mml-on" : ""),
+        title: this.compact
+          ? `Showing only what ${m} uses \u2014 click for every slot`
+          : `Show only the slots ${m} uses`,
+        onclick: () => {
+          this.compact = !this.compact;
+          this.render();
+          // The shape drives whether the node's prompt bar expands, so the
+          // node has to be told: render() alone never reaches it.
+          try { this.node._mmlOnCommit?.(); } catch (e) { /* cosmetic */ }
+        },
+      }, this.compact ? "\u25f0 Mode" : "\u25f1 All"));
+    }
+    const hidden = this.hiddenCount();
+    out.push(el("button", {
+      class: "mml-btn mml-sm mml-winbtn" + (hidden ? " mml-hasHidden" : ""),
+      title: hidden
+        ? `${hidden} item(s) loaded but not shown in this layout \u2014 open the `
+          + `full window to reach them`
+        : "Open the media loader in a window",
+      onclick: () => openLoaderModal(this.node, "MiniMax H3 \u2014 media"),
+    }, "\u2750", hidden ? el("span", { class: "mml-badge" }, String(hidden)) : null));
+    return out;
+  }
+
+  /** The prompt mode this node is set to, or null when there is none — the
+   *  standalone Media Loader has no builder state, so it has no mode and the
+   *  mode-shaped layout simply never applies to it. */
+  mode() {
+    try {
+      const w = this.node.widgets?.find((x) => x.name === "builder_state");
+      const m = JSON.parse(w?.value || "{}").mode;
+      return MODE_CAPACITY[m] ? m : null;
+    } catch (e) { return null; }
+  }
+
+  /** The compact layout's shape for the current mode, or null to render the
+   *  standard one. Driven by MODE_CAPACITY so it cannot drift from the limits
+   *  the rest of the pack enforces. Reference is deliberately unshaped: it can
+   *  carry everything, so there is nothing to trim. */
+  shape() {
+    if (this.modal || !this.compact) return null;
+    const m = this.mode();
+    if (!m || m === "REF") return null;
+    const cap = MODE_CAPACITY[m];
+    return { mode: m, pictures: cap.Picture, videos: cap.Video, audios: cap.Audio };
+  }
+
+  /** Loaded items the compact shape has no slot for. This is what the
+   *  full-size window's badge reports: the shape may leave media out, but it
+   *  is never left unreachable or unannounced. */
+  hiddenCount() {
+    const sh = this.shape();
+    if (!sh) return 0;
+    const over = (kind, room) =>
+      Math.max(0, this.items.filter((i) => i.kind === kind).length - room);
+    return over("picture", sh.pictures) + over("video", sh.videos)
+      + over("audio", sh.audios);
+  }
+
   /** Why this kind can't take another item, or null when there's room.
    *  Shared by file loading and pasting so both refuse on the same terms. */
   capacityError(kind, name) {
@@ -2079,7 +2252,8 @@ export class LoaderPanel {
             "Unload media")
         : null,
       presetGroup,
-      el("span", { class: "mml-topspace" })));
+      el("span", { class: "mml-topspace" }),
+      ...this.topRight()));
     // The x/12 and audio counters used to sit here. Every state they warned
     // about is already spelled out in the problem line below, in words and in
     // red, so they were spending prime space to repeat it \u2014 the running
@@ -2152,6 +2326,34 @@ export class LoaderPanel {
     kids.push(el("div", { class: "mml-msg" + (this.msgErr || problems.length ? " err" : "") },
       problems.length ? problems[0] : this.msg));
 
+    // Mode-shaped layout: only the slots this mode can use. Everything else
+    // stays loaded and reachable through the full-size window, which is why
+    // its button carries a count of what is not on show here.
+    const sh = this.shape();
+    if (sh) {
+      const cells = [];
+      pics.slice(0, sh.pictures).forEach((it, i) => cells.push(this.picCell(it, tags)));
+      for (let i = pics.length; i < sh.pictures; i += 1)
+        cells.push(this.emptySlot("picture", i + 1));
+      if (sh.pictures) {
+        kids.push(el("div", {
+          class: "mml-shape" + (sh.pictures === 1 ? " one" : " two"),
+        }, ...cells));
+      } else {
+        // T2VA carries no reference media at all, so the panel steps back and
+        // says why rather than showing slots nothing can go in.
+        kids.push(el("div", { class: "mml-shapenone" },
+          `${sh.mode} sends the prompt only — no reference media.`,
+          this.items.length
+            ? el("span", {}, ` ${this.items.length} item(s) stay loaded.`)
+            : null));
+      }
+      this.root.replaceChildren(...kids.filter(Boolean));
+      this.root.classList.toggle("mml-min", !sh.pictures);
+      return;
+    }
+    this.root.classList.remove("mml-min");
+
     const left = el("div", { class: "mml-col" });
     const right = el("div", { class: "mml-col" });
     kids.push(el("div", { class: "mml-cols" }, left, right));
@@ -2159,76 +2361,7 @@ export class LoaderPanel {
     left.append(el("div", { class: "mml-sec" }, "pictures",
       el("span", {}, `${pics.length}/${MAX.picture}`)));
     const picCells = [];
-    pics.forEach((it) => {
-      const tag = (tags.get(it) || "").slice(1, -1);
-      picCells.push(this.reorderable(el("div",
-        { class: "mml-slot filled pic" + (isOn(it) ? "" : " off") },
-        (() => {
-          // Badge and img are SIBLINGS in the slot: .mml-pic is absolutely
-          // positioned against the slot, so wrapping it breaks its sizing.
-          const [ow, oh] = outSize(it);
-          const badge = el("span", { class: "mml-dims" + (it.crop ? " cut" : "") },
-            dimsLabel(ow, oh));
-          // Declared before the crop block below, which reads both. As const
-          // they sit in the temporal dead zone until this point, so leaving
-          // them further down threw ReferenceError on any cropped picture.
-          const turn = ((parseInt(it.rotate, 10) || 0) % 360 + 360) % 360;
-          const quarter = turn === 90 || turn === 270;
-          // The file is untouched, so the thumbnail shows the whole picture
-          // with everything outside the crop dimmed — you can see what was
-          // dropped, not just what's left.
-          let marquee = null;
-          if (it.crop) {
-            const box = el("div", { class: "mml-cropbox" },
-              el("div", { class: "mml-cropmark", style: {
-                left: `${(it.crop.x ?? 0) * 100}%`,
-                top: `${(it.crop.y ?? 0) * 100}%`,
-                width: `${(it.crop.w ?? 1) * 100}%`,
-                height: `${(it.crop.h ?? 1) * 100}%`,
-              } }));
-            marquee = el("div", { class: "mml-cropfit",
-              style: (it.mirror || turn)
-                ? { transform: `${it.mirror ? "scaleX(-1) " : ""}rotate(${turn}deg)` }
-                : {} }, box);
-            // Fit against the post-rotation shape: a quarter turn swaps the
-            // sides the drawn image occupies.
-            requestAnimationFrame(() => fitToMedia(
-              img, box,
-              quarter ? it.height : it.width,
-              quarter ? it.width : it.height));
-            if (quarter) requestAnimationFrame(() => fitTurned(img));
-          }
-          const img = el("img", { class: "mml-pic" + (quarter ? " turned" : ""),
-            src: viewURL(it.file),
-            style: (it.mirror || turn)
-              ? { transform: `${it.mirror ? "scaleX(-1) " : ""}rotate(${turn}deg)` }
-              : {},
-            title: dimsTitle(it.name, it.width, it.height)
-              + (turn ? `\nrotated ${turn}\u00b0` : "")
-              + (it.crop ? `\ncropped to ${ow}\u00d7${oh}` : "")
-              + (it.mirror ? "\nmirrored" : ""),
-            onload: () => {
-              // Items from before dimensions were stored learn them here.
-              if (!it.width && img.naturalWidth) {
-                it.width = img.naturalWidth;
-                it.height = img.naturalHeight;
-                const [nw, nh] = outSize(it);
-                badge.textContent = dimsLabel(nw, nh);
-                img.title = dimsTitle(it.name, it.width, it.height);
-                this.commit();
-              }
-            },
-            onclick: () => lightbox(it, tags.get(it) || "") });
-          return [img, marquee, badge];
-        })(),
-        el("div", { class: "mml-picbar" },
-          this.powerBtn(it),
-          el("span", { class: "mml-tag pic" }, isOn(it) ? tag : "off"),
-          this.trimBtn(it),
-          el("span", { class: "mml-drag", title: "Drag to reorder" }, "\u2630"),
-          el("span", { class: "mml-x", title: "Remove",
-            onclick: () => this.remove(it) }, "\u2715"))), it));
-    });
+    pics.forEach((it) => picCells.push(this.picCell(it, tags)));
     for (let i = pics.length; i < MAX.picture; i++)
       picCells.push(this.emptySlot("picture", i + 1));
     left.append(el("div", { class: "mml-pics" }, picCells));
@@ -2450,7 +2583,7 @@ export function addSplitter(node, slot = 0) {
 
 export function openLoaderModal(node, title = "MiniMax H3 Media Loader") {
   injectCSS();
-  const panel = new LoaderPanel(node);
+  const panel = new LoaderPanel(node, { modal: true });
   const close = () => {
     node._mmlPanels = (node._mmlPanels || []).filter((p) => p !== panel);
     panel.players.forEach((p) => p.stop());

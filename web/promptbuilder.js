@@ -7,7 +7,7 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { LOADER_NAME, computeTags, viewURL as loaderViewURL,
   safeCanvasFocus, openLoaderModal, isOn, TrimModal,
-  fileCount } from "./medialoader.js";
+  fileCount, MODE_CAPACITY } from "./medialoader.js";
 
 const NODE_NAME = "MiniMaxH3PromptBuilder";
 // Private drag type: marks a drag as "reorder the rail" so a drop on another
@@ -228,14 +228,6 @@ const AUDIO_ROLES = [
    Base modes have no reference slots at all — their pictures are the native
    node's first_frame / last_frame. Reference mode takes up to 9 images,
    3 videos, and 3 audios, capped at 12 files in total. */
-const MODE_CAPACITY = {
-  T2VA: { Picture: 0, Video: 0, Audio: 0, roles: {} },
-  I2VA: { Picture: 1, Video: 0, Audio: 0, roles: { "Picture 1": "first frame" } },
-  FL2VA: { Picture: 2, Video: 0, Audio: 0,
-    roles: { "Picture 1": "first frame", "Picture 2": "last frame" } },
-  L2VA: { Picture: 1, Video: 0, Audio: 0, roles: { "Picture 1": "last frame" } },
-  REF: { Picture: 9, Video: 3, Audio: 3, total: 12, roles: {} },
-};
 
 /* Roles a definition line states outright. Used to seed a sensible marker and
    an example note — never to overwrite anything the user has written, since a
@@ -1159,6 +1151,28 @@ const CSS = `
 .mmh3-sumicon:hover{opacity:1;}
 .mmh3-summark{flex:0 0 auto;align-self:center;font-size:12px;line-height:1;
   opacity:.85;user-select:none;}
+/* Quick edit: smaller than the full builder, same chrome. */
+.mmh3-quickmodal{box-sizing:border-box;width:min(900px,92vw);height:min(780px,88vh);
+  display:flex;flex-direction:column;background:#191c22;color:#d7dbe2;
+  border:1px solid #303642;border-radius:10px;overflow:hidden;
+  box-shadow:0 24px 64px rgba(0,0,0,.55);}
+.mmh3-quickbody{flex:1;min-height:0;overflow-y:auto;padding:14px 16px 18px;}
+.mmh3-quick{display:flex;flex-direction:column;min-height:100%;}
+.mmh3-quick>*{flex:0 0 auto;}
+.mmh3-quick .mmh3-sec.mmh3-grow{flex:1 1 auto;display:flex;flex-direction:column;
+  min-height:200px;}
+.mmh3-quick .mmh3-sec.mmh3-grow textarea{flex:1 1 auto;min-height:120px;}
+.mmh3-quick textarea{width:100%;box-sizing:border-box;background:#12151b;
+  color:#dde2ea;border:1px solid #2e3440;border-radius:6px;padding:7px 9px;
+  font-size:13px;font-family:inherit;resize:vertical;line-height:1.5;}
+.mmh3-quick textarea:focus{outline:none;border-color:#4a5568;}
+.mmh3-quick label{display:block;font-size:11px;text-transform:uppercase;
+  letter-spacing:.08em;color:#8a93a3;margin-bottom:5px;}
+/* The node's bar expanded into those fields: it stops being a one-line summary
+   and becomes a small scrolling editor. */
+.mmh3-summary.mmh3-summary-open{display:block;overflow-y:auto;padding:8px 10px;
+  cursor:default;}
+.mmh3-summary.mmh3-summary-open label{margin:6px 0 3px;}
 .mmh3-modebtn{flex:0 0 auto;align-self:center;display:inline-flex;align-items:center;gap:5px;
   background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
   padding:4px 9px;font-size:11px;font-family:inherit;cursor:pointer;white-space:nowrap;}
@@ -3025,6 +3039,9 @@ function setMode(node, mode) {
   if (pw && (pw.value || "").trim()) pw.value = generate(state);
 
   updateSummary(node);
+  // A mode change can also change the media panel's shape, and with it whether
+  // the node's prompt bar expands; the node's hook knows, this function does not.
+  try { node._mmlPanel?.render?.(); node._mmlOnCommit?.(); } catch (e) { /* cosmetic */ }
   try {
     node.setDirtyCanvas?.(true, true);
     app.graph.setDirtyCanvas(true, true);
