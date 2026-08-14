@@ -956,8 +956,6 @@ const CSS = `
 .mmh3-peekcite.zero{color:#e0a94c;}
 .mmh3-peeksrc{font-size:9px;color:#6b7484;margin:2px 0 6px;max-width:520px;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;}
-.mmh3-peekbtns{display:flex;gap:5px;}
-.mmh3-peekbtns .mmh3-btn{flex:1;padding:3px 6px;font-size:10px;}
 .mmh3-form{overflow-y:auto;padding:14px 16px 24px;min-width:0;
   display:flex;flex-direction:column;}
 /* Sections keep their natural height; the one marked grow takes the slack, so
@@ -1027,6 +1025,10 @@ const CSS = `
   user-select:none;}
 .mmh3-cardtool:hover{color:#c9cfda;}
 .mmh3-cardtool.on{color:#e0a94c;}
+.mmh3-pintool{filter:grayscale(1) opacity(.5);}
+.mmh3-pintool:hover{filter:grayscale(.4) opacity(.85);}
+.mmh3-pintool.pinned{filter:none;color:#e05a5a;text-shadow:0 0 6px rgba(224,90,90,.5);}
+.mmh3-rmtool:hover{color:#e05a5a;}
 /* The two audio sections sit side by side at the foot of the form. */
 .mmh3-audiopair{display:flex;gap:14px;align-items:flex-start;}
 .mmh3-audiopair>.mmh3-sec{flex:1 1 0;min-width:0;margin-bottom:16px;}
@@ -1839,13 +1841,7 @@ class Editor {
             el("span", { class: "mmh3-peekcite" + (cites ? "" : " zero") },
               cites ? `cited ${cites}\u00d7` : "not cited")),
           el("div", { class: "mmh3-peeksrc" },
-            s.source + (s.note ? ` \u2022 ${s.note.replace(/[<>]/g, "")}` : "")),
-          el("div", { class: "mmh3-peekbtns" },
-            el("button", { class: "mmh3-btn", onclick: () => {
-              this.insert(s.tag); this.closePeek(); } }, "Insert tag"),
-            el("button", { class: "mmh3-btn", onclick: () => {
-              this.togglePin(s.tag); this.closePeek(); } },
-              this.pins.includes(s.tag) ? "Unpin" : "Pin"))));
+            s.source + (s.note ? ` \u2022 ${s.note.replace(/[<>]/g, "")}` : ""))));
 
       const r = card.getBoundingClientRect();
       // Keep the peek on screen: .mmh3-peek is 540px plus a 10px margin.
@@ -2060,16 +2056,33 @@ class Editor {
    *  live \u2014 media wired in through the individual inputs has no item behind
    *  it to edit. */
   cardTools(s) {
-    if (!s.item || !s.panel) return null;
-    const still = s.item.kind === "picture";
     const after = () => {
       // The panel owns the state; re-read it so the rail, the pins and the
       // validation all reflect the edit.
       this.slots = getRefSlots(this.node);
       this.render();
     };
-    return el("div", { class: "mmh3-cardtools" },
-      el("span", {
+    const tools = [];
+
+    // Pin works off the tag, so it is offered for every reference \u2014 including
+    // media wired straight into the inputs, which has no item behind it.
+    if (s.tag) {
+      const pinned = this.pins.includes(s.tag);
+      tools.push(el("span", {
+        class: "mmh3-cardtool mmh3-pintool" + (pinned ? " pinned" : ""),
+        title: pinned ? "Unpin" : "Pin \u2014 keep this one on screen while you write",
+        onclick: (e) => {
+          e.stopPropagation();
+          this.closePeek();
+          this.togglePin(s.tag);
+          this.render();
+        },
+      }, "\u{1F4CC}"));
+    }
+
+    if (s.item && s.panel) {
+      const still = s.item.kind === "picture";
+      tools.push(el("span", {
         class: "mmh3-cardtool" + (s.item.trim || s.item.crop || s.item.rotate
           || s.item.mirror || s.item.resize ? " on" : ""),
         title: still ? "Crop, rotate or mirror this picture"
@@ -2084,6 +2097,22 @@ class Editor {
           modal.close = () => { shut(); after(); };
         },
       }, still ? "\u25a3" : "\u2702"));
+
+      tools.push(el("span", {
+        class: "mmh3-cardtool mmh3-rmtool",
+        title: `Remove ${s.item.name} from the node`,
+        onclick: (e) => {
+          e.stopPropagation();
+          this.closePeek();
+          // Drop any pin first, or the rail keeps a tag that no longer exists.
+          if (this.pins.includes(s.tag)) this.togglePin(s.tag);
+          s.panel.remove(s.item);
+          after();
+        },
+      }, "\u2715"));
+    }
+
+    return tools.length ? el("div", { class: "mmh3-cardtools" }, ...tools) : null;
   }
 
   /** Drag one rail card onto another to reorder the underlying media. */

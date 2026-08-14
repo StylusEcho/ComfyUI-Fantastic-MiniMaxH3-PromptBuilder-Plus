@@ -19,8 +19,10 @@
   * The two boxes are height-linked by a pair of ResizeObservers with a re-entrancy guard, so dragging either grip resizes the other and the pair stays level; applied in both the base and reference layouts. Degrades silently where ResizeObserver is unavailable. ⚠ The drag itself needs a pointer, so it is a manual check — the wiring and guards are verified, the gesture is not.
 * 🟩 the button I've asked to be added to the thumbnails in the prompt builder, they should be in the bottom right to match them on the node interface.
   * The crop/trim control moved into the card's bottom bar, at its right-hand end, matching where the node's tiles put the same control — measured 5px from the card's right edge and 3px from its bottom. It no longer occupies a row of its own, so cards are shorter (130x97) and the dashed add-tile stretches to stay level with them.
-* 🟦 add a Pin button. red if enabled. remove the bottom buttons in the hover-over preview if you think they're redundant.
-* 🟦 add an x like the node as well for removal.
+* 🟩 add a Pin button. red if enabled. remove the bottom buttons in the hover-over preview if you think they're redundant.
+  * 📌 added to each card in the editor, greyed when off and red when pinned. Offered for every reference including media wired straight into the node's inputs, since pinning works off the tag rather than the item. The hover preview's two buttons are gone as redundant: clicking a card already inserts its tag, and the pin now lives on the card — the preview is purely a preview.
+* 🟩 add an x like the node as well for removal.
+  * ✕ on each card, turning red on hover, removing the media through the panel's existing `remove()`. Any pin on that reference is dropped first, so the rail can't keep a tag that no longer exists. Measured: tag, count and all three controls fit the 128px bar (49px + 45px of controls).
 * 🟩 the audio trim window needs to be reverted to its original size.
   * The trim window already carried an `audio` variant class, so audio-only clips now keep the original compact window (measured 640x258, height driven by content) while video and stills keep the full-height one (1240x994). Audio has a waveform and a few fields, not a frame to show.
 * 🟦 <> tags in the prompt builder should be colour coded (orange for <Picture x>, green for <Subject x>, etc). \[Shot x],<d>\[language] </d> tags should get their own colour too, decide that based on what's unused. same for (Sx) and N/A
