@@ -287,6 +287,11 @@ const CSS = `
    in a dimension that isn't already set), so an invisible image of the right
    intrinsic size does the sizing, exactly as the real one does. */
 .mml-cropfit{position:absolute;inset:0;pointer-events:none;}
+/* rotate() doesn't change an element's layout box, so a quarter-turned
+   thumbnail would spill past the tile. Give it a square box the size of the
+   tile's shorter side: the turned image then fits whichever way it lands. */
+.mml-pic.turned{width:auto;height:auto;max-width:none;max-height:none;
+  inset:0;margin:auto;}
 .mml-cropbox{position:absolute;line-height:0;}
 .mml-cropmark{position:absolute;border:1px solid rgba(76,195,224,.9);
   box-shadow:0 0 0 2000px rgba(6,8,12,.55);pointer-events:none;z-index:1;}
@@ -380,7 +385,9 @@ const CSS = `
 .mml-tmcorner.sw{left:-6px;bottom:-6px;cursor:nesw-resize;}
 .mml-tmcorner.se{right:-6px;bottom:-6px;cursor:nwse-resize;}
 .mml-tmcropbar{display:flex;align-items:center;gap:6px;}
-.mml-tmcropinfo{font-size:10px;color:#4cc3e0;font-family:ui-monospace,monospace;}
+.mml-tmcropinfo{font-size:10px;color:#8a93a3;font-family:ui-monospace,monospace;
+  white-space:nowrap;}
+.mml-tmcropinfo.changed{color:#4cc3e0;}
 .mml-tmaspect{background:#12151b;color:#c9cfda;border:1px solid #2e3440;
   border-radius:6px;padding:2px 5px;font-size:11px;}
 .mml-btn.on{background:#173642;border-color:#4cc3e0;color:#9fe3f5;}
@@ -423,6 +430,9 @@ const CSS = `
 .mml-tmplayhead.out{background:#f07070;
   box-shadow:0 0 0 1px rgba(0,0,0,.65), 0 0 7px rgba(240,112,112,.85);}
 .mml-tmplayhead.out::before{border-top-color:#f07070;}
+.mml-tmnote{padding:2px 12px 6px;font-size:10px;color:#8a93a3;line-height:1.4;}
+.mml-tmnote.bad{color:#f07070;}
+.mml-tmnote:empty{display:none;}
 .mml-tmkeys{padding:0 12px 10px;font-size:10px;color:#5c6472;}
 .mml-tmreadout{font-size:11px;color:#8a93a3;font-family:ui-monospace,monospace;}
 .mml-tmreadout.bad{color:#f07070;}
@@ -515,6 +525,8 @@ class TrimModal {
     this.end = item.trim?.end ?? this.dur;
     this.crop = item.crop ? { ...item.crop } : null;
     this.mirror = !!item.mirror;
+    this.rotate = ((parseInt(item.rotate, 10) || 0) % 360 + 360) % 360;
+    this.resize = parseInt(item.resize, 10) || 0;
     this.cropMode = false;
     this.aspect = "free";
     this.drag = null;
@@ -598,6 +610,10 @@ class TrimModal {
     else delete it.crop;
     if (this.mirror && visual) it.mirror = true;
     else delete it.mirror;
+    if (this.rotate && visual) it.rotate = this.rotate;
+    else delete it.rotate;
+    if (this.resize && it.kind === "picture") it.resize = this.resize;
+    else delete it.resize;
     this.close();
     this.panel.commit();
   }
@@ -713,6 +729,7 @@ class TrimModal {
     this.playhead = el("div", { class: "mml-tmplayhead" });
     this.playTime = el("span", { class: "mml-tmplaytime" });
     this.outside = el("span", { class: "mml-tmoutside" });
+    this.note = el("div", { class: "mml-tmnote" });
     this.bar = el("div", { class: "mml-tmbar",
       onmousedown: (e) => this.barDown(e) },
       this.selEl, this.hStart, this.hEnd, this.playhead);
@@ -874,6 +891,24 @@ class TrimModal {
                                 this.item.width, this.item.height);
     });
     this.cropInfo = el("span", { class: "mml-tmcropinfo" });
+    this.rotBtn = el("button", { class: "mml-btn mml-sm",
+      title: "Rotate 90\u00b0 clockwise (shift-click for anticlockwise)",
+      onclick: (e) => {
+        this.rotate = (this.rotate + (e.shiftKey ? 270 : 90)) % 360;
+        // A quarter turn swaps the frame, so a crop rect drawn on the old
+        // orientation would point at the wrong region — turn it with the
+        // picture rather than leaving it stale.
+        if (this.crop) {
+          const c = this.crop;
+          this.crop = e.shiftKey
+            ? { x: c.y, y: 1 - c.x - c.w, w: c.h, h: c.w }
+            : { x: 1 - c.y - c.h, y: c.x, w: c.h, h: c.w };
+        }
+        const t = this.item.width; this.item.width = this.item.height;
+        this.item.height = t;
+        this.syncRotate();
+        this.syncCrop();
+      } }, "\u21bb");
     this.mirrorBtn = el("button", { class: "mml-btn mml-sm",
       title: "Flip the clip left-to-right before it's sent",
       onclick: () => {
@@ -899,15 +934,73 @@ class TrimModal {
        [String(3 / 2), "3:2"], [String(2 / 3), "2:3"],
        [String(21 / 9), "21:9"], [String(9 / 21), "9:21"],
       ].map(([v, l]) => el("option", { value: v }, l)));
+    // Pictures get a size cap: a 4K reference is decoded and rescaled on
+    // every run, and the model downsizes it to the generation area anyway.
+    this.sizeEl = this.isStill
+      ? el("select", { class: "mml-tmaspect",
+          title: "Cap the long edge of what's sent. The model rescales " +
+                 "references anyway, so this mostly saves decode time and RAM " +
+                 "\u2014 but keep a keyframe at least as large as your " +
+                 "generation.",
+          onchange: (e) => {
+            this.resize = parseInt(e.target.value, 10) || 0;
+            this.syncCrop();
+          } },
+          [[0, "size: full"], [2048, "max 2048px"], [1600, "max 1600px"],
+           [1280, "max 1280px"], [1024, "max 1024px"], [832, "max 832px"]]
+            .map(([v, label]) => el("option",
+              { value: String(v), selected: this.resize === v }, label)))
+      : null;
     return el("span", { class: "mml-tmcropbar" },
-      this.mirrorBtn, this.cropBtn, this.aspectEl, this.cropInfo);
+      this.rotBtn, this.mirrorBtn, this.cropBtn, this.aspectEl,
+      this.sizeEl, this.cropInfo);
   }
 
   /** Mirror only the picture: the crop overlay stays in screen space, so a
    *  rect drawn here means the same region the backend will cut. */
+  /** Source size, and what will actually be sent when they differ. */
+  showSize() {
+    if (!this.cropInfo) return;
+    const sw = this.item.width, sh = this.item.height;
+    if (!sw || !sh) { this.cropInfo.textContent = ""; return; }
+    const [ow, oh] = outSize({ ...this.item, crop: this.crop, rotate: 0,
+                               resize: this.resize });
+    this.cropInfo.textContent = (ow === sw && oh === sh)
+      ? `${sw} \u00d7 ${sh}`
+      : `${sw} \u00d7 ${sh} \u2192 ${ow} \u00d7 ${oh}`;
+    this.cropInfo.classList.toggle("changed", ow !== sw || oh !== sh);
+  }
+
+  /** Say something inside the modal. Panel messages sit behind the overlay,
+   *  so a refusal printed there is invisible until the modal closes. */
+  modalSay(text, bad = false) {
+    if (!this.note) return;
+    this.note.textContent = text || "";
+    this.note.classList.toggle("bad", !!bad);
+  }
+
+  /** Turn the preview and re-fit the crop overlay to the new bounds. */
+  syncRotate() {
+    if (this.media) {
+      this.media.style.transform =
+        `${this.mirror ? "scaleX(-1) " : ""}rotate(${this.rotate}deg)`;
+      // A quarter turn means the drawn box swaps its sides; re-measure.
+      if (this.cropBox) {
+        requestAnimationFrame(() => {
+          const w = this.item.width, h = this.item.height;
+          if (this.stopFit) this.stopFit();
+          this.stopFit = fitToMedia(this.media, this.cropBox, w, h);
+        });
+      }
+    }
+    if (this.rotBtn) this.rotBtn.classList.toggle("on", !!this.rotate);
+    this.showSize();
+  }
+
   syncMirror() {
     if (this.media) {
-      this.media.style.transform = this.mirror ? "scaleX(-1)" : "";
+      this.media.style.transform =
+        `${this.mirror ? "scaleX(-1) " : ""}rotate(${this.rotate || 0}deg)`;
     }
     if (this.mirrorBtn) this.mirrorBtn.classList.toggle("on", this.mirror);
   }
@@ -979,10 +1072,8 @@ class TrimModal {
         left: `${c.x * 100}%`, top: `${c.y * 100}%`,
         width: `${c.w * 100}%`, height: `${c.h * 100}%`,
       });
-      const vw = this.item.width, vh = this.item.height;
-      this.cropInfo.textContent = vw
-        ? `${Math.round(c.w * vw)} \u00d7 ${Math.round(c.h * vh)}` : "";
-    } else this.cropInfo.textContent = "";
+    }
+    this.showSize();
   }
 
   /* ---- capture the displayed frame as a picture reference ---------- */
@@ -990,25 +1081,25 @@ class TrimModal {
   async captureFrame() {
     const panel = this.panel;
     // Same limits a dropped file would hit, checked before doing any work.
+    // Refusals stay in the modal — closing it hides the reason and loses the
+    // trim you just set.
     if (panel.count("picture") >= MAX.picture) {
-      panel.say(`All ${MAX.picture} picture slots are full \u2014 remove one ` +
-        "before capturing a frame.", true);
-      panel.render();
-      this.close();
+      this.modalSay(`All ${MAX.picture} picture slots are in use \u2014 remove ` +
+        "a picture before capturing a frame.", true);
       return;
     }
-    if (fileCount(panel.items) >= MAX.total) {
-      panel.say(`That would exceed the ${MAX.total}-file limit \u2014 switch ` +
-        "something off or remove it first.", true);
-      panel.render();
-      this.close();
-      return;
-    }
+    // Over the reference budget isn't a reason to lose the frame: there's a
+    // slot for it, so capture it and leave it switched off. Off items don't
+    // count toward the budget, so nothing is over-sent.
+    const overBudget = fileCount(panel.items) >= MAX.total;
 
     const v = this.media;
     const W = v.videoWidth, H = v.videoHeight;
-    if (!W || !H) { panel.say("Frame isn't ready yet \u2014 let the preview " +
-      "load, then try again.", true); panel.render(); return; }
+    if (!W || !H) {
+      this.modalSay("The preview hasn't loaded a frame yet \u2014 give it a " +
+        "moment, then try again.", true);
+      return;
+    }
 
     // Honour an active crop so the still matches what the video would send.
     const c = this.crop;
@@ -1027,7 +1118,10 @@ class TrimModal {
 
     const at = this.media.currentTime;
     const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
-    if (!blob) { panel.say("Couldn't read that frame.", true); panel.render(); return; }
+    if (!blob) {
+      this.modalSay("Couldn't read that frame from the preview.", true);
+      return;
+    }
 
     const base = (this.item.name || "video").replace(/\.[^.]+$/, "");
     const stamp = at.toFixed(2).replace(".", "-");
@@ -1049,16 +1143,23 @@ class TrimModal {
         height: sh,
         has_audio: false,
         audio_mode: "off",
+        ...(overBudget ? { enabled: false } : {}),
       });
-      panel.say(`Added ${sw}\u00d7${sh} frame from ${at.toFixed(2)}s` +
-        (c ? " (cropped)" : "") + (this.mirror ? " (mirrored)" : "") +
-        " as a picture reference.");
+      const how = (c ? " (cropped)" : "") + (this.mirror ? " (mirrored)" : "");
+      panel.say(overBudget
+        ? `Added ${sw}\u00d7${sh} frame from ${at.toFixed(2)}s${how} \u2014 ` +
+          `switched off, because all ${MAX.total} references were already in ` +
+          "use. Free a slot (a video's soundtrack counts as one) and switch " +
+          "it on with \u25c9."
+        : `Added ${sw}\u00d7${sh} frame from ${at.toFixed(2)}s${how} as a ` +
+          "picture reference.", overBudget);
       panel.commit();
     } catch (err) {
       panel.say(`Capture failed: ${err.message}`, true);
       panel.render();
     } finally {
       panel.busy = Math.max(0, panel.busy - 1);
+      panel.render();          // otherwise "uploading 1…" sticks forever
     }
   }
 
@@ -1067,19 +1168,16 @@ class TrimModal {
   async useAudio() {
     const panel = this.panel;
     if (audioCount(panel.items) >= MAX.audio) {
-      panel.say(`All ${MAX.audio} audio clips are in use \u2014 switch one off ` +
-        "or remove it first.", true);
-      panel.render(); this.close(); return;
+      this.modalSay(`All ${MAX.audio} audio clips are in use \u2014 switch one ` +
+        "off or remove it before extracting another.", true);
+      return;
     }
-    if (fileCount(panel.items) >= MAX.total) {
-      panel.say(`That would exceed the ${MAX.total}-file limit.`, true);
-      panel.render(); this.close(); return;
-    }
+    const overBudget = fileCount(panel.items) >= MAX.total;
     const span = this.end - this.start;
     if (span < CLIP.min) {
-      panel.say(`That range is ${span.toFixed(1)}s. H3 was trained on ` +
+      this.modalSay(`That range is ${span.toFixed(1)}s. H3 was trained on ` +
         `${CLIP.min}\u2013${CLIP.max}s reference clips \u2014 widen it first.`, true);
-      panel.render(); return;
+      return;
     }
 
     this.close();
@@ -1098,15 +1196,22 @@ class TrimModal {
       panel.items.push({
         kind: "audio", file: info.file, name: info.name,
         duration: info.duration ?? span, has_audio: true, audio_mode: "off",
+        ...(overBudget ? { enabled: false } : {}),
       });
-      panel.say(`Added ${(info.duration ?? span).toFixed(1)}s of audio from ` +
-        `${this.item.name} as a standalone reference.`);
+      const secs = (info.duration ?? span).toFixed(1);
+      panel.say(overBudget
+        ? `Added ${secs}s of audio from ${this.item.name} \u2014 switched off, ` +
+          `because all ${MAX.total} references were already in use. Free a ` +
+          "slot and switch it on with \u25c9."
+        : `Added ${secs}s of audio from ${this.item.name} as a standalone ` +
+          "reference.", overBudget);
       panel.commit();
     } catch (err) {
       panel.say(`Couldn't extract that audio: ${err.message}`, true);
       panel.render();
     } finally {
       panel.busy = Math.max(0, panel.busy - 1);
+      panel.render();
     }
   }
 
@@ -1189,25 +1294,31 @@ class TrimModal {
                 title: "Whole clip, no crop",
                 onclick: () => { this.start = 0; this.end = this.dur;
                   this.crop = null; this.cropMode = false; this.mirror = false;
-                  this.syncCrop(); this.syncMirror(); this.layoutTimeline(); } },
+                  this.rotate = 0; this.resize = 0;
+                  if (this.sizeEl) this.sizeEl.value = "0";
+                  this.syncCrop(); this.syncMirror(); this.syncRotate();
+                  this.layoutTimeline(); } },
                 "\u21ba Reset")
             : null,
           el("button", { class: "mml-btn mml-sm primary",
             onclick: () => this.apply() }, "Apply"),
           el("button", { class: "mml-btn mml-sm",
             onclick: () => this.close() }, "Cancel")),
+        this.note,
         still ? el("div", { class: "mml-tmkeys" },
           "Drag a box to crop \u00b7 \u25a3 toggles editing \u00b7 esc closes")
         : el("div", { class: "mml-tmkeys" },
           "\u2190 \u2192 step a frame (shift = 10) \u00b7 space play \u00b7 " +
           "[ ] set start/end here \u00b7 home/end jump \u00b7 M mute \u00b7 A use audio" +
           (isVid ? " \u00b7 C capture frame" : ""))));
-    if (still) {
-      this.cropMode = true;
-      if (!this.crop) this.crop = { x: 0.1, y: 0.1, w: 0.8, h: 0.8 };
-    }
+    // Opening straight into crop editing made sense when cropping was the
+    // only reason to be here; rotate and size mean it no longer is. Start in
+    // whatever state the picture is already in.
+    if (still && this.crop) this.cropMode = false;
+    this.showSize();
     this.syncCrop();
     this.syncMirror();
+    this.syncRotate();
     if (!still) this.seek(this.start, false);
   }
 }
@@ -1269,6 +1380,25 @@ function drawnBox(mediaEl, natW, natH) {
   return { x: (bw - w) / 2, y: (bh - h) / 2, w, h };
 }
 
+/** A quarter-turned image keeps its pre-rotation layout box, so constrain it
+ *  to the tile's shorter side — after the turn it then fits either way. */
+function fitTurned(img) {
+  const place = () => {
+    const p = img.parentElement;
+    if (!p) return;
+    const side = Math.min(p.clientWidth, p.clientHeight);
+    if (!side) return;
+    img.style.maxWidth = `${side}px`;
+    img.style.maxHeight = `${side}px`;
+  };
+  place();
+  img.addEventListener("load", place);
+  if (typeof ResizeObserver === "function") {
+    const ro = new ResizeObserver(place);
+    ro.observe(img.parentElement || img);
+  }
+}
+
 /** Keep an overlay box glued to the drawn media, now and on every resize. */
 function fitToMedia(mediaEl, boxEl, natW, natH) {
   const place = () => {
@@ -1292,12 +1422,22 @@ function fitToMedia(mediaEl, boxEl, natW, natH) {
 
 /** Size actually sent after a crop, for badges and tooltips. */
 function outSize(item) {
-  const w = item.width, h = item.height;
+  let w = item.width, h = item.height;
   if (!w || !h) return [w, h];
+  const turn = ((parseInt(item.rotate, 10) || 0) % 360 + 360) % 360;
+  if (turn === 90 || turn === 270) { const t = w; w = h; h = t; }
   const c = item.crop;
-  if (!c) return [w, h];
-  return [Math.max(16, Math.round(w * (c.w ?? 1))),
-          Math.max(16, Math.round(h * (c.h ?? 1)))];
+  if (c) {
+    w = Math.max(16, Math.round(w * (c.w ?? 1)));
+    h = Math.max(16, Math.round(h * (c.h ?? 1)));
+  }
+  const cap = parseInt(item.resize, 10) || 0;
+  if (cap > 0 && Math.max(w, h) > cap) {
+    const k = cap / Math.max(w, h);
+    w = Math.max(16, Math.round(w * k));
+    h = Math.max(16, Math.round(h * k));
+  }
+  return [w, h];
 }
 
 /** Nearest standard ratio to w:h, with how far off it is. */
@@ -1610,9 +1750,11 @@ export class LoaderPanel {
     const still = item.kind === "picture";
     if (!still && !item.duration) return null;
     const active = (item.trim && (item.trim.start || item.trim.end))
-      || item.crop || item.mirror;
+      || item.crop || item.mirror || item.rotate;
     const what = [];
     if (item.crop) what.push("cropped");
+    if (item.rotate) what.push(`${item.rotate}\u00b0`);
+    if (item.resize) what.push(`max ${item.resize}px`);
     if (item.mirror) what.push("mirrored");
     if (item.trim && (item.trim.start || item.trim.end)) what.push(fmtSpan(item));
     return el("span", {
@@ -1865,13 +2007,26 @@ export class LoaderPanel {
                 height: `${(it.crop.h ?? 1) * 100}%`,
               } }));
             marquee = el("div", { class: "mml-cropfit",
-              style: it.mirror ? { transform: "scaleX(-1)" } : {} }, box);
-            // measured once the image reports its natural size
-            requestAnimationFrame(() => fitToMedia(img, box, it.width, it.height));
+              style: (it.mirror || turn)
+                ? { transform: `${it.mirror ? "scaleX(-1) " : ""}rotate(${turn}deg)` }
+                : {} }, box);
+            // Fit against the post-rotation shape: a quarter turn swaps the
+            // sides the drawn image occupies.
+            requestAnimationFrame(() => fitToMedia(
+              img, box,
+              quarter ? it.height : it.width,
+              quarter ? it.width : it.height));
+            if (quarter) requestAnimationFrame(() => fitTurned(img));
           }
-          const img = el("img", { class: "mml-pic", src: viewURL(it.file),
-            style: it.mirror ? { transform: "scaleX(-1)" } : {},
+          const turn = ((parseInt(it.rotate, 10) || 0) % 360 + 360) % 360;
+          const quarter = turn === 90 || turn === 270;
+          const img = el("img", { class: "mml-pic" + (quarter ? " turned" : ""),
+            src: viewURL(it.file),
+            style: (it.mirror || turn)
+              ? { transform: `${it.mirror ? "scaleX(-1) " : ""}rotate(${turn}deg)` }
+              : {},
             title: dimsTitle(it.name, it.width, it.height)
+              + (turn ? `\nrotated ${turn}\u00b0` : "")
               + (it.crop ? `\ncropped to ${ow}\u00d7${oh}` : "")
               + (it.mirror ? "\nmirrored" : ""),
             onload: () => {

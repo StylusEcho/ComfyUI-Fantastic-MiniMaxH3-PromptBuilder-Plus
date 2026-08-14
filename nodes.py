@@ -188,7 +188,9 @@ def build_bundle(media_state="[]", label="Loader"):
     pictures, videos, video_audios, audios = _partition(items)
 
     pic_t = [media_io.load_image(i["file"], crop=i.get("crop"),
-                                 mirror=bool(i.get("mirror")))
+                                 mirror=bool(i.get("mirror")),
+                                 rotate=i.get("rotate") or 0,
+                                 resize=i.get("resize") or 0)
              for i in pictures[:PICTURES]]
     vid_t = [media_io.load_video_frames(i["file"], start=_trim_span(i)[0],
              end=_trim_span(i)[1], crop=i.get("crop"),
