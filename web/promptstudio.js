@@ -16,6 +16,11 @@ import {
   openEditor, updateSummary, hideWidget, el, injectCSS,
 } from "./promptbuilder.js";
 
+// Logged at module scope: if this line is missing from the console the file
+// never loaded (or one of its imports threw), which is a very different fault
+// from the extension loading and then failing on a particular node.
+console.log("[MiniMaxH3 PromptStudio] module loaded");
+
 const STUDIO_NAME = "MiniMaxH3PromptStudio";
 // Outputs are (prompt, references, picture_1, picture_2, ref2va_needed) —
 // the splitter wants the bundle, which is the second one.
@@ -74,46 +79,64 @@ app.registerExtension({
     const onNodeCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
       const r = onNodeCreated?.apply(this, arguments);
-      injectCSS();
-      hideWidget(this, "prompt_text");
-      hideWidget(this, "builder_state");
-      hideWidget(this, "media_state");
 
-      // Every canvas button first: in Nodes 2.0 a plain widget added after a
-      // DOM widget anchors to the node's bottom and leaves a gap on resize.
+      // The buttons come first and are the one part that must never be lost:
+      // both open a modal, so the node stays fully usable even if the on-node
+      // panel or summary below fails to build. (They also have to precede any
+      // DOM widget — in Nodes 2.0 a plain widget added after one anchors to
+      // the node's bottom and leaves a gap on resize.)
       this.addWidget("button", "Prompt Builder", null, () => openEditor(this));
       this.addWidget("button", "Open Media Loader in Window", null,
         () => openLoaderModal(this, "MiniMax H3 Prompt Studio — media"));
       this.addWidget("button", "+ Native-output splitter", null,
         () => addSplitter(this, REFS_SLOT));
 
-      // Clickable summary, as on the Prompt Builder: a layout-independent way
-      // into the editor when the canvas button is hard to hit.
-      if (this.addDOMWidget) {
-        const summary = el("div", {
-          class: "mmh3-summary",
-          title: "Open the prompt editor",
-          style: { cursor: "pointer", height: `${SUMMARY_H}px`,
-                   minHeight: `${SUMMARY_H}px` },
-          onclick: () => openEditor(this),
-        });
-        this._mmh3Summary = summary;
-        const sw = this.addDOMWidget("mmh3_summary", "div", summary,
-          { serialize: false });
-        sw.computedHeight = SUMMARY_H;
-        sw.computeSize = () => [NODE_W, SUMMARY_H];
+      try {
+        injectCSS();
+        hideWidget(this, "prompt_text");
+        hideWidget(this, "builder_state");
+        hideWidget(this, "media_state");
+      } catch (e) {
+        console.error("[MiniMaxH3 PromptStudio] could not hide the state "
+          + "widgets; they stay visible but still work:", e);
       }
 
-      // Media and prompt share this node, so a change to the inventory has to
-      // redraw the summary's reference count. LoaderPanel.commit calls this.
-      this._mmlOnCommit = () => updateSummary(this);
+      // Clickable summary, as on the Prompt Builder: a layout-independent way
+      // into the editor when the canvas button is hard to hit.
+      try {
+        if (this.addDOMWidget) {
+          const summary = el("div", {
+            class: "mmh3-summary",
+            title: "Open the prompt editor",
+            style: { cursor: "pointer", height: `${SUMMARY_H}px`,
+                     minHeight: `${SUMMARY_H}px` },
+            onclick: () => openEditor(this),
+          });
+          this._mmh3Summary = summary;
+          const sw = this.addDOMWidget("mmh3_summary", "div", summary,
+            { serialize: false });
+          sw.computedHeight = SUMMARY_H;
+          sw.computeSize = () => [NODE_W, SUMMARY_H];
+        }
+      } catch (e) {
+        console.error("[MiniMaxH3 PromptStudio] summary panel failed:", e);
+      }
 
-      this._mmlPanel = new LoaderPanel(this);
-      const widget = this.addDOMWidget("mml_panel", "div", this._mmlPanel.root,
-        { serialize: false });
-      applyCanvasSizing(this, widget, NODE_W, PANEL_H);
+      try {
+        // Media and prompt share this node, so a change to the inventory has
+        // to redraw the summary's count. LoaderPanel.commit calls this.
+        this._mmlOnCommit = () => updateSummary(this);
 
-      setTimeout(() => updateSummary(this), 0);
+        this._mmlPanel = new LoaderPanel(this);
+        const widget = this.addDOMWidget("mml_panel", "div",
+          this._mmlPanel.root, { serialize: false });
+        applyCanvasSizing(this, widget, NODE_W, PANEL_H);
+      } catch (e) {
+        console.error("[MiniMaxH3 PromptStudio] on-node media panel failed; "
+          + "use the 'Open Media Loader in Window' button instead:", e);
+      }
+
+      setTimeout(() => { try { updateSummary(this); } catch (e) { /* cosmetic */ } }, 0);
       return r;
     };
 
