@@ -1744,24 +1744,6 @@ class Editor {
     });
   }
 
-  /** Keep the two audio boxes the same height: dragging either one's resize
-   *  grip resizes the other, so the pair stays level. Watches the rendered
-   *  height rather than the drag itself, which also covers a height set any
-   *  other way. The guard stops the two observers ping-ponging. */
-  linkHeights(a, b) {
-    if (typeof ResizeObserver !== "function" || !a || !b) return;
-    let syncing = false;
-    const pair = (from, to) => new ResizeObserver(() => {
-      if (syncing) return;
-      const h = from.getBoundingClientRect().height;
-      if (!h || Math.abs(h - to.getBoundingClientRect().height) < 1) return;
-      syncing = true;
-      to.style.height = `${h}px`;
-      requestAnimationFrame(() => { syncing = false; });
-    });
-    pair(a, b).observe(a);
-    pair(b, a).observe(b);
-  }
 
   /* Waveforms make audio identifiable at a glance; a generic mic icon does not.
      Decoded once per URL and cached for the session. */
@@ -2367,7 +2349,7 @@ class Editor {
       el("div", { class: "mmh3-sec" },
         this.secLabel("non_diegetic_music"),
         el("div", { class: "mmh3-row" }, musicTa, this.naButton(s, "music")))));
-    this.linkHeights(soundTa, musicTa);
+    linkHeights(soundTa, musicTa);
   }
 
   renderRef() {
@@ -2689,7 +2671,7 @@ class Editor {
       el("div", { class: "mmh3-sec" },
         this.secLabel("non_diegetic_music"),
         el("div", { class: "mmh3-row" }, refMusicTa, this.naButton(r, "music")))));
-    this.linkHeights(refSoundTa, refMusicTa);
+    linkHeights(refSoundTa, refMusicTa);
   }
 
   /* ---------- preview + validation ---------- */
@@ -2834,6 +2816,127 @@ export function openEditor(node) {
 }
 
 /* ---------- on-node mode button + dropdown ---------------------------- */
+
+/** Keep the two audio boxes the same height: dragging either one's resize
+ *  grip resizes the other, so the pair stays level. Watches the rendered
+ *  height rather than the drag itself, which also covers a height set any
+ *  other way. The guard stops the two observers ping-ponging. */
+/* ---------- quick edit: the three fields, mountable anywhere ------------ */
+
+/** The fields a prompt is really made of, as a block that can be mounted in a
+ *  window or straight onto the node. Both mounts write back through the one
+ *  `save`, which does exactly what the full editor's Save does, so the two
+ *  surfaces cannot end up disagreeing about the node's state. */
+export function promptFields(node) {
+  const state = loadState(node);
+  const isRef = state.mode === "REF";
+  if (isRef && !state.ref) state.ref = {};
+  const target = isRef ? state.ref : state;
+
+  const root = el("div", { class: "mmh3-quick" });
+  const field = (label, obj, key, rows, placeholder, cls) => {
+    const t = el("textarea", {
+      rows, placeholder, value: obj[key] ?? "",
+      oninput: (e) => { obj[key] = e.target.value; },
+    });
+    root.append(el("div", { class: "mmh3-sec" + (cls ? ` ${cls}` : "") },
+      el("label", {}, label), t));
+    return t;
+  };
+
+  if (isRef) {
+    // Reference mode writes detailed_description instead: its style opening
+    // and its shots, the two halves the generator joins.
+    field("detailed_description — style opening", target, "styleLine", 2,
+      "The target video is in a realistic multi-camera sitcom style…");
+    field("detailed_description — shots", target, "detail", 10,
+      "[Shot 1] A medium shot establishes <Subject 1>, …", "mmh3-grow");
+  } else {
+    field("integrated_multimodal_description", state, "imd", 10,
+      "[Shot 1] Live-action, cinematic, …", "mmh3-grow");
+  }
+
+  const pair = el("div", { class: "mmh3-audiopair" });
+  const audioBox = (label, key, placeholder) => {
+    const t = el("textarea", {
+      rows: 3, placeholder, value: target[key] ?? "",
+      oninput: (e) => { target[key] = e.target.value; },
+    });
+    pair.append(el("div", { class: "mmh3-sec" }, el("label", {}, label), t));
+    return t;
+  };
+  const soundTa = audioBox("overall_soundscape", "soundscape",
+    "Ambience, physical action sounds, non-verbal human sounds.");
+  const musicTa = audioBox("non_diegetic_music", "music",
+    "Instrumentation, tempo, rhythm, dynamics. No abstract mood words.");
+  root.append(pair);
+  linkHeights(soundTa, musicTa);
+
+  const save = () => {
+    const pw = node.widgets?.find((w) => w.name === "prompt_text");
+    const sw = node.widgets?.find((w) => w.name === "builder_state");
+    if (pw) pw.value = generate(state);
+    if (sw) sw.value = JSON.stringify(state);
+    updateSummary(node);
+    try {
+      node.setDirtyCanvas?.(true, true);
+      app.graph.setDirtyCanvas(true, true);
+    } catch (e) { /* Vue redraws itself */ }
+  };
+  return { root, save, state };
+}
+
+/** The quick-edit window, opened by clicking the node's prompt bar. The bar's
+ *  scroll still opens the full builder, so both routes stay available. */
+export function openQuickEdit(node) {
+  injectCSS();
+  const fields = promptFields(node);
+  const mode = fields.state.mode;
+  const close = () => {
+    overlay.remove();
+    window.removeEventListener("keydown", esc);
+  };
+  const esc = (e) => { if (e.key === "Escape") close(); };
+  const overlay = el("div", {
+    class: "mmh3-overlay",
+    onmousedown: (e) => { if (e.target === overlay) close(); },
+  },
+    el("div", { class: "mmh3-quickmodal" },
+      el("div", { class: "mmh3-head" },
+        el("div", { class: "mmh3-title" }, "Quick edit",
+          el("small", {}, mode === "REF" ? "Full-reference" : mode)),
+        el("button", { class: "mmh3-btn",
+          title: "Open the full Prompt Builder instead",
+          onclick: () => { close(); openEditor(node); } }, "Full editor…"),
+        el("button", { class: "mmh3-x", onclick: close }, "✕")),
+      el("div", { class: "mmh3-quickbody" }, fields.root),
+      el("div", { class: "mmh3-foot" },
+        el("span", { class: "stats" },
+          "Writes the same fields the full editor does"),
+        el("button", { class: "mmh3-btn", onclick: close }, "Cancel"),
+        el("button", { class: "mmh3-btn primary", onclick: () => {
+          fields.save(); toast("Saved to node"); close();
+        } }, "Save to node"))));
+  window.addEventListener("keydown", esc);
+  document.body.append(overlay);
+  setTimeout(() => fields.root.querySelector("textarea")?.focus(), 0);
+  return overlay;
+}
+
+function linkHeights(a, b) {
+  if (typeof ResizeObserver !== "function" || !a || !b) return;
+  let syncing = false;
+  const pair = (from, to) => new ResizeObserver(() => {
+    if (syncing) return;
+    const h = from.getBoundingClientRect().height;
+    if (!h || Math.abs(h - to.getBoundingClientRect().height) < 1) return;
+    syncing = true;
+    to.style.height = `${h}px`;
+    requestAnimationFrame(() => { syncing = false; });
+  });
+  pair(a, b).observe(a);
+  pair(b, a).observe(b);
+}
 
 let _modeMenu = null;
 
@@ -3006,9 +3109,9 @@ app.registerExtension({
       if (this.addDOMWidget) {
         const summary = el("div", {
           class: "mmh3-summary",
-          title: "Open the prompt editor",
+          title: "Quick-edit the prompt — the scroll opens the full editor",
           style: { cursor: "pointer", height: "52px", minHeight: "52px" },
-          onclick: () => openEditor(this),
+          onclick: () => openQuickEdit(this),
         });
         this._mmh3Summary = summary;
         const sw = this.addDOMWidget("mmh3_summary", "div", summary,

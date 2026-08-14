@@ -12,7 +12,7 @@ import {
   LoaderPanel, applyCanvasSizing, PANEL_H, NODE_W,
 } from "./medialoader.js";
 import {
-  openEditor, updateSummary, hideWidget, el, injectCSS,
+  openEditor, openQuickEdit, updateSummary, hideWidget, el, injectCSS,
 } from "./promptbuilder.js";
 
 // Logged at module scope: if this line is missing from the console the file
@@ -137,10 +137,10 @@ app.registerExtension({
         if (this.addDOMWidget) {
           const summary = el("div", {
             class: "mmh3-summary",
-            title: "Open the prompt editor",
+            title: "Quick-edit the prompt \u2014 the scroll opens the full editor",
             style: { cursor: "pointer", height: `${SUMMARY_H}px`,
                      minHeight: `${SUMMARY_H}px` },
-            onclick: () => openEditor(this),
+            onclick: () => openQuickEdit(this),
           });
           this._mmh3Summary = summary;
           const sw = this.addDOMWidget("mmh3_summary", "div", summary,
