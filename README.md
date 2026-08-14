@@ -581,10 +581,32 @@ The Media Loader can save your current set of references — which files, their
 order, and each video's audio setting — under a name, and reload it later from
 the dropdown.
 
+The preset label, dropdown and Save / Delete buttons sit in the panel's top row,
+next to **Load files…**.
+
 Presets point at files you already uploaded rather than copying them, so saving
 and loading is instant. If you later delete one of those files, loading the
 preset skips it and tells you which one is missing. Deleting a preset never
 deletes your media.
+
+### Copying media between slots
+
+Right-click any slot for **Copy**, **Duplicate**, **Paste**, **Switch on/off**
+and **Remove**. Copy puts the reference on a clipboard shared by every loader
+on the page, so you can paste it into a different node — useful for sending one
+picture through two graphs with different crops.
+
+A pasted reference is a *new entry pointing at the same uploaded file*, so
+nothing is re-sent to the server, and per-item settings (crop, rotate, resize,
+trim, audio routing) come across with it. Because they are per-item, you can
+then change one without touching the other. Pasting obeys the same limits as
+loading: a full slot type refuses with a message, and a pasted video whose
+soundtrack won't fit the audio budget arrives with its audio switched off
+rather than silently going over.
+
+You can also hover the panel and press **Ctrl+V** to paste an image straight
+from the system clipboard — a screenshot, say — which uploads it as a new
+picture.
 
 ---
 
