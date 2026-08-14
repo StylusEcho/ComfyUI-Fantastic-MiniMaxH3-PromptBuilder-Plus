@@ -25,7 +25,7 @@ const STUDIO_NAME = "MiniMaxH3PromptStudio";
 // Outputs are (prompt, references, picture_1, picture_2, ref2va_needed) —
 // the splitter wants the bundle, which is the second one.
 const REFS_SLOT = 1;
-const SUMMARY_H = 46;
+const SUMMARY_H = 52;   // two clamped preview lines + padding
 
 /** The panel widget's current height, read back off the widget rather than
  *  kept in a cache that could drift out of step with it. */

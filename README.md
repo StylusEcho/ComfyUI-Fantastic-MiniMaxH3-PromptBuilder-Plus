@@ -190,6 +190,15 @@ Drag the node's bottom edge and the media panel grows with it, so you can give
 the thumbnails as much room as the canvas allows. It won't shrink below the
 standalone Media Loader's size.
 
+Under the buttons is a summary strip: two lines of the current prompt on the
+left, and the mode on the right as a button. Click it for a dropdown of all
+five modes and pick one without opening the editor — handy for sending the
+same prompt through a different mode. Switching there rewrites the prompt the
+way the editor's Save does, but only when there is one; an empty node stays
+empty. Hover the strip for the reference count, duration, and any warnings,
+and the mode button turns red when you're over a limit. The same strip is on
+the standalone Prompt Builder.
+
 Use the separate **Prompt Builder** and **Media Loader** instead when you want
 one media set feeding several prompts, or media routed from other nodes through
 the builder's individual pass-through slots. Both approaches are supported, and

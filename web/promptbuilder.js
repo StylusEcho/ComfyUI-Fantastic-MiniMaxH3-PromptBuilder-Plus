@@ -1010,8 +1010,30 @@ const CSS = `
 .mmh3-foot .stats{font-size:11px;color:#6b7484;margin-right:auto;}
 .mmh3-summary{width:100%;box-sizing:border-box;background:#181b21;border:1px solid #2b303b;
   border-radius:6px;padding:6px 9px;font-size:11px;line-height:1.5;color:#9aa3b2;
-  overflow:hidden;cursor:default;}
+  overflow:hidden;cursor:default;display:flex;align-items:center;gap:9px;}
 .mmh3-summary b{color:#d7dbe2;}
+/* Two lines of the prompt, clamped. pre-line keeps the prompt's own breaks, so
+   a short opening line spends line two on the next one instead of padding. */
+.mmh3-sumtext{flex:1 1 auto;min-width:0;white-space:pre-line;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  max-height:calc(2 * 1.5em);}
+.mmh3-sumtext.empty{font-style:italic;color:#6b7484;}
+.mmh3-modebtn{flex:0 0 auto;align-self:center;display:inline-flex;align-items:center;gap:5px;
+  background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
+  padding:4px 9px;font-size:11px;font-family:inherit;cursor:pointer;white-space:nowrap;}
+.mmh3-modebtn:hover{background:#333b4d;border-color:#59637a;}
+.mmh3-modebtn.warn{border-color:#7a3a3a;color:#f0a0a0;}
+.mmh3-modebtn.warn b{color:#f0a0a0;}
+.mmh3-modecaret{font-size:9px;color:#8a93a3;}
+.mmh3-modemenu{position:fixed;z-index:10050;background:#1e222a;border:1px solid #3a4252;
+  border-radius:8px;padding:4px;min-width:200px;box-shadow:0 12px 32px rgba(0,0,0,.5);
+  font-family:system-ui,sans-serif;}
+.mmh3-modeitem{display:flex;align-items:baseline;gap:7px;padding:6px 8px;border-radius:6px;
+  cursor:pointer;font-size:11px;color:#c9cfda;}
+.mmh3-modeitem:hover{background:#2a3140;}
+.mmh3-modeitem.on{background:#28313f;}
+.mmh3-modeitem.on b{color:#8fb3ff;}
+.mmh3-modehint{color:#6b7484;font-size:10px;}
 .mmh3-libmodal{width:min(760px,94vw);height:min(640px,90vh);display:flex;
   flex-direction:column;background:#191c22;color:#d7dbe2;border:1px solid #303642;
   border-radius:10px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.55);}
@@ -2506,6 +2528,80 @@ export function openEditor(node) {
   }
 }
 
+/* ---------- on-node mode button + dropdown ---------------------------- */
+
+let _modeMenu = null;
+
+function closeModeMenu() {
+  _modeMenu?.remove();
+  _modeMenu = null;
+  window.removeEventListener("mousedown", modeMenuOutside, true);
+  window.removeEventListener("keydown", modeMenuEsc, true);
+}
+function modeMenuOutside(e) {
+  if (_modeMenu && !_modeMenu.contains(e.target)) closeModeMenu();
+}
+function modeMenuEsc(e) {
+  if (e.key === "Escape") { e.stopPropagation(); closeModeMenu(); }
+}
+
+/** Switch mode straight from the node, without opening the editor. */
+function setMode(node, mode) {
+  const sw = node.widgets?.find((w) => w.name === "builder_state");
+  if (!sw) return;
+  const state = loadState(node);
+  if (state.mode === mode) return;
+  state.mode = mode;
+  sw.value = JSON.stringify(state);
+
+  // Rewrite the prompt only when there is one. Regenerating an untouched node
+  // would swap "empty" for a skeleton the user never asked for, and the empty
+  // state is what the summary uses to tell them to open the editor.
+  const pw = node.widgets?.find((w) => w.name === "prompt_text");
+  if (pw && (pw.value || "").trim()) pw.value = generate(state);
+
+  updateSummary(node);
+  try {
+    node.setDirtyCanvas?.(true, true);
+    app.graph.setDirtyCanvas(true, true);
+  } catch (e) { /* Vue redraws itself */ }
+}
+
+/** Mode list, anchored to the button. Lives on document.body so the summary's
+ *  own overflow:hidden can't clip it \u2014 the same approach as the hover peek. */
+function openModeMenu(node, btn) {
+  closeModeMenu();
+  const current = loadState(node).mode;
+  const menu = el("div", { class: "mmh3-modemenu" },
+    ...MODES.map((m) => el("div", {
+      class: "mmh3-modeitem" + (m.id === current ? " on" : ""),
+      onmousedown: (e) => e.stopPropagation(),   // outside-click closer
+      onclick: (e) => {
+        e.stopPropagation();
+        closeModeMenu();
+        setMode(node, m.id);
+      },
+    }, el("b", {}, m.label), el("span", { class: "mmh3-modehint" }, m.hint))));
+
+  document.body.append(menu);
+  _modeMenu = menu;
+
+  const r = btn.getBoundingClientRect();
+  const w = menu.offsetWidth || 200;
+  const h = menu.offsetHeight || 0;
+  // Prefer below the button; flip above when there isn't room.
+  const top = (r.bottom + h + 6 > window.innerHeight && r.top - h - 6 > 0)
+    ? r.top - h - 6 : r.bottom + 6;
+  menu.style.left = `${Math.max(4, Math.min(r.right - w, window.innerWidth - w - 4))}px`;
+  menu.style.top = `${Math.max(4, top)}px`;
+
+  // Deferred: the click that opened the menu is still travelling.
+  setTimeout(() => {
+    window.addEventListener("mousedown", modeMenuOutside, true);
+    window.addEventListener("keydown", modeMenuEsc, true);
+  }, 0);
+}
+
 export function updateSummary(node) {
   if (!node._mmh3Summary) return;
   const state = loadState(node);
@@ -2514,26 +2610,45 @@ export function updateSummary(node) {
   const allSlots = getRefSlots(node);
   const refs = allSlots.filter((s) => s.tag).length;
   const orphans = allSlots.filter((s) => s.orphan != null).length;
-  const first = text ? escapeHtml(text.split("\n").find((l) => l.trim()) || "").slice(0, 110)
-    : "<i>empty \u2014 click Edit prompt</i>";
-  const durSeg = (state.mode === "FL2VA" || state.mode === "L2VA")
-    ? ` \u2022 ${fmtSS(snapLength(state.duration) / 24)}s (${snapLength(state.duration)}f)`
-    : "";
   const cap = MODE_CAPACITY[state.mode] || {};
-  let refSeg = refs
-    ? ` \u2022 ${refs} ref${refs > 1 ? "s" : ""}` +
-      `${allSlots.bundled && !allSlots.own ? " (loader)" : ""}`
-    : "";
-  if (state.mode === "REF" && cap.total && refs > cap.total)
-    refSeg = ` \u2022 <span style="color:#f07070">${refs} refs \u2014 over the ` +
-      `${cap.total} limit</span>`;
-  if (orphans)
-    refSeg += ` \u2022 <span style="color:#f07070">${orphans} unpaired ` +
-      `soundtrack${orphans > 1 ? "s" : ""}</span>`;
-  node._mmh3Summary.innerHTML =
-    `<b>${state.mode === "REF" ? "Full-reference" : state.mode}</b>` +
-    durSeg + refSeg +
-    `<br>${first}${text.length > 110 ? "\u2026" : ""}`;
+  const over = state.mode === "REF" && cap.total && refs > cap.total;
+
+  // Left: two lines of the prompt itself. textContent, not innerHTML \u2014 the
+  // prompt is user text and must never be parsed as markup. CSS clamps it.
+  const preview = el("div", { class: "mmh3-sumtext" + (text ? "" : " empty") });
+  // 300 chars is well past what two clamped lines can show at this width, so
+  // the node isn't carrying a whole prompt it will never display.
+  preview.textContent = text
+    ? text.slice(0, 300) + (text.length > 300 ? "\u2026" : "")
+    : "empty \u2014 click to open the editor";
+
+  // Everything the old single line used to spell out, kept as a tooltip so
+  // the two-line preview doesn't lose it.
+  const detail = [
+    state.mode === "REF" ? "Full-reference" : state.mode,
+    (state.mode === "FL2VA" || state.mode === "L2VA")
+      ? `${fmtSS(snapLength(state.duration) / 24)}s (${snapLength(state.duration)}f)` : "",
+    refs ? `${refs} ref${refs > 1 ? "s" : ""}`
+      + `${allSlots.bundled && !allSlots.own ? " (loader)" : ""}` : "",
+    over ? `over the ${cap.total} limit` : "",
+    orphans ? `${orphans} unpaired soundtrack${orphans > 1 ? "s" : ""}` : "",
+  ].filter(Boolean).join(" \u2022 ");
+
+  const btn = el("button", {
+    class: "mmh3-modebtn" + (over || orphans ? " warn" : ""),
+    title: `${detail}\nClick to change mode`,
+    onmousedown: (e) => e.stopPropagation(),
+    onclick: (e) => {
+      e.stopPropagation();          // don't fall through to "open the editor"
+      e.preventDefault();
+      if (_modeMenu) { closeModeMenu(); return; }
+      openModeMenu(node, btn);
+    },
+  }, el("b", {}, MODES.find((m) => m.id === state.mode)?.label || state.mode),
+     el("span", { class: "mmh3-modecaret" }, "\u25be"));
+
+  node._mmh3Summary.title = `${detail}\nClick to open the editor`;
+  node._mmh3Summary.replaceChildren(preview, btn);
 }
 
 app.registerExtension({
@@ -2558,15 +2673,15 @@ app.registerExtension({
         const summary = el("div", {
           class: "mmh3-summary",
           title: "Open the prompt editor",
-          style: { cursor: "pointer", height: "46px", minHeight: "46px" },
+          style: { cursor: "pointer", height: "52px", minHeight: "52px" },
           onclick: () => openEditor(this),
         });
         this._mmh3Summary = summary;
         const sw = this.addDOMWidget("mmh3_summary", "div", summary,
           { serialize: false });
         // Explicit height so either renderer reserves space for it.
-        sw.computedHeight = 46;
-        sw.computeSize = () => [330, 46];
+        sw.computedHeight = 52;
+        sw.computeSize = () => [330, 52];
       }
 
       try { this.size[0] = Math.max(this.size[0], 330); } catch (e) { /* Vue sizes it */ }
