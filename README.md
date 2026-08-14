@@ -190,6 +190,15 @@ Drag the node's bottom edge and the media panel grows with it, so you can give
 the thumbnails as much room as the canvas allows. It won't shrink below the
 standalone Media Loader's size.
 
+Under the buttons is a summary strip: two lines of the current prompt on the
+left, and the mode on the right as a button. Click it for a dropdown of all
+five modes and pick one without opening the editor — handy for sending the
+same prompt through a different mode. Switching there rewrites the prompt the
+way the editor's Save does, but only when there is one; an empty node stays
+empty. Hover the strip for the reference count, duration, and any warnings,
+and the mode button turns red when you're over a limit. The same strip is on
+the standalone Prompt Builder.
+
 Use the separate **Prompt Builder** and **Media Loader** instead when you want
 one media set feeding several prompts, or media routed from other nodes through
 the builder's individual pass-through slots. Both approaches are supported, and
@@ -572,10 +581,59 @@ The Media Loader can save your current set of references — which files, their
 order, and each video's audio setting — under a name, and reload it later from
 the dropdown.
 
+The preset label, dropdown and Save / Delete buttons sit in the panel's top row,
+next to **Load files…**.
+
 Presets point at files you already uploaded rather than copying them, so saving
 and loading is instant. If you later delete one of those files, loading the
 preset skips it and tells you which one is missing. Deleting a preset never
 deletes your media.
+
+### The reference rail
+
+The strip of thumbnails at the top of the editor wraps onto further rows rather
+than scrolling sideways, so every reference stays visible and reachable. Click
+one to insert its tag, or drag it into a text field to drop the tag where it
+lands.
+
+Each card carries the same two controls as the node's own tiles: **▣** / **✂**
+opens the crop and trim editor, and **◉** switches the reference off without
+removing it. Drag one card onto another to reorder your media — the tag numbers
+renumber to match, exactly as they do on the node. Both act on the node's real
+media, so the editor and the node never disagree.
+
+### Pinned references
+
+Pinning keeps a reference on screen while you write about it. Pin from a
+thumbnail's hover preview, up to three at a time; putting the text caret inside
+a tag like `<Picture 2>` pins that one automatically, marked `auto`, until the
+caret moves.
+
+On a screen 1800px or wider the pin pane lifts out of the editor and stands in
+the empty space to its left, clearing the screen edge by the same margin the
+editor clears the top and bottom. Pins then get as much room as the screen
+allows — around 280px wide at 1080p and 570px at 1440p, against the 176px
+column inside the editor. Below that width there isn't enough room beside the
+editor to be worth it, so the pane stays in its column.
+
+### Copying media between slots
+
+Right-click any slot for **Copy**, **Duplicate**, **Paste**, **Switch on/off**
+and **Remove**. Copy puts the reference on a clipboard shared by every loader
+on the page, so you can paste it into a different node — useful for sending one
+picture through two graphs with different crops.
+
+A pasted reference is a *new entry pointing at the same uploaded file*, so
+nothing is re-sent to the server, and per-item settings (crop, rotate, resize,
+trim, audio routing) come across with it. Because they are per-item, you can
+then change one without touching the other. Pasting obeys the same limits as
+loading: a full slot type refuses with a message, and a pasted video whose
+soundtrack won't fit the audio budget arrives with its audio switched off
+rather than silently going over.
+
+You can also hover the panel and press **Ctrl+V** to paste an image straight
+from the system clipboard — a screenshot, say — which uploads it as a new
+picture.
 
 ---
 

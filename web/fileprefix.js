@@ -7,7 +7,7 @@ import { api } from "../../scripts/api.js";
 const CSS = `
 .mmfp-over{position:fixed;inset:0;background:rgba(8,10,14,.72);z-index:10060;
   display:flex;align-items:center;justify-content:center;}
-.mmfp-modal{width:min(460px,92vw);max-height:80vh;background:#191c22;
+.mmfp-modal{box-sizing:border-box;width:min(720px,94vw);max-height:88vh;background:#191c22;
   border:1px solid #303642;border-radius:10px;display:flex;flex-direction:column;
   overflow:hidden;font-family:system-ui,sans-serif;color:#d7dbe2;
   box-shadow:0 24px 64px rgba(0,0,0,.55);}

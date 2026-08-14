@@ -25,7 +25,7 @@ const STUDIO_NAME = "MiniMaxH3PromptStudio";
 // Outputs are (prompt, references, picture_1, picture_2, ref2va_needed) —
 // the splitter wants the bundle, which is the second one.
 const REFS_SLOT = 1;
-const SUMMARY_H = 46;
+const SUMMARY_H = 52;   // two clamped preview lines + padding
 
 /** The panel widget's current height, read back off the widget rather than
  *  kept in a cache that could drift out of step with it. */
@@ -36,28 +36,54 @@ function panelHeight(widget) {
   } catch (e) { return PANEL_H; }
 }
 
+/** The node's real floor: every widget at its minimum, panel included.
+ *
+ *  This has to measure with the panel pinned to PANEL_H. Growing the panel
+ *  sets its computedHeight, which is what the renderer sums to size the node
+ *  — so measuring while it is grown reports the *current* height as the
+ *  minimum and the node can then only ever get taller. Both fields are
+ *  overridden for the measurement and restored straight after.
+ *
+ *  `base` is the stock computeSize captured at registration; calling it
+ *  rather than node.computeSize avoids recursing into our own override. */
+function minSize(node, base) {
+  const widget = node.widgets?.find((w) => w.name === "mml_panel");
+  const heldSize = widget?.computeSize;
+  const heldHeight = widget?.computedHeight;
+  try {
+    if (widget) {
+      widget.computeSize = () => [NODE_W, PANEL_H];
+      widget.computedHeight = PANEL_H;
+    }
+    const out = base ? base.call(node) : null;
+    const w = Math.max(NODE_W, out?.[0] || 0);
+    const h = Number.isFinite(out?.[1]) ? out[1] : PANEL_H;
+    return [w, h];
+  } catch (e) {
+    return [NODE_W, PANEL_H];
+  } finally {
+    if (widget) {
+      if (heldSize) widget.computeSize = heldSize;
+      if (heldHeight !== undefined) widget.computedHeight = heldHeight;
+    }
+  }
+}
+
 /** Hand the media panel every pixel the node isn't spending on its buttons and
  *  summary, so dragging the node taller grows the media grid instead of
  *  leaving a gap under it.
  *
- *  The overhead is measured rather than assumed: computeSize() reports the
- *  node's minimum with the panel at its current height, so subtracting that
- *  height leaves exactly what the other widgets occupy — which stays correct
- *  if the widget set ever changes. Canvas-only, since Vue owns layout in
- *  Nodes 2.0, so every step has to be harmless when it doesn't apply. */
-function fitPanel(node) {
+ *  The overhead is measured rather than assumed — minSize() reports the node
+ *  at its floor, so subtracting the panel's own floor leaves exactly what the
+ *  other widgets occupy, and that stays right if the widget set changes.
+ *  Canvas-only, since Vue owns layout in Nodes 2.0, so every step has to be
+ *  harmless when it doesn't apply. */
+function fitPanel(node, base) {
   const widget = node.widgets?.find((w) => w.name === "mml_panel");
   if (!widget) return;
-  const current = panelHeight(widget);
-  let height;
-  try {
-    const overhead = node.computeSize()[1] - current;
-    if (!Number.isFinite(overhead)) return;
-    height = Math.round(node.size[1] - overhead);
-  } catch (e) { return; }
-  if (!Number.isFinite(height)) return;
-  height = Math.max(PANEL_H, height);       // never below the loader's own size
-  if (height === current) return;
+  const overhead = minSize(node, base)[1] - PANEL_H;
+  const height = Math.max(PANEL_H, Math.round((node.size?.[1] || 0) - overhead));
+  if (!Number.isFinite(height) || height === panelHeight(widget)) return;
 
   widget.computedHeight = height;
   widget.computeSize = () => [NODE_W, height];
@@ -140,23 +166,19 @@ app.registerExtension({
       return r;
     };
 
-    // Canvas-only: Vue owns sizing there, so failure here must be harmless.
-    const onResize = nodeType.prototype.onResize;
-    nodeType.prototype.onResize = function (size) {
-      try {
-        // Measure the floor with the panel at its minimum, or the panel's
-        // current height becomes its own floor and the node can only grow.
-        const widget = this.widgets?.find((w) => w.name === "mml_panel");
-        const held = widget && panelHeight(widget);
-        if (widget) widget.computeSize = () => [NODE_W, PANEL_H];
-        const min = this.computeSize();
-        if (widget) widget.computeSize = () => [NODE_W, held];
+    // Report the floor honestly and let the renderer do the clamping. Editing
+    // the size inside onResize instead fights the drag: the pointer and the
+    // node disagree about where the edge is, and the node slides along with
+    // the cursor once you push past the minimum width.
+    const baseComputeSize = nodeType.prototype.computeSize;
+    nodeType.prototype.computeSize = function () {
+      return minSize(this, baseComputeSize);
+    };
 
-        size[0] = Math.max(NODE_W, size[0]);
-        size[1] = Math.max(min[1], size[1]);
-      } catch (e) { /* leave the size alone */ }
+    const onResize = nodeType.prototype.onResize;
+    nodeType.prototype.onResize = function () {
       const r = onResize?.apply(this, arguments);
-      fitPanel(this);
+      fitPanel(this, baseComputeSize);
       return r;
     };
 
@@ -179,7 +201,7 @@ app.registerExtension({
         applyCanvasSizing(this, this.widgets?.find((w) => w.name === "mml_panel"),
           NODE_W, PANEL_H);
         // A saved node restores its own height, so re-fit after that lands.
-        fitPanel(this);
+        fitPanel(this, baseComputeSize);
         updateSummary(this);
       }, 0);
       return r;

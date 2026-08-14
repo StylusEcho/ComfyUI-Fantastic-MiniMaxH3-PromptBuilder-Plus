@@ -6,9 +6,12 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { LOADER_NAME, computeTags, viewURL as loaderViewURL,
-  safeCanvasFocus, openLoaderModal, isOn } from "./medialoader.js";
+  safeCanvasFocus, openLoaderModal, isOn, TrimModal } from "./medialoader.js";
 
 const NODE_NAME = "MiniMaxH3PromptBuilder";
+// Private drag type: marks a drag as "reorder the rail" so a drop on another
+// card moves media, while a drop on a textarea still inserts the tag.
+const RAIL_MIME = "application/x-mmh3-rail";
 
 /* ------------------------------------------------------------------ */
 /* Reference data straight from the guides                             */
@@ -437,7 +440,7 @@ function widgetValue(n, names) {
  * round trip to the server. */
 function mediaSource(node) {
   const own = node.widgets?.find((w) => w.name === "media_state");
-  if (own) return { raw: own.value, label: "Media" };
+  if (own) return { raw: own.value, label: "Media", owner: node };
   const idx = (node.inputs || []).findIndex((i) => i.name === "references");
   if (idx < 0 || node.inputs[idx].link == null) return null;
   const loader = originNode(node, idx);
@@ -445,16 +448,23 @@ function mediaSource(node) {
   return {
     raw: loader.widgets?.find((w) => w.name === "media_state")?.value,
     label: "Media Loader",
+    owner: loader,
   };
 }
 
 function slotsFromBundle(node) {
   const src = mediaSource(node);
   if (!src) return null;
-  let items = [];
-  try {
-    items = JSON.parse(src.raw || "[]");
-  } catch (e) { return null; }
+  // Prefer the owning panel's live objects over a fresh parse: editing a clip
+  // or reordering from the rail has to mutate the same items the panel holds,
+  // or the change is written over the moment the panel next commits.
+  const panel = src.owner?._mmlPanel || null;
+  let items = Array.isArray(panel?.items) ? panel.items : null;
+  if (!items) {
+    try {
+      items = JSON.parse(src.raw || "[]");
+    } catch (e) { return null; }
+  }
   if (!Array.isArray(items)) return null;
   items = items.filter(isOn);      // switched-off media never reaches the model
 
@@ -467,6 +477,9 @@ function slotsFromBundle(node) {
       slotName: `loader:${item.name}`,
       source: `${src.label} \u2022 ${item.name}`,
       preview: { type: previewKind, url: loaderViewURL(item.file) },
+      // The live item and the panel that owns it, so the rail can offer the
+      // same per-clip tools the node tile does.
+      item, panel,
     });
   };
   items.filter((i) => i.kind === "picture")
@@ -827,11 +840,22 @@ function validate(state, slots) {
 
 const CSS = `
 .mmh3-overlay{position:fixed;inset:0;z-index:10000;background:rgba(8,10,14,.62);
-  display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;}
+  display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;
+  /* The modal's size lives here so the floating pin pane can derive its own
+     margin from it. --mmh3-gap is the strip of overlay above and below the
+     centred modal; the pane uses the same figure on the left, so all three
+     edges sit the same distance from the screen. */
+  --mmh3-mw:min(1240px,95vw);
+  --mmh3-mh:min(1290px,92vh);
+  --mmh3-gap:calc((100vh - var(--mmh3-mh)) / 2);}
 /* The pixel cap, not the viewport one, is what usually decides this modal's
    height — 92vh only bites on a short screen. Raising the cap by half is what
    makes the editor use more of a tall screen. */
-.mmh3-modal{width:min(1240px,95vw);height:min(1290px,92vh);display:flex;flex-direction:column;
+/* border-box so the rendered height really is --mmh3-mh. As content-box the
+   1px border made the modal 2px taller, which centred it 1px higher than the
+   gap the pin pane derives from the same variable. */
+.mmh3-modal{box-sizing:border-box;width:var(--mmh3-mw);height:var(--mmh3-mh);
+  display:flex;flex-direction:column;
   background:#191c22;color:#d7dbe2;border:1px solid #303642;border-radius:10px;
   box-shadow:0 24px 64px rgba(0,0,0,.55);overflow:hidden;}
 .mmh3-head{display:flex;align-items:center;gap:14px;padding:10px 16px;
@@ -855,11 +879,36 @@ const CSS = `
 .mmh3-pins{overflow:hidden auto;background:#15181e;border-left:1px solid #2a2f3a;
   padding:0;display:flex;flex-direction:column;gap:6px;}
 .mmh3-body.haspins .mmh3-pins{padding:10px 8px;}
-.mmh3-pinhead{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#8a93a3;}
-.mmh3-pincard{border:1px solid #363d4a;border-radius:7px;overflow:hidden;background:#12151b;}
-.mmh3-pincard .mmh3-thumb{width:100%;height:auto;max-height:150px;object-fit:contain;
-  display:block;background:#0d1015;}
-.mmh3-pinbar{display:flex;align-items:center;gap:6px;padding:3px 6px;}
+.mmh3-pinhead{flex:0 0 auto;font-size:10px;text-transform:uppercase;
+  letter-spacing:.08em;color:#8a93a3;}
+/* Cards share the pane's height evenly and the picture takes whatever the tag
+   bar and any audio control don't, so a pin is as large as the space allows.
+   min-height:0 is what lets a flex item shrink below its content. */
+.mmh3-pincard{flex:1 1 0;min-height:0;display:flex;flex-direction:column;
+  border:1px solid #363d4a;border-radius:7px;overflow:hidden;background:#12151b;}
+.mmh3-pincard .mmh3-thumb{flex:1 1 auto;min-height:0;width:100%;height:auto;
+  object-fit:contain;display:block;background:#0d1015;}
+.mmh3-pinbar{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:3px 6px;}
+.mmh3-pincard audio{flex:0 0 auto;}
+
+/* Wide screens: lift the pane out of the modal and stand it in the empty
+   overlay to the left, where a pin can be far bigger than a 176px column
+   allows. Its left/top/bottom insets are all --mmh3-gap, so it clears the
+   screen edge by exactly what the modal clears the top and bottom by.
+   Below this width the overlay margin is too narrow to be worth it and the
+   pane stays in its in-modal column. */
+@media (min-width:1800px){
+  .mmh3-body.haspins{grid-template-columns:minmax(0,1fr) 0 400px;}
+  .mmh3-body.haspins .mmh3-pins{
+    /* border-box, or the 10px padding and 1px border widen the pane past the
+       calc and it runs under the modal. */
+    box-sizing:border-box;
+    position:fixed;top:var(--mmh3-gap);bottom:var(--mmh3-gap);left:var(--mmh3-gap);
+    width:calc((100vw - var(--mmh3-mw)) / 2 - var(--mmh3-gap) - 14px);
+    border:1px solid #303642;border-left:1px solid #303642;border-radius:10px;
+    box-shadow:0 24px 64px rgba(0,0,0,.55);padding:10px;overflow:hidden;}
+  .mmh3-body:not(.haspins) .mmh3-pins{display:none;}
+}
 .mmh3-auto{font-size:9px;color:#6f86b8;border:1px solid #2b3a52;border-radius:7px;
   padding:0 5px;margin-left:auto;}
 .mmh3-pinbar .mmh3-x{margin-left:auto;cursor:pointer;color:#6b7484;font-size:11px;}
@@ -942,9 +991,26 @@ const CSS = `
 .mmh3-clearbar .mmh3-btn + .mmh3-btn{margin-left:0;}
 .mmh3-chipbar{position:sticky;top:0;z-index:5;background:#191c22;padding:8px 0 10px;
   border-bottom:1px solid #242a34;margin-bottom:14px;}
-.mmh3-chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:3px;align-items:flex-start;}
-.mmh3-chips::-webkit-scrollbar{height:6px;}
+/* Wraps instead of scrolling sideways: a second row is easier to scan than a
+   strip you have to drag through, and every reference stays reachable for a
+   drag. Caps at roughly three rows before scrolling vertically. */
+.mmh3-chips{display:flex;flex-wrap:wrap;gap:6px;padding-bottom:3px;
+  align-items:flex-start;align-content:flex-start;
+  max-height:min(46vh,380px);overflow-y:auto;overflow-x:hidden;}
+.mmh3-chips::-webkit-scrollbar{width:6px;height:6px;}
 .mmh3-chips::-webkit-scrollbar-thumb{background:#2e3440;border-radius:3px;}
+.mmh3-card.mmh3-dropinto{outline:2px solid #6f86b8;outline-offset:1px;}
+.mmh3-cardtools{display:flex;align-items:center;gap:8px;padding:0 4px 3px;}
+.mmh3-cardtool{cursor:pointer;font-size:11px;line-height:1;color:#5a6373;
+  user-select:none;}
+.mmh3-cardtool:hover{color:#c9cfda;}
+.mmh3-cardtool.on{color:#e0a94c;}
+.mmh3-cardtool.lit{color:#7ec87e;}
+.mmh3-cardtool.lit:hover{color:#a8e6a8;}
+/* The two audio sections sit side by side at the foot of the form. */
+.mmh3-audiopair{display:flex;gap:14px;align-items:flex-start;}
+.mmh3-audiopair>.mmh3-sec{flex:1 1 0;min-width:0;margin-bottom:16px;}
+@media (max-width:900px){.mmh3-audiopair{flex-direction:column;gap:0;}}
 .mmh3-chip{display:inline-flex;align-items:center;gap:6px;border-radius:14px;cursor:pointer;
   border:1px solid #363d4a;background:#20242d;color:#c9cfda;font-size:12px;
   padding:3px 10px;user-select:none;}
@@ -1010,9 +1076,31 @@ const CSS = `
 .mmh3-foot .stats{font-size:11px;color:#6b7484;margin-right:auto;}
 .mmh3-summary{width:100%;box-sizing:border-box;background:#181b21;border:1px solid #2b303b;
   border-radius:6px;padding:6px 9px;font-size:11px;line-height:1.5;color:#9aa3b2;
-  overflow:hidden;cursor:default;}
+  overflow:hidden;cursor:default;display:flex;align-items:center;gap:9px;}
 .mmh3-summary b{color:#d7dbe2;}
-.mmh3-libmodal{width:min(760px,94vw);height:min(640px,90vh);display:flex;
+/* Two lines of the prompt, clamped. pre-line keeps the prompt's own breaks, so
+   a short opening line spends line two on the next one instead of padding. */
+.mmh3-sumtext{flex:1 1 auto;min-width:0;white-space:pre-line;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  max-height:calc(2 * 1.5em);}
+.mmh3-sumtext.empty{font-style:italic;color:#6b7484;}
+.mmh3-modebtn{flex:0 0 auto;align-self:center;display:inline-flex;align-items:center;gap:5px;
+  background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
+  padding:4px 9px;font-size:11px;font-family:inherit;cursor:pointer;white-space:nowrap;}
+.mmh3-modebtn:hover{background:#333b4d;border-color:#59637a;}
+.mmh3-modebtn.warn{border-color:#7a3a3a;color:#f0a0a0;}
+.mmh3-modebtn.warn b{color:#f0a0a0;}
+.mmh3-modecaret{font-size:9px;color:#8a93a3;}
+.mmh3-modemenu{position:fixed;z-index:10050;background:#1e222a;border:1px solid #3a4252;
+  border-radius:8px;padding:4px;min-width:200px;box-shadow:0 12px 32px rgba(0,0,0,.5);
+  font-family:system-ui,sans-serif;}
+.mmh3-modeitem{display:flex;align-items:baseline;gap:7px;padding:6px 8px;border-radius:6px;
+  cursor:pointer;font-size:11px;color:#c9cfda;}
+.mmh3-modeitem:hover{background:#2a3140;}
+.mmh3-modeitem.on{background:#28313f;}
+.mmh3-modeitem.on b{color:#8fb3ff;}
+.mmh3-modehint{color:#6b7484;font-size:10px;}
+.mmh3-libmodal{box-sizing:border-box;width:min(1240px,95vw);height:min(1290px,92vh);display:flex;
   flex-direction:column;background:#191c22;color:#d7dbe2;border:1px solid #303642;
   border-radius:10px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.55);}
 .mmh3-libbar{display:flex;gap:6px;align-items:center;padding:8px 12px;
@@ -1823,7 +1911,10 @@ class Editor {
         ondragstart: (e) => {
           if (!ok) { e.preventDefault(); return; }
           e.dataTransfer.setData("text/plain", s.tag);
-          e.dataTransfer.effectAllowed = "copy";
+          // A private type so a drop on another card is read as a reorder,
+          // while a drop on a textarea still inserts the tag.
+          if (s.item) e.dataTransfer.setData(RAIL_MIME, s.tag);
+          e.dataTransfer.effectAllowed = "copyMove";
           this.closePeek();
         },
       },
@@ -1839,9 +1930,76 @@ class Editor {
         s.note && s.note !== "standalone"
           ? el("span", { class: "mmh3-cardnote" },
               "\u266a\u2192V" + (s.note.match(/\d+/) || [""])[0])
-          : null);
+          : null,
+        this.cardTools(s));
+      if (s.item && s.panel) this.railReorder(card, s);
       if (ok) this.peekFor(card, s);
       return card;
+    });
+  }
+
+  /** The node tile's own per-clip controls, on the editor's rail: the trim /
+   *  crop editor and the on/off switch. Only for media this editor can reach
+   *  live \u2014 media wired in through the individual inputs has no item behind
+   *  it to edit. */
+  cardTools(s) {
+    if (!s.item || !s.panel) return null;
+    const still = s.item.kind === "picture";
+    const on = isOn(s.item);
+    const after = () => {
+      // The panel owns the state; re-read it so the rail, the pins and the
+      // validation all reflect the edit.
+      this.slots = getRefSlots(this.node);
+      this.render();
+    };
+    return el("div", { class: "mmh3-cardtools" },
+      el("span", {
+        class: "mmh3-cardtool" + (s.item.trim || s.item.crop || s.item.rotate
+          || s.item.mirror || s.item.resize ? " on" : ""),
+        title: still ? "Crop, rotate or mirror this picture"
+                     : "Trim this clip, or crop the frame",
+        onclick: (e) => {
+          e.stopPropagation();
+          this.closePeek();
+          const modal = new TrimModal(s.panel, s.item);
+          // Every exit runs through close(), so wrapping the instance's copy
+          // catches Apply, Cancel and Escape alike.
+          const shut = modal.close.bind(modal);
+          modal.close = () => { shut(); after(); };
+        },
+      }, still ? "\u25a3" : "\u2702"),
+      el("span", {
+        class: "mmh3-cardtool" + (on ? " lit" : ""),
+        title: on ? "Switch off \u2014 kept, but not sent to the model" : "Switch on",
+        onclick: (e) => {
+          e.stopPropagation();
+          s.item.enabled = !on;
+          s.panel.commit();
+          after();
+        },
+      }, on ? "\u25c9" : "\u25cb"));
+  }
+
+  /** Drag one rail card onto another to reorder the underlying media. */
+  railReorder(card, s) {
+    card.addEventListener("dragover", (e) => {
+      if (!e.dataTransfer.types.includes(RAIL_MIME)) return;
+      e.preventDefault(); e.stopPropagation();
+      e.dataTransfer.dropEffect = "move";
+      card.classList.add("mmh3-dropinto");
+    });
+    card.addEventListener("dragleave", () => card.classList.remove("mmh3-dropinto"));
+    card.addEventListener("drop", (e) => {
+      card.classList.remove("mmh3-dropinto");
+      if (!e.dataTransfer.types.includes(RAIL_MIME)) return;
+      e.preventDefault(); e.stopPropagation();
+      const tag = e.dataTransfer.getData(RAIL_MIME);
+      const from = this.slots.find((x) => x.tag === tag);
+      if (!from?.item || from.item === s.item) return;
+      const items = s.panel.items;
+      s.panel.move(items.indexOf(from.item), items.indexOf(s.item));
+      this.slots = getRefSlots(this.node);
+      this.render();
     });
   }
 
@@ -2036,19 +2194,19 @@ class Editor {
         "Open [Shot 1] with the overall style and initial composition. Later shots: " +
         "\"[Shot N] At MM:SS.mmm, the shot cuts to ...\". Write camera moves as natural sentences.")));
 
-    f.append(el("div", { class: "mmh3-sec" },
-      this.secLabel("overall_soundscape"),
-      el("div", { class: "mmh3-row" },
-        this.ta(s, "soundscape", 3,
-          "1\u20134 sentences: ambience, physical action sounds, non-verbal human sounds."),
-        this.naButton(s, "soundscape"))));
-
-    f.append(el("div", { class: "mmh3-sec" },
-      this.secLabel("non_diegetic_music"),
-      el("div", { class: "mmh3-row" },
-        this.ta(s, "music", 3,
-          "1\u20133 sentences: instrumentation, tempo, rhythm, dynamics. No abstract mood words."),
-        this.naButton(s, "music"))));
+    f.append(el("div", { class: "mmh3-audiopair" },
+      el("div", { class: "mmh3-sec" },
+        this.secLabel("overall_soundscape"),
+        el("div", { class: "mmh3-row" },
+          this.ta(s, "soundscape", 3,
+            "1\u20134 sentences: ambience, physical action sounds, non-verbal human sounds."),
+          this.naButton(s, "soundscape"))),
+      el("div", { class: "mmh3-sec" },
+        this.secLabel("non_diegetic_music"),
+        el("div", { class: "mmh3-row" },
+          this.ta(s, "music", 3,
+            "1\u20133 sentences: instrumentation, tempo, rhythm, dynamics. No abstract mood words."),
+          this.naButton(s, "music")))));
   }
 
   renderRef() {
@@ -2357,20 +2515,21 @@ class Editor {
       detTa, wcSpan));
 
     /* audio sections ---------------------------------------------------- */
-    f.append(el("div", { class: "mmh3-sec" },
-      this.secLabel("overall_soundscape"),
-      el("div", { class: "mmh3-row" },
-        this.ta(r, "soundscape", 3,
-          "Ambience + physical sounds. If copying ambience: \"The copied ambience layer " +
-          "from <Audio 1> continues throughout the target video.\""),
-        this.naButton(r, "soundscape"))));
-    f.append(el("div", { class: "mmh3-sec" },
-      this.secLabel("non_diegetic_music"),
-      el("div", { class: "mmh3-row" },
-        this.ta(r, "music", 3,
-          "Audience-only score. If reused: \"<Audio 2> is directly reused as the complete " +
-          "audience-only score.\""),
-        this.naButton(r, "music"))));
+    f.append(el("div", { class: "mmh3-audiopair" },
+      el("div", { class: "mmh3-sec" },
+        this.secLabel("overall_soundscape"),
+        el("div", { class: "mmh3-row" },
+          this.ta(r, "soundscape", 3,
+            "Ambience + physical sounds. If copying ambience: \"The copied ambience layer " +
+            "from <Audio 1> continues throughout the target video.\""),
+          this.naButton(r, "soundscape"))),
+      el("div", { class: "mmh3-sec" },
+        this.secLabel("non_diegetic_music"),
+        el("div", { class: "mmh3-row" },
+          this.ta(r, "music", 3,
+            "Audience-only score. If reused: \"<Audio 2> is directly reused as the complete " +
+            "audience-only score.\""),
+          this.naButton(r, "music")))));
   }
 
   /* ---------- preview + validation ---------- */
@@ -2506,6 +2665,80 @@ export function openEditor(node) {
   }
 }
 
+/* ---------- on-node mode button + dropdown ---------------------------- */
+
+let _modeMenu = null;
+
+function closeModeMenu() {
+  _modeMenu?.remove();
+  _modeMenu = null;
+  window.removeEventListener("mousedown", modeMenuOutside, true);
+  window.removeEventListener("keydown", modeMenuEsc, true);
+}
+function modeMenuOutside(e) {
+  if (_modeMenu && !_modeMenu.contains(e.target)) closeModeMenu();
+}
+function modeMenuEsc(e) {
+  if (e.key === "Escape") { e.stopPropagation(); closeModeMenu(); }
+}
+
+/** Switch mode straight from the node, without opening the editor. */
+function setMode(node, mode) {
+  const sw = node.widgets?.find((w) => w.name === "builder_state");
+  if (!sw) return;
+  const state = loadState(node);
+  if (state.mode === mode) return;
+  state.mode = mode;
+  sw.value = JSON.stringify(state);
+
+  // Rewrite the prompt only when there is one. Regenerating an untouched node
+  // would swap "empty" for a skeleton the user never asked for, and the empty
+  // state is what the summary uses to tell them to open the editor.
+  const pw = node.widgets?.find((w) => w.name === "prompt_text");
+  if (pw && (pw.value || "").trim()) pw.value = generate(state);
+
+  updateSummary(node);
+  try {
+    node.setDirtyCanvas?.(true, true);
+    app.graph.setDirtyCanvas(true, true);
+  } catch (e) { /* Vue redraws itself */ }
+}
+
+/** Mode list, anchored to the button. Lives on document.body so the summary's
+ *  own overflow:hidden can't clip it \u2014 the same approach as the hover peek. */
+function openModeMenu(node, btn) {
+  closeModeMenu();
+  const current = loadState(node).mode;
+  const menu = el("div", { class: "mmh3-modemenu" },
+    ...MODES.map((m) => el("div", {
+      class: "mmh3-modeitem" + (m.id === current ? " on" : ""),
+      onmousedown: (e) => e.stopPropagation(),   // outside-click closer
+      onclick: (e) => {
+        e.stopPropagation();
+        closeModeMenu();
+        setMode(node, m.id);
+      },
+    }, el("b", {}, m.label), el("span", { class: "mmh3-modehint" }, m.hint))));
+
+  document.body.append(menu);
+  _modeMenu = menu;
+
+  const r = btn.getBoundingClientRect();
+  const w = menu.offsetWidth || 200;
+  const h = menu.offsetHeight || 0;
+  // Prefer below the button; flip above when there isn't room.
+  const top = (r.bottom + h + 6 > window.innerHeight && r.top - h - 6 > 0)
+    ? r.top - h - 6 : r.bottom + 6;
+  menu.style.left = `${Math.max(4, Math.min(r.right - w, window.innerWidth - w - 4))}px`;
+  menu.style.top = `${Math.max(4, top)}px`;
+
+  // Deferred: the click that opened the menu is still travelling.
+  setTimeout(() => {
+    window.addEventListener("mousedown", modeMenuOutside, true);
+    window.addEventListener("keydown", modeMenuEsc, true);
+  }, 0);
+}
+
 export function updateSummary(node) {
   if (!node._mmh3Summary) return;
   const state = loadState(node);
@@ -2514,26 +2747,45 @@ export function updateSummary(node) {
   const allSlots = getRefSlots(node);
   const refs = allSlots.filter((s) => s.tag).length;
   const orphans = allSlots.filter((s) => s.orphan != null).length;
-  const first = text ? escapeHtml(text.split("\n").find((l) => l.trim()) || "").slice(0, 110)
-    : "<i>empty \u2014 click Edit prompt</i>";
-  const durSeg = (state.mode === "FL2VA" || state.mode === "L2VA")
-    ? ` \u2022 ${fmtSS(snapLength(state.duration) / 24)}s (${snapLength(state.duration)}f)`
-    : "";
   const cap = MODE_CAPACITY[state.mode] || {};
-  let refSeg = refs
-    ? ` \u2022 ${refs} ref${refs > 1 ? "s" : ""}` +
-      `${allSlots.bundled && !allSlots.own ? " (loader)" : ""}`
-    : "";
-  if (state.mode === "REF" && cap.total && refs > cap.total)
-    refSeg = ` \u2022 <span style="color:#f07070">${refs} refs \u2014 over the ` +
-      `${cap.total} limit</span>`;
-  if (orphans)
-    refSeg += ` \u2022 <span style="color:#f07070">${orphans} unpaired ` +
-      `soundtrack${orphans > 1 ? "s" : ""}</span>`;
-  node._mmh3Summary.innerHTML =
-    `<b>${state.mode === "REF" ? "Full-reference" : state.mode}</b>` +
-    durSeg + refSeg +
-    `<br>${first}${text.length > 110 ? "\u2026" : ""}`;
+  const over = state.mode === "REF" && cap.total && refs > cap.total;
+
+  // Left: two lines of the prompt itself. textContent, not innerHTML \u2014 the
+  // prompt is user text and must never be parsed as markup. CSS clamps it.
+  const preview = el("div", { class: "mmh3-sumtext" + (text ? "" : " empty") });
+  // 300 chars is well past what two clamped lines can show at this width, so
+  // the node isn't carrying a whole prompt it will never display.
+  preview.textContent = text
+    ? text.slice(0, 300) + (text.length > 300 ? "\u2026" : "")
+    : "empty \u2014 click to open the editor";
+
+  // Everything the old single line used to spell out, kept as a tooltip so
+  // the two-line preview doesn't lose it.
+  const detail = [
+    state.mode === "REF" ? "Full-reference" : state.mode,
+    (state.mode === "FL2VA" || state.mode === "L2VA")
+      ? `${fmtSS(snapLength(state.duration) / 24)}s (${snapLength(state.duration)}f)` : "",
+    refs ? `${refs} ref${refs > 1 ? "s" : ""}`
+      + `${allSlots.bundled && !allSlots.own ? " (loader)" : ""}` : "",
+    over ? `over the ${cap.total} limit` : "",
+    orphans ? `${orphans} unpaired soundtrack${orphans > 1 ? "s" : ""}` : "",
+  ].filter(Boolean).join(" \u2022 ");
+
+  const btn = el("button", {
+    class: "mmh3-modebtn" + (over || orphans ? " warn" : ""),
+    title: `${detail}\nClick to change mode`,
+    onmousedown: (e) => e.stopPropagation(),
+    onclick: (e) => {
+      e.stopPropagation();          // don't fall through to "open the editor"
+      e.preventDefault();
+      if (_modeMenu) { closeModeMenu(); return; }
+      openModeMenu(node, btn);
+    },
+  }, el("b", {}, MODES.find((m) => m.id === state.mode)?.label || state.mode),
+     el("span", { class: "mmh3-modecaret" }, "\u25be"));
+
+  node._mmh3Summary.title = `${detail}\nClick to open the editor`;
+  node._mmh3Summary.replaceChildren(preview, btn);
 }
 
 app.registerExtension({
@@ -2558,15 +2810,15 @@ app.registerExtension({
         const summary = el("div", {
           class: "mmh3-summary",
           title: "Open the prompt editor",
-          style: { cursor: "pointer", height: "46px", minHeight: "46px" },
+          style: { cursor: "pointer", height: "52px", minHeight: "52px" },
           onclick: () => openEditor(this),
         });
         this._mmh3Summary = summary;
         const sw = this.addDOMWidget("mmh3_summary", "div", summary,
           { serialize: false });
         // Explicit height so either renderer reserves space for it.
-        sw.computedHeight = 46;
-        sw.computeSize = () => [330, 46];
+        sw.computedHeight = 52;
+        sw.computeSize = () => [330, 52];
       }
 
       try { this.size[0] = Math.max(this.size[0], 330); } catch (e) { /* Vue sizes it */ }

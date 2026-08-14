@@ -203,6 +203,25 @@ export function safeCanvasFocus(node) {
 export const PANEL_H = 476;
 export const NODE_W = 660;
 
+/* Copied media, shared across every loader on the page so a reference can be
+   carried from one node to another. Holds the item, not the file: the upload
+   already exists on the server and both entries point at it. */
+let _mediaClip = null;
+let _slotMenu = null;
+
+function closeSlotMenu() {
+  _slotMenu?.remove();
+  _slotMenu = null;
+  window.removeEventListener("mousedown", slotMenuOutside, true);
+  window.removeEventListener("keydown", slotMenuEsc, true);
+}
+function slotMenuOutside(e) {
+  if (_slotMenu && !_slotMenu.contains(e.target)) closeSlotMenu();
+}
+function slotMenuEsc(e) {
+  if (e.key === "Escape") { e.stopPropagation(); closeSlotMenu(); }
+}
+
 const CSS = `
 .mml-panel{font-family:system-ui,sans-serif;color:#d7dbe2;font-size:12px;
   background:#191c22;border:1px solid #2a2f3a;border-radius:8px;padding:8px;
@@ -215,7 +234,7 @@ const CSS = `
   display:flex;align-items:center;justify-content:center;}
 /* As with the prompt editor, the pixel cap is what decides this modal's height
    on a tall screen — 92vh only bites on a short one. */
-.mml-modal{width:min(760px,94vw);height:min(780px,92vh);background:#191c22;
+.mml-modal{box-sizing:border-box;width:min(1240px,95vw);height:min(1290px,92vh);background:#191c22;
   border:1px solid #303642;border-radius:10px;display:flex;flex-direction:column;
   overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.55);}
 .mml-modalhead{display:flex;align-items:center;gap:10px;padding:9px 13px;
@@ -231,6 +250,18 @@ const CSS = `
   padding:4px 10px;font-size:11px;cursor:pointer;}
 .mml-btn:hover{background:#333b4d;}
 .mml-presetrow{flex:0 0 auto;display:flex;align-items:center;gap:5px;}
+/* Preset controls inline in the top row. flex-shrink lets the dropdown give up
+   width first when the panel is narrow, so the buttons stay reachable. */
+.mml-presetgrp{display:flex;align-items:center;gap:5px;min-width:0;flex:0 1 auto;}
+.mml-presetgrp .mml-preset{flex:0 1 auto;min-width:60px;}
+.mml-slotmenu{position:fixed;z-index:10060;background:#1e222a;border:1px solid #3a4252;
+  border-radius:8px;padding:4px;min-width:170px;box-shadow:0 12px 32px rgba(0,0,0,.5);
+  font-family:system-ui,sans-serif;font-size:11px;}
+.mml-slotitem{padding:6px 9px;border-radius:6px;cursor:pointer;color:#c9cfda;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mml-slotitem:hover{background:#2a3140;}
+.mml-slotitem.danger{color:#f0a0a0;}
+.mml-slotitem.danger:hover{background:#3a2020;}
 .mml-presetlbl{font-size:10px;text-transform:uppercase;letter-spacing:.07em;
   color:#6b7484;}
 .mml-preset{flex:1;min-width:0;background:#12151b;color:#c9cfda;
@@ -249,8 +280,6 @@ const CSS = `
 .mml-topspace{flex:1;}
 .mml-detail{background:#12151b;color:#a9b2c2;border:1px solid #2e3440;
   border-radius:6px;padding:2px 4px;font-size:10px;margin-right:2px;}
-.mml-count{font-size:10px;color:#8a93a3;font-family:ui-monospace,monospace;}
-.mml-count.over{color:#f07070;}
 .mml-msg{flex:0 0 auto;font-size:10px;min-height:12px;color:#e0a94c;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;}
 .mml-msg.err{color:#f07070;}
@@ -357,15 +386,16 @@ const CSS = `
 .mml-trimbtn.on{opacity:1;text-shadow:0 0 6px rgba(224,169,76,.55);}
 .mml-tmover{position:fixed;inset:0;background:rgba(8,10,14,.72);z-index:10050;
   display:flex;align-items:center;justify-content:center;}
-.mml-tmmodal{width:min(640px,92vw);background:#191c22;border:1px solid #303642;
+.mml-tmmodal{box-sizing:border-box;width:min(1240px,95vw);height:min(1290px,92vh);
+  background:#191c22;border:1px solid #303642;
   border-radius:10px;box-shadow:0 24px 64px rgba(0,0,0,.55);display:flex;
   flex-direction:column;overflow:hidden;font-family:system-ui,sans-serif;}
 .mml-tmhead{display:flex;align-items:center;gap:8px;padding:8px 12px;
   border-bottom:1px solid #2a2f3a;background:#1b1f27;}
 .mml-tmtitle{flex:1;min-width:0;font-size:12px;color:#dde2ea;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;}
-.mml-tmstage{position:relative;background:#000;line-height:0;}
-.mml-tmvideo{width:100%;max-height:340px;object-fit:contain;display:block;}
+.mml-tmstage{position:relative;background:#000;line-height:0;flex:1 1 auto;min-height:0;}
+.mml-tmvideo{width:100%;height:100%;max-height:none;object-fit:contain;display:block;}
 .mml-tmcropwrap{position:absolute;inset:0;}
 
 .mml-tmcrop{position:absolute;border:1.5px dashed #4cc3e0;cursor:move;
@@ -459,9 +489,9 @@ const CSS = `
 
 .mml-light{position:fixed;inset:0;z-index:10050;background:rgba(8,10,14,.75);
   display:flex;align-items:center;justify-content:center;}
-.mml-lightbox{max-width:80vw;max-height:80vh;background:#1e222a;border:1px solid #3a4252;
+.mml-lightbox{max-width:95vw;max-height:92vh;background:#1e222a;border:1px solid #3a4252;
   border-radius:10px;overflow:hidden;padding:8px;}
-.mml-lightbox img,.mml-lightbox video{max-width:76vw;max-height:68vh;display:block;}
+.mml-lightbox img,.mml-lightbox video{max-width:93vw;max-height:84vh;display:block;}
 .mml-lightcap{display:flex;align-items:center;gap:8px;padding-top:6px;font-size:11px;
   color:#8a93a3;}
 .mml-helpbtn{margin-left:5px;width:13px;height:13px;line-height:1;padding:0;
@@ -516,7 +546,7 @@ const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")
 
 /** Popout editor for a clip's trim range and (for video) a crop rect.
  *  Writes item.trim {start,end} and item.crop {x,y,w,h} on Apply only. */
-class TrimModal {
+export class TrimModal {
   constructor(panel, item) {
     this.panel = panel;
     this.item = item;
@@ -1585,6 +1615,19 @@ export class LoaderPanel {
       this.add([...e.dataTransfer.files]);
     });
 
+    // Ctrl+V while the pointer is over this panel. Hover decides the target
+    // because a node panel and a modal can both be open, and a plain div
+    // never holds focus for a paste event to arrive on its own.
+    this.root.addEventListener("mouseenter", () => { this._hover = true; });
+    this.root.addEventListener("mouseleave", () => { this._hover = false; });
+    this._onPaste = (e) => {
+      if (!this._hover || !this.root.isConnected) return;
+      const files = [...(e.clipboardData?.files || [])];
+      if (files.length) { e.preventDefault(); this.add(files); return; }
+      if (_mediaClip) { e.preventDefault(); this.pasteItem(); }
+    };
+    document.addEventListener("paste", this._onPaste);
+
     this.render();
     this.refreshPresets();
   }
@@ -1702,15 +1745,8 @@ export class LoaderPanel {
         : /^(mp4|mov|mkv|webm|avi|m4v|mpe?g)$/.test(ext) ? "video"
         : /^(wav|mp3|flac|ogg|m4a|aac|opus)$/.test(ext) ? "audio" : null;
       if (!guess) { this.say(`${file.name}: unsupported file type.`, true); continue; }
-      if (this.count(guess) >= MAX[guess]) {
-        this.say(`All ${MAX[guess]} ${guess} slots are full — ${file.name} skipped.`, true);
-        continue;
-      }
-      if (guess === "audio" && audioCount(this.items) >= MAX.audio) {
-        this.say(`H3 takes ${MAX.audio} audio clips in total, and split video ` +
-          `soundtracks count too — ${file.name} skipped.`, true);
-        continue;
-      }
+      const full = this.capacityError(guess, file.name);
+      if (full) { this.say(full, true); continue; }
       if (guess === "video" && !caps.video) {
         this.say("Videos need PyAV or ffmpeg on the server.", true);
         continue;
@@ -1806,8 +1842,128 @@ export class LoaderPanel {
     this.commit();
   }
 
+  /** Why this kind can't take another item, or null when there's room.
+   *  Shared by file loading and pasting so both refuse on the same terms. */
+  capacityError(kind, name) {
+    if (this.count(kind) >= MAX[kind])
+      return `All ${MAX[kind]} ${kind} slots are full — ${name} skipped.`;
+    if (kind === "audio" && audioCount(this.items) >= MAX.audio)
+      return `H3 takes ${MAX.audio} audio clips in total, and split video ` +
+        `soundtracks count too — ${name} skipped.`;
+    return null;
+  }
+
+  /* --- copy / paste ------------------------------------------------- */
+
+  /** Copy a whole item, per-item settings included. The clipboard is module
+   *  level, so media can be copied between two loader nodes. */
+  copyItem(item) {
+    try {
+      _mediaClip = JSON.parse(JSON.stringify(item));
+    } catch (e) {
+      this.say("Couldn't copy that item.", true);
+      this.render();
+      return;
+    }
+    this.say(`Copied ${item.name} — paste into any slot.`);
+    this.render();
+  }
+
+  /** Paste the copied item as a new entry. The upload is reused rather than
+   *  re-sent: both entries point at the same file already on the server, and
+   *  crop/trim/rotate are per-item so they can diverge afterwards. */
+  pasteItem() {
+    if (!_mediaClip) return false;
+    const why = this.capacityError(_mediaClip.kind, _mediaClip.name);
+    if (why) { this.say(why, true); this.render(); return true; }
+    let copy;
+    try {
+      copy = JSON.parse(JSON.stringify(_mediaClip));
+    } catch (e) { return false; }
+    if (_mediaClip.kind === "video" && copy.audio_mode === "paired"
+        && audioCount(this.items) >= MAX.audio) {
+      // Its soundtrack would put the audio budget over; keep the clip, drop
+      // the pairing, and say so rather than silently exceeding the limit.
+      copy.audio_mode = "off";
+      this.say(`Pasted ${copy.name} with its audio off — already using `
+        + `${MAX.audio} audio clips.`, true);
+    } else {
+      this.say(`Pasted ${copy.name}.`);
+    }
+    this.items.push(copy);
+    this.commit();
+    return true;
+  }
+
+  /** Right-click menu for a slot. `item` is null on an empty slot. */
+  slotMenu(e, item) {
+    e.preventDefault();
+    e.stopPropagation();
+    closeSlotMenu();
+    const rows = [];
+    if (item) {
+      rows.push(["Copy", () => this.copyItem(item)]);
+      rows.push(["Duplicate", () => { this.copyItem(item); this.pasteItem(); }]);
+    }
+    rows.push([
+      _mediaClip ? `Paste ${_mediaClip.name}` : "Paste image from clipboard",
+      () => { if (!this.pasteItem()) this.pasteFromSystem(); },
+    ]);
+    if (item) {
+      rows.push([isOn(item) ? "Switch off" : "Switch on", () => {
+        item.enabled = !isOn(item);
+        this.commit();
+      }]);
+      rows.push(["Remove", () => {
+        this.items = this.items.filter((i) => i !== item);
+        this.commit();
+      }]);
+    }
+
+    const menu = el("div", { class: "mml-slotmenu" },
+      ...rows.map(([label, run]) => el("div", {
+        class: "mml-slotitem" + (/^Remove$/.test(label) ? " danger" : ""),
+        onmousedown: (ev) => ev.stopPropagation(),
+        onclick: (ev) => { ev.stopPropagation(); closeSlotMenu(); run(); },
+      }, label)));
+    document.body.append(menu);
+    _slotMenu = menu;
+
+    const w = menu.offsetWidth || 180;
+    const h = menu.offsetHeight || 0;
+    menu.style.left = `${Math.max(4, Math.min(e.clientX, window.innerWidth - w - 4))}px`;
+    menu.style.top = `${Math.max(4, Math.min(e.clientY, window.innerHeight - h - 4))}px`;
+    setTimeout(() => {
+      window.addEventListener("mousedown", slotMenuOutside, true);
+      window.addEventListener("keydown", slotMenuEsc, true);
+    }, 0);
+  }
+
+  /** Pull an image straight off the OS clipboard (a screenshot, say). */
+  async pasteFromSystem() {
+    try {
+      const entries = await navigator.clipboard?.read?.();
+      for (const entry of entries || []) {
+        const type = entry.types.find((t) => t.startsWith("image/"));
+        if (!type) continue;
+        const blob = await entry.getType(type);
+        const ext = type.split("/")[1] || "png";
+        await this.add([new File([blob], `pasted-${Date.now()}.${ext}`, { type })]);
+        return;
+      }
+      this.say("Nothing to paste — copy a picture or a slot first.", true);
+    } catch (err) {
+      // Reading the clipboard needs permission and a secure context; a plain
+      // Ctrl+V over the panel still works and doesn't go through this path.
+      this.say("Clipboard read was blocked — press Ctrl+V over the panel "
+        + "instead, or copy a slot with right-click.", true);
+    }
+    this.render();
+  }
+
   reorderable(node, item) {
     node.draggable = true;
+    node.addEventListener("contextmenu", (e) => this.slotMenu(e, item));
     node.addEventListener("dragstart", (e) => {
       e.stopPropagation();
       e.dataTransfer.effectAllowed = "move";
@@ -1834,9 +1990,11 @@ export class LoaderPanel {
   /** An always-present empty slot: click to browse, drop to fill. */
   emptySlot(kind, index) {
     const slot = el("div", { class: "mml-slot",
-      title: `Empty ${kind} slot ${index} \u2014 click to browse or drop a file`,
+      title: `Empty ${kind} slot ${index} \u2014 click to browse, drop a file, ` +
+        `or right-click to paste`,
       onclick: () => this.picker.click() },
       el("span", {}, `${kind} ${index}`));
+    slot.addEventListener("contextmenu", (e) => this.slotMenu(e, null));
     slot.addEventListener("dragover", (e) => {
       if (!e.dataTransfer?.types?.includes("Files")) return;
       e.preventDefault(); e.stopPropagation();
@@ -1864,11 +2022,36 @@ export class LoaderPanel {
     const auds = this.items.filter((i) => i.kind === "audio");
     const kids = [this.picker];
 
+    const select = el("select", { class: "mml-preset",
+      title: "Load a saved reference set",
+      onchange: (e) => { const v = e.target.value; if (v) this.loadPreset(v); } },
+      el("option", { value: "" }, this.presets.length
+        ? "load preset…" : "no presets saved"),
+      this.presets.map((n) =>
+        el("option", { value: n, selected: n === this.presetName }, n)));
+
+    // Preset controls live in the top row, in place of the old drop hint. While
+    // a save/delete confirmation is open its own row takes over below, so the
+    // two aren't on screen at once.
+    const presetGroup = this.presetPrompt ? null : el("div", { class: "mml-presetgrp" },
+      el("span", { class: "mml-presetlbl" }, "preset"),
+      select,
+      el("button", { class: "mml-btn mml-sm", title: "Save the current set",
+        onclick: () => { this.presetPrompt = "save"; this.render(); } }, "Save"),
+      el("button", { class: "mml-btn mml-sm", title: "Delete the selected preset",
+        onclick: () => {
+          if (!this.presetName) { this.say("Pick a preset first.", true); }
+          else this.presetPrompt = "delete";
+          this.render();
+        } }, "Delete"));
+
     kids.push(el("div", { class: "mml-top" },
-      el("button", { class: "mml-btn", onclick: () => this.picker.click() },
-        "Load files\u2026"),
-      el("span", { style: { fontSize: "10px", color: "#6b7484" } },
-        this.busy ? `uploading ${this.busy}\u2026` : "or drop files on any slot"),
+      el("button", { class: "mml-btn", onclick: () => this.picker.click(),
+        title: `Load reference files. You can also drop them on any slot, or ` +
+          `paste with Ctrl+V.\n${total}/${MAX.total} files, ` +
+          `${audioCount(this.items)}/${MAX.audio} audio in play.` },
+        this.busy ? `uploading ${this.busy}\u2026` : "Load files\u2026"),
+      presetGroup,
       el("span", { class: "mml-topspace" }),
       (this.count("video") ? el("select", { class: "mml-detail",
         title: "How much detail to decode from reference video.\n" +
@@ -1884,21 +2067,12 @@ export class LoaderPanel {
             title: "Remove every loaded reference from this node",
             onclick: () => { this.unloadPrompt = true; this.render(); } },
             "Unload media")
-        : null,
-      el("span", { class: "mml-count" + (total > MAX.total ? " over" : "") },
-        `${total} / ${MAX.total}`),
-      el("span", { class: "mml-count" + (audioCount(this.items) > MAX.audio ? " over" : ""),
-        style: { marginLeft: "6px" },
-        title: "Audio clips in play, including split video soundtracks" },
-        `\u266a ${audioCount(this.items)}/${MAX.audio}`)));
+        : null));
+    // The x/12 and audio counters used to sit here. Every state they warned
+    // about is already spelled out in the problem line below, in words and in
+    // red, so they were spending prime space to repeat it \u2014 the running
+    // totals moved to the Load files button's tooltip.
 
-    const select = el("select", { class: "mml-preset",
-      title: "Load a saved reference set",
-      onchange: (e) => { const v = e.target.value; if (v) this.loadPreset(v); } },
-      el("option", { value: "" }, this.presets.length
-        ? "load preset\u2026" : "no presets saved"),
-      this.presets.map((n) =>
-        el("option", { value: n, selected: n === this.presetName }, n)));
     if (this.unloadPrompt) {
       kids.push(el("div", { class: "mml-presetrow" },
         el("span", { class: "mml-presetwarn" },
@@ -1935,19 +2109,8 @@ export class LoaderPanel {
           onclick: () => this.deletePreset() }, "Delete"),
         el("button", { class: "mml-btn mml-sm",
           onclick: () => { this.presetPrompt = null; this.render(); } }, "Cancel")));
-    } else {
-      kids.push(el("div", { class: "mml-presetrow" },
-        el("span", { class: "mml-presetlbl" }, "preset"),
-        select,
-        el("button", { class: "mml-btn mml-sm", title: "Save the current set",
-          onclick: () => { this.presetPrompt = "save"; this.render(); } }, "Save"),
-        el("button", { class: "mml-btn mml-sm", title: "Delete the selected preset",
-          onclick: () => {
-            if (!this.presetName) { this.say("Pick a preset first.", true); }
-            else this.presetPrompt = "delete";
-            this.render();
-          } }, "Delete")));
     }
+    // No trailing else: the idle preset controls are in the top row now.
 
     const audio = audioCount(this.items);
     const dur = durations(this.items);
@@ -1994,6 +2157,11 @@ export class LoaderPanel {
           const [ow, oh] = outSize(it);
           const badge = el("span", { class: "mml-dims" + (it.crop ? " cut" : "") },
             dimsLabel(ow, oh));
+          // Declared before the crop block below, which reads both. As const
+          // they sit in the temporal dead zone until this point, so leaving
+          // them further down threw ReferenceError on any cropped picture.
+          const turn = ((parseInt(it.rotate, 10) || 0) % 360 + 360) % 360;
+          const quarter = turn === 90 || turn === 270;
           // The file is untouched, so the thumbnail shows the whole picture
           // with everything outside the crop dimmed — you can see what was
           // dropped, not just what's left.
@@ -2018,8 +2186,6 @@ export class LoaderPanel {
               quarter ? it.width : it.height));
             if (quarter) requestAnimationFrame(() => fitTurned(img));
           }
-          const turn = ((parseInt(it.rotate, 10) || 0) % 360 + 360) % 360;
-          const quarter = turn === 90 || turn === 270;
           const img = el("img", { class: "mml-pic" + (quarter ? " turned" : ""),
             src: viewURL(it.file),
             style: (it.mirror || turn)
