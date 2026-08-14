@@ -838,7 +838,11 @@ const CSS = `
 /* The pixel cap, not the viewport one, is what usually decides this modal's
    height — 92vh only bites on a short screen. Raising the cap by half is what
    makes the editor use more of a tall screen. */
-.mmh3-modal{width:var(--mmh3-mw);height:var(--mmh3-mh);display:flex;flex-direction:column;
+/* border-box so the rendered height really is --mmh3-mh. As content-box the
+   1px border made the modal 2px taller, which centred it 1px higher than the
+   gap the pin pane derives from the same variable. */
+.mmh3-modal{box-sizing:border-box;width:var(--mmh3-mw);height:var(--mmh3-mh);
+  display:flex;flex-direction:column;
   background:#191c22;color:#d7dbe2;border:1px solid #303642;border-radius:10px;
   box-shadow:0 24px 64px rgba(0,0,0,.55);overflow:hidden;}
 .mmh3-head{display:flex;align-items:center;gap:14px;padding:10px 16px;
@@ -883,6 +887,9 @@ const CSS = `
 @media (min-width:1800px){
   .mmh3-body.haspins{grid-template-columns:minmax(0,1fr) 0 400px;}
   .mmh3-body.haspins .mmh3-pins{
+    /* border-box, or the 10px padding and 1px border widen the pane past the
+       calc and it runs under the modal. */
+    box-sizing:border-box;
     position:fixed;top:var(--mmh3-gap);bottom:var(--mmh3-gap);left:var(--mmh3-gap);
     width:calc((100vw - var(--mmh3-mw)) / 2 - var(--mmh3-gap) - 14px);
     border:1px solid #303642;border-left:1px solid #303642;border-radius:10px;
