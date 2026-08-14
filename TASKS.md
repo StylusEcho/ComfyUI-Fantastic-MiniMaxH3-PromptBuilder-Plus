@@ -11,9 +11,12 @@
   * Moved out of the panel's top row into the videos section header, immediately left of the `N/3` count (it takes over the header's push-right so the two sit together). Still only rendered when a video is loaded.
 * 🟩 move the unload media button next to the Load files button
   * Now directly after **Load files…** in the top row, where it previously sat past the spacer on the far right.
-* 🟦 add an icon to the left side of the node prompt preview of a scroll or letter to indicate that it is for prompting. when this icon is clicked, it opens the Prompt Builder.
-* 🟦 the node prompt preview should show the contents of integrated\_multimodal\_description in all modes except Reference. for Reference, the contents of detailed\_description.
-* 🟦 resizing overall\_soundscape or non\_diegetic\_music should also resize the other.
+* 🟩 add an icon to the left side of the node prompt preview of a scroll or letter to indicate that it is for prompting. when this icon is clicked, it opens the Prompt Builder.
+  * 📜 added at the left of the node's prompt bar; clicking it opens the Prompt Builder. Verified it renders as the bar's first child with a click handler. The whole bar already opened the editor — nothing said so.
+* 🟩 the node prompt preview should show the contents of integrated\_multimodal\_description in all modes except Reference. for Reference, the contents of detailed\_description.
+  * The bar now shows the description the mode is built around rather than the whole assembled prompt: `integrated_multimodal_description` in T2VA/I2VA/FL2VA/L2VA, and `detailed_description` (style opening + shots) in Reference. Verified across all three cases.
+* 🟩 resizing overall\_soundscape or non\_diegetic\_music should also resize the other.
+  * The two boxes are height-linked by a pair of ResizeObservers with a re-entrancy guard, so dragging either grip resizes the other and the pair stays level; applied in both the base and reference layouts. Degrades silently where ResizeObserver is unavailable. ⚠ The drag itself needs a pointer, so it is a manual check — the wiring and guards are verified, the gesture is not.
 * 🟦 the button I've asked to be added to the thumbnails in the prompt builder, they should be in the bottom right to match them on the node interface.
 * 🟦 add a Pin button. red if enabled. remove the bottom buttons in the hover-over preview if you think they're redundant.
 * 🟦 add an x like the node as well for removal.

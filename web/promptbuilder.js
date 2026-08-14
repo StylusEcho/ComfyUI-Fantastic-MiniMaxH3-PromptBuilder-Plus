@@ -1100,6 +1100,9 @@ const CSS = `
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
   max-height:calc(2 * 1.5em);}
 .mmh3-sumtext.empty{font-style:italic;color:#6b7484;}
+.mmh3-sumicon{flex:0 0 auto;align-self:center;font-size:15px;line-height:1;
+  cursor:pointer;opacity:.75;user-select:none;}
+.mmh3-sumicon:hover{opacity:1;}
 .mmh3-modebtn{flex:0 0 auto;align-self:center;display:inline-flex;align-items:center;gap:5px;
   background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
   padding:4px 9px;font-size:11px;font-family:inherit;cursor:pointer;white-space:nowrap;}
@@ -1709,6 +1712,25 @@ class Editor {
     });
   }
 
+  /** Keep the two audio boxes the same height: dragging either one's resize
+   *  grip resizes the other, so the pair stays level. Watches the rendered
+   *  height rather than the drag itself, which also covers a height set any
+   *  other way. The guard stops the two observers ping-ponging. */
+  linkHeights(a, b) {
+    if (typeof ResizeObserver !== "function" || !a || !b) return;
+    let syncing = false;
+    const pair = (from, to) => new ResizeObserver(() => {
+      if (syncing) return;
+      const h = from.getBoundingClientRect().height;
+      if (!h || Math.abs(h - to.getBoundingClientRect().height) < 1) return;
+      syncing = true;
+      to.style.height = `${h}px`;
+      requestAnimationFrame(() => { syncing = false; });
+    });
+    pair(a, b).observe(a);
+    pair(b, a).observe(b);
+  }
+
   /* Waveforms make audio identifiable at a glance; a generic mic icon does not.
      Decoded once per URL and cached for the session. */
   static waveCache = new Map();
@@ -2274,19 +2296,18 @@ class Editor {
         "Open [Shot 1] with the overall style and initial composition. Later shots: " +
         "\"[Shot N] At MM:SS.mmm, the shot cuts to ...\". Write camera moves as natural sentences.")));
 
+    const soundTa = this.ta(s, "soundscape", 3,
+      "1\u20134 sentences: ambience, physical action sounds, non-verbal human sounds.");
+    const musicTa = this.ta(s, "music", 3,
+      "1\u20133 sentences: instrumentation, tempo, rhythm, dynamics. No abstract mood words.");
     f.append(el("div", { class: "mmh3-audiopair" },
       el("div", { class: "mmh3-sec" },
         this.secLabel("overall_soundscape"),
-        el("div", { class: "mmh3-row" },
-          this.ta(s, "soundscape", 3,
-            "1\u20134 sentences: ambience, physical action sounds, non-verbal human sounds."),
-          this.naButton(s, "soundscape"))),
+        el("div", { class: "mmh3-row" }, soundTa, this.naButton(s, "soundscape"))),
       el("div", { class: "mmh3-sec" },
         this.secLabel("non_diegetic_music"),
-        el("div", { class: "mmh3-row" },
-          this.ta(s, "music", 3,
-            "1\u20133 sentences: instrumentation, tempo, rhythm, dynamics. No abstract mood words."),
-          this.naButton(s, "music")))));
+        el("div", { class: "mmh3-row" }, musicTa, this.naButton(s, "music")))));
+    this.linkHeights(soundTa, musicTa);
   }
 
   renderRef() {
@@ -2595,21 +2616,20 @@ class Editor {
       detTa, wcSpan));
 
     /* audio sections ---------------------------------------------------- */
+    const refSoundTa = this.ta(r, "soundscape", 3,
+      "Ambience + physical sounds. If copying ambience: \"The copied ambience layer " +
+      "from <Audio 1> continues throughout the target video.\"");
+    const refMusicTa = this.ta(r, "music", 3,
+      "Audience-only score. If reused: \"<Audio 2> is directly reused as the complete " +
+      "audience-only score.\"");
     f.append(el("div", { class: "mmh3-audiopair" },
       el("div", { class: "mmh3-sec" },
         this.secLabel("overall_soundscape"),
-        el("div", { class: "mmh3-row" },
-          this.ta(r, "soundscape", 3,
-            "Ambience + physical sounds. If copying ambience: \"The copied ambience layer " +
-            "from <Audio 1> continues throughout the target video.\""),
-          this.naButton(r, "soundscape"))),
+        el("div", { class: "mmh3-row" }, refSoundTa, this.naButton(r, "soundscape"))),
       el("div", { class: "mmh3-sec" },
         this.secLabel("non_diegetic_music"),
-        el("div", { class: "mmh3-row" },
-          this.ta(r, "music", 3,
-            "Audience-only score. If reused: \"<Audio 2> is directly reused as the complete " +
-            "audience-only score.\""),
-          this.naButton(r, "music")))));
+        el("div", { class: "mmh3-row" }, refMusicTa, this.naButton(r, "music")))));
+    this.linkHeights(refSoundTa, refMusicTa);
   }
 
   /* ---------- preview + validation ---------- */
@@ -2822,8 +2842,13 @@ function openModeMenu(node, btn) {
 export function updateSummary(node) {
   if (!node._mmh3Summary) return;
   const state = loadState(node);
-  const pw = node.widgets?.find((w) => w.name === "prompt_text");
-  const text = (pw?.value || "").trim();
+  // The description the mode is actually built around, not the whole assembled
+  // prompt: reference mode writes detailed_description (its style opening plus
+  // the shots), every other mode writes integrated_multimodal_description.
+  const text = (state.mode === "REF"
+    ? [state.ref?.styleLine, state.ref?.detail].filter((v) => (v || "").trim())
+        .join("\n")
+    : state.imd || "").trim();
   const allSlots = getRefSlots(node);
   const refs = allSlots.filter((s) => s.tag).length;
   const orphans = allSlots.filter((s) => s.orphan != null).length;
@@ -2864,8 +2889,18 @@ export function updateSummary(node) {
   }, el("b", {}, MODES.find((m) => m.id === state.mode)?.label || state.mode),
      el("span", { class: "mmh3-modecaret" }, "\u25be"));
 
+  // A scroll on the left marks the bar as the prompt, and is an explicit
+  // target for opening the editor — the whole strip already opens it, but
+  // nothing said so.
+  const scroll = el("span", {
+    class: "mmh3-sumicon",
+    title: "Open the Prompt Builder",
+    onmousedown: (e) => e.stopPropagation(),
+    onclick: (e) => { e.stopPropagation(); openEditor(node); },
+  }, "\u{1F4DC}");
+
   node._mmh3Summary.title = `${detail}\nClick to open the editor`;
-  node._mmh3Summary.replaceChildren(preview, btn);
+  node._mmh3Summary.replaceChildren(scroll, preview, btn);
 }
 
 app.registerExtension({
