@@ -589,6 +589,19 @@ and loading is instant. If you later delete one of those files, loading the
 preset skips it and tells you which one is missing. Deleting a preset never
 deletes your media.
 
+### The reference rail
+
+The strip of thumbnails at the top of the editor wraps onto further rows rather
+than scrolling sideways, so every reference stays visible and reachable. Click
+one to insert its tag, or drag it into a text field to drop the tag where it
+lands.
+
+Each card carries the same two controls as the node's own tiles: **▣** / **✂**
+opens the crop and trim editor, and **◉** switches the reference off without
+removing it. Drag one card onto another to reorder your media — the tag numbers
+renumber to match, exactly as they do on the node. Both act on the node's real
+media, so the editor and the node never disagree.
+
 ### Pinned references
 
 Pinning keeps a reference on screen while you write about it. Pin from a

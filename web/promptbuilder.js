@@ -6,9 +6,12 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { LOADER_NAME, computeTags, viewURL as loaderViewURL,
-  safeCanvasFocus, openLoaderModal, isOn } from "./medialoader.js";
+  safeCanvasFocus, openLoaderModal, isOn, TrimModal } from "./medialoader.js";
 
 const NODE_NAME = "MiniMaxH3PromptBuilder";
+// Private drag type: marks a drag as "reorder the rail" so a drop on another
+// card moves media, while a drop on a textarea still inserts the tag.
+const RAIL_MIME = "application/x-mmh3-rail";
 
 /* ------------------------------------------------------------------ */
 /* Reference data straight from the guides                             */
@@ -437,7 +440,7 @@ function widgetValue(n, names) {
  * round trip to the server. */
 function mediaSource(node) {
   const own = node.widgets?.find((w) => w.name === "media_state");
-  if (own) return { raw: own.value, label: "Media" };
+  if (own) return { raw: own.value, label: "Media", owner: node };
   const idx = (node.inputs || []).findIndex((i) => i.name === "references");
   if (idx < 0 || node.inputs[idx].link == null) return null;
   const loader = originNode(node, idx);
@@ -445,16 +448,23 @@ function mediaSource(node) {
   return {
     raw: loader.widgets?.find((w) => w.name === "media_state")?.value,
     label: "Media Loader",
+    owner: loader,
   };
 }
 
 function slotsFromBundle(node) {
   const src = mediaSource(node);
   if (!src) return null;
-  let items = [];
-  try {
-    items = JSON.parse(src.raw || "[]");
-  } catch (e) { return null; }
+  // Prefer the owning panel's live objects over a fresh parse: editing a clip
+  // or reordering from the rail has to mutate the same items the panel holds,
+  // or the change is written over the moment the panel next commits.
+  const panel = src.owner?._mmlPanel || null;
+  let items = Array.isArray(panel?.items) ? panel.items : null;
+  if (!items) {
+    try {
+      items = JSON.parse(src.raw || "[]");
+    } catch (e) { return null; }
+  }
   if (!Array.isArray(items)) return null;
   items = items.filter(isOn);      // switched-off media never reaches the model
 
@@ -467,6 +477,9 @@ function slotsFromBundle(node) {
       slotName: `loader:${item.name}`,
       source: `${src.label} \u2022 ${item.name}`,
       preview: { type: previewKind, url: loaderViewURL(item.file) },
+      // The live item and the panel that owns it, so the rail can offer the
+      // same per-clip tools the node tile does.
+      item, panel,
     });
   };
   items.filter((i) => i.kind === "picture")
@@ -978,9 +991,26 @@ const CSS = `
 .mmh3-clearbar .mmh3-btn + .mmh3-btn{margin-left:0;}
 .mmh3-chipbar{position:sticky;top:0;z-index:5;background:#191c22;padding:8px 0 10px;
   border-bottom:1px solid #242a34;margin-bottom:14px;}
-.mmh3-chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:3px;align-items:flex-start;}
-.mmh3-chips::-webkit-scrollbar{height:6px;}
+/* Wraps instead of scrolling sideways: a second row is easier to scan than a
+   strip you have to drag through, and every reference stays reachable for a
+   drag. Caps at roughly three rows before scrolling vertically. */
+.mmh3-chips{display:flex;flex-wrap:wrap;gap:6px;padding-bottom:3px;
+  align-items:flex-start;align-content:flex-start;
+  max-height:min(46vh,380px);overflow-y:auto;overflow-x:hidden;}
+.mmh3-chips::-webkit-scrollbar{width:6px;height:6px;}
 .mmh3-chips::-webkit-scrollbar-thumb{background:#2e3440;border-radius:3px;}
+.mmh3-card.mmh3-dropinto{outline:2px solid #6f86b8;outline-offset:1px;}
+.mmh3-cardtools{display:flex;align-items:center;gap:8px;padding:0 4px 3px;}
+.mmh3-cardtool{cursor:pointer;font-size:11px;line-height:1;color:#5a6373;
+  user-select:none;}
+.mmh3-cardtool:hover{color:#c9cfda;}
+.mmh3-cardtool.on{color:#e0a94c;}
+.mmh3-cardtool.lit{color:#7ec87e;}
+.mmh3-cardtool.lit:hover{color:#a8e6a8;}
+/* The two audio sections sit side by side at the foot of the form. */
+.mmh3-audiopair{display:flex;gap:14px;align-items:flex-start;}
+.mmh3-audiopair>.mmh3-sec{flex:1 1 0;min-width:0;margin-bottom:16px;}
+@media (max-width:900px){.mmh3-audiopair{flex-direction:column;gap:0;}}
 .mmh3-chip{display:inline-flex;align-items:center;gap:6px;border-radius:14px;cursor:pointer;
   border:1px solid #363d4a;background:#20242d;color:#c9cfda;font-size:12px;
   padding:3px 10px;user-select:none;}
@@ -1070,7 +1100,7 @@ const CSS = `
 .mmh3-modeitem.on{background:#28313f;}
 .mmh3-modeitem.on b{color:#8fb3ff;}
 .mmh3-modehint{color:#6b7484;font-size:10px;}
-.mmh3-libmodal{width:min(760px,94vw);height:min(640px,90vh);display:flex;
+.mmh3-libmodal{box-sizing:border-box;width:min(1240px,95vw);height:min(1290px,92vh);display:flex;
   flex-direction:column;background:#191c22;color:#d7dbe2;border:1px solid #303642;
   border-radius:10px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.55);}
 .mmh3-libbar{display:flex;gap:6px;align-items:center;padding:8px 12px;
@@ -1881,7 +1911,10 @@ class Editor {
         ondragstart: (e) => {
           if (!ok) { e.preventDefault(); return; }
           e.dataTransfer.setData("text/plain", s.tag);
-          e.dataTransfer.effectAllowed = "copy";
+          // A private type so a drop on another card is read as a reorder,
+          // while a drop on a textarea still inserts the tag.
+          if (s.item) e.dataTransfer.setData(RAIL_MIME, s.tag);
+          e.dataTransfer.effectAllowed = "copyMove";
           this.closePeek();
         },
       },
@@ -1897,9 +1930,76 @@ class Editor {
         s.note && s.note !== "standalone"
           ? el("span", { class: "mmh3-cardnote" },
               "\u266a\u2192V" + (s.note.match(/\d+/) || [""])[0])
-          : null);
+          : null,
+        this.cardTools(s));
+      if (s.item && s.panel) this.railReorder(card, s);
       if (ok) this.peekFor(card, s);
       return card;
+    });
+  }
+
+  /** The node tile's own per-clip controls, on the editor's rail: the trim /
+   *  crop editor and the on/off switch. Only for media this editor can reach
+   *  live \u2014 media wired in through the individual inputs has no item behind
+   *  it to edit. */
+  cardTools(s) {
+    if (!s.item || !s.panel) return null;
+    const still = s.item.kind === "picture";
+    const on = isOn(s.item);
+    const after = () => {
+      // The panel owns the state; re-read it so the rail, the pins and the
+      // validation all reflect the edit.
+      this.slots = getRefSlots(this.node);
+      this.render();
+    };
+    return el("div", { class: "mmh3-cardtools" },
+      el("span", {
+        class: "mmh3-cardtool" + (s.item.trim || s.item.crop || s.item.rotate
+          || s.item.mirror || s.item.resize ? " on" : ""),
+        title: still ? "Crop, rotate or mirror this picture"
+                     : "Trim this clip, or crop the frame",
+        onclick: (e) => {
+          e.stopPropagation();
+          this.closePeek();
+          const modal = new TrimModal(s.panel, s.item);
+          // Every exit runs through close(), so wrapping the instance's copy
+          // catches Apply, Cancel and Escape alike.
+          const shut = modal.close.bind(modal);
+          modal.close = () => { shut(); after(); };
+        },
+      }, still ? "\u25a3" : "\u2702"),
+      el("span", {
+        class: "mmh3-cardtool" + (on ? " lit" : ""),
+        title: on ? "Switch off \u2014 kept, but not sent to the model" : "Switch on",
+        onclick: (e) => {
+          e.stopPropagation();
+          s.item.enabled = !on;
+          s.panel.commit();
+          after();
+        },
+      }, on ? "\u25c9" : "\u25cb"));
+  }
+
+  /** Drag one rail card onto another to reorder the underlying media. */
+  railReorder(card, s) {
+    card.addEventListener("dragover", (e) => {
+      if (!e.dataTransfer.types.includes(RAIL_MIME)) return;
+      e.preventDefault(); e.stopPropagation();
+      e.dataTransfer.dropEffect = "move";
+      card.classList.add("mmh3-dropinto");
+    });
+    card.addEventListener("dragleave", () => card.classList.remove("mmh3-dropinto"));
+    card.addEventListener("drop", (e) => {
+      card.classList.remove("mmh3-dropinto");
+      if (!e.dataTransfer.types.includes(RAIL_MIME)) return;
+      e.preventDefault(); e.stopPropagation();
+      const tag = e.dataTransfer.getData(RAIL_MIME);
+      const from = this.slots.find((x) => x.tag === tag);
+      if (!from?.item || from.item === s.item) return;
+      const items = s.panel.items;
+      s.panel.move(items.indexOf(from.item), items.indexOf(s.item));
+      this.slots = getRefSlots(this.node);
+      this.render();
     });
   }
 
@@ -2094,19 +2194,19 @@ class Editor {
         "Open [Shot 1] with the overall style and initial composition. Later shots: " +
         "\"[Shot N] At MM:SS.mmm, the shot cuts to ...\". Write camera moves as natural sentences.")));
 
-    f.append(el("div", { class: "mmh3-sec" },
-      this.secLabel("overall_soundscape"),
-      el("div", { class: "mmh3-row" },
-        this.ta(s, "soundscape", 3,
-          "1\u20134 sentences: ambience, physical action sounds, non-verbal human sounds."),
-        this.naButton(s, "soundscape"))));
-
-    f.append(el("div", { class: "mmh3-sec" },
-      this.secLabel("non_diegetic_music"),
-      el("div", { class: "mmh3-row" },
-        this.ta(s, "music", 3,
-          "1\u20133 sentences: instrumentation, tempo, rhythm, dynamics. No abstract mood words."),
-        this.naButton(s, "music"))));
+    f.append(el("div", { class: "mmh3-audiopair" },
+      el("div", { class: "mmh3-sec" },
+        this.secLabel("overall_soundscape"),
+        el("div", { class: "mmh3-row" },
+          this.ta(s, "soundscape", 3,
+            "1\u20134 sentences: ambience, physical action sounds, non-verbal human sounds."),
+          this.naButton(s, "soundscape"))),
+      el("div", { class: "mmh3-sec" },
+        this.secLabel("non_diegetic_music"),
+        el("div", { class: "mmh3-row" },
+          this.ta(s, "music", 3,
+            "1\u20133 sentences: instrumentation, tempo, rhythm, dynamics. No abstract mood words."),
+          this.naButton(s, "music")))));
   }
 
   renderRef() {
@@ -2415,20 +2515,21 @@ class Editor {
       detTa, wcSpan));
 
     /* audio sections ---------------------------------------------------- */
-    f.append(el("div", { class: "mmh3-sec" },
-      this.secLabel("overall_soundscape"),
-      el("div", { class: "mmh3-row" },
-        this.ta(r, "soundscape", 3,
-          "Ambience + physical sounds. If copying ambience: \"The copied ambience layer " +
-          "from <Audio 1> continues throughout the target video.\""),
-        this.naButton(r, "soundscape"))));
-    f.append(el("div", { class: "mmh3-sec" },
-      this.secLabel("non_diegetic_music"),
-      el("div", { class: "mmh3-row" },
-        this.ta(r, "music", 3,
-          "Audience-only score. If reused: \"<Audio 2> is directly reused as the complete " +
-          "audience-only score.\""),
-        this.naButton(r, "music"))));
+    f.append(el("div", { class: "mmh3-audiopair" },
+      el("div", { class: "mmh3-sec" },
+        this.secLabel("overall_soundscape"),
+        el("div", { class: "mmh3-row" },
+          this.ta(r, "soundscape", 3,
+            "Ambience + physical sounds. If copying ambience: \"The copied ambience layer " +
+            "from <Audio 1> continues throughout the target video.\""),
+          this.naButton(r, "soundscape"))),
+      el("div", { class: "mmh3-sec" },
+        this.secLabel("non_diegetic_music"),
+        el("div", { class: "mmh3-row" },
+          this.ta(r, "music", 3,
+            "Audience-only score. If reused: \"<Audio 2> is directly reused as the complete " +
+            "audience-only score.\""),
+          this.naButton(r, "music")))));
   }
 
   /* ---------- preview + validation ---------- */

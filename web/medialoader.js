@@ -234,7 +234,7 @@ const CSS = `
   display:flex;align-items:center;justify-content:center;}
 /* As with the prompt editor, the pixel cap is what decides this modal's height
    on a tall screen — 92vh only bites on a short one. */
-.mml-modal{width:min(760px,94vw);height:min(780px,92vh);background:#191c22;
+.mml-modal{box-sizing:border-box;width:min(1240px,95vw);height:min(1290px,92vh);background:#191c22;
   border:1px solid #303642;border-radius:10px;display:flex;flex-direction:column;
   overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.55);}
 .mml-modalhead{display:flex;align-items:center;gap:10px;padding:9px 13px;
@@ -386,15 +386,16 @@ const CSS = `
 .mml-trimbtn.on{opacity:1;text-shadow:0 0 6px rgba(224,169,76,.55);}
 .mml-tmover{position:fixed;inset:0;background:rgba(8,10,14,.72);z-index:10050;
   display:flex;align-items:center;justify-content:center;}
-.mml-tmmodal{width:min(640px,92vw);background:#191c22;border:1px solid #303642;
+.mml-tmmodal{box-sizing:border-box;width:min(1240px,95vw);height:min(1290px,92vh);
+  background:#191c22;border:1px solid #303642;
   border-radius:10px;box-shadow:0 24px 64px rgba(0,0,0,.55);display:flex;
   flex-direction:column;overflow:hidden;font-family:system-ui,sans-serif;}
 .mml-tmhead{display:flex;align-items:center;gap:8px;padding:8px 12px;
   border-bottom:1px solid #2a2f3a;background:#1b1f27;}
 .mml-tmtitle{flex:1;min-width:0;font-size:12px;color:#dde2ea;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;}
-.mml-tmstage{position:relative;background:#000;line-height:0;}
-.mml-tmvideo{width:100%;max-height:340px;object-fit:contain;display:block;}
+.mml-tmstage{position:relative;background:#000;line-height:0;flex:1 1 auto;min-height:0;}
+.mml-tmvideo{width:100%;height:100%;max-height:none;object-fit:contain;display:block;}
 .mml-tmcropwrap{position:absolute;inset:0;}
 
 .mml-tmcrop{position:absolute;border:1.5px dashed #4cc3e0;cursor:move;
@@ -488,9 +489,9 @@ const CSS = `
 
 .mml-light{position:fixed;inset:0;z-index:10050;background:rgba(8,10,14,.75);
   display:flex;align-items:center;justify-content:center;}
-.mml-lightbox{max-width:80vw;max-height:80vh;background:#1e222a;border:1px solid #3a4252;
+.mml-lightbox{max-width:95vw;max-height:92vh;background:#1e222a;border:1px solid #3a4252;
   border-radius:10px;overflow:hidden;padding:8px;}
-.mml-lightbox img,.mml-lightbox video{max-width:76vw;max-height:68vh;display:block;}
+.mml-lightbox img,.mml-lightbox video{max-width:93vw;max-height:84vh;display:block;}
 .mml-lightcap{display:flex;align-items:center;gap:8px;padding-top:6px;font-size:11px;
   color:#8a93a3;}
 .mml-helpbtn{margin-left:5px;width:13px;height:13px;line-height:1;padding:0;
@@ -545,7 +546,7 @@ const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")
 
 /** Popout editor for a clip's trim range and (for video) a crop rect.
  *  Writes item.trim {start,end} and item.crop {x,y,w,h} on Apply only. */
-class TrimModal {
+export class TrimModal {
   constructor(panel, item) {
     this.panel = panel;
     this.item = item;
