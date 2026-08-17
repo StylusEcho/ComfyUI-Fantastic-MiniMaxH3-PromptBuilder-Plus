@@ -169,9 +169,12 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
     1px borders) in either view. The joined video+audio pair still meets with a 0px
     seam vertically.
 
-    Note the sidebar track is still 186px, so a centred 128px card leaves ~20px
-    either side. Tightening the column to fit is a separate call — say if you want
-    it, since it would hand that width to the form.
+    **Follow-up done on your say-so:** the column is tightened from 186px to 164px,
+    sized to the card rather than the other way round — 130px card + the rail's
+    16px padding and 1px border, plus ~17px slack. The slack is deliberate: this
+    Chromium uses overlay scrollbars (measured 0px), so a bare fit of 147px would
+    have clipped the card on any platform with classic scrollbars once the list
+    scrolls. The form gains the 22px (612px → 634px at 1600x900).
 18. 🟩 videos flash when clicking the prompt builder section toggles.
 
     Cause: `render()` calls `formEl.replaceChildren()` and rebuilds every card, so
@@ -189,7 +192,22 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
     yank it out of the first. The key is the preview URL, so a clip that changes
     file still gets a fresh element while a renumbered tag on the same file does
     not.
-19. 🟦 the shot and camera control bar's dropdown boxes should only use the minimum width needed.
+19. 🟩 the shot and camera control bar's dropdown boxes should only use the minimum width needed.
+
+    A `<select>` lays itself out against its **widest** option rather than the one
+    on show, so the camera-move box was 145px to display "Zoom In" (42px of text)
+    purely because "Roll Counterclockwise" was in the list. Measured across the row:
+    477px of dropdowns for ~164px of visible text.
+
+    Added `fitSelect()` / `autoFitSelect()`, which measure the *displayed* option
+    with a shared probe span that copies the select's own font — so the figure is
+    measured, not estimated — and re-fit on every change. The row's four dropdowns
+    now total **309px, down from 477px**, with nothing clipped, and picking the
+    longest option correctly grows the box back to 147px.
+
+    One ordering detail: the style dropdown resets its own value inside its change
+    handler, so its fit is registered *after* that handler — registering first
+    would measure the style just picked and then miss the reset back to "(style)".
 20. 🟦 the top and bottom margins of the prompt builder's main pane should be consistent with the left and right margins.
 21. 🟦 add a dashed box with a plus on it for adding media in the chips area, if relevant for the current prompt mode.
 22. 🟦 add N/A buttons to the audio prompt boxes in the prompt quick editor

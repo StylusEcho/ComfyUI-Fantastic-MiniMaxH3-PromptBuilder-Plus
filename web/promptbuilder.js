@@ -966,7 +966,11 @@ const CSS = `
    DOM so the grid's track count only changes with the class, never with what
    happens to be rendered. */
 .mmh3p-rail{display:none;}
-.mmh3p-body.sidebar{grid-template-columns:186px minmax(0,1fr) 440px;}
+/* 164px = the 130px card + the rail's 16px padding and 1px border, plus ~17px
+   of slack for a classic scrollbar. Sized to the card rather than the other way
+   round, so the column carries no dead width; the slack is what stops a
+   platform with non-overlay scrollbars clipping the card once the list scrolls. */
+.mmh3p-body.sidebar{grid-template-columns:164px minmax(0,1fr) 440px;}
 .mmh3p-body.sidebar .mmh3p-rail{display:flex;flex-direction:column;gap:6px;
   min-height:0;overflow-y:auto;padding:10px 8px;background:#15181e;
   border-right:1px solid #2a2f3a;}
@@ -2701,14 +2705,14 @@ class Editor {
   }
 
   toolBar(extraChips = []) {
-    const camMove = el("select", {},
-      CAMERA_MOVES.map(([k]) => el("option", { value: k }, k)));
-    const camAmp = el("select", {},
+    const camMove = autoFitSelect(el("select", {},
+      CAMERA_MOVES.map(([k]) => el("option", { value: k }, k))));
+    const camAmp = autoFitSelect(el("select", {},
       ["(amplitude)", "with small amplitude", "with large amplitude"]
-        .map((v, i) => el("option", { value: i ? v : "" }, v)));
-    const camSpd = el("select", {},
+        .map((v, i) => el("option", { value: i ? v : "" }, v))));
+    const camSpd = autoFitSelect(el("select", {},
       ["(speed)", "at slow speed", "at fast speed"]
-        .map((v, i) => el("option", { value: i ? v : "" }, v)));
+        .map((v, i) => el("option", { value: i ? v : "" }, v))));
     const camBtn = el("button", { class: "mmh3p-btn", onclick: () => {
       const base = CAMERA_MOVES.find(([k]) => k === camMove.value)[1];
       this.insert([base, camAmp.value, camSpd.value].filter(Boolean).join(" "));
@@ -2766,6 +2770,9 @@ class Editor {
     styleSel.addEventListener("change", () => {
       if (styleSel.value) { this.insert(styleSel.value + ", "); styleSel.value = ""; }
     });
+    // Fitted after its own handler, which resets the value — registering first
+    // would measure the style just picked, then miss the reset back to "(style)".
+    autoFitSelect(styleSel);
 
     const chips = el("div", { class: "mmh3p-chips" }, this.refChips());
     if (this.sidebar) {
@@ -3818,6 +3825,48 @@ export function openQuickEdit(node) {
   document.body.append(overlay);
   setTimeout(() => fields.root.querySelector("textarea")?.focus(), 0);
   return overlay;
+}
+
+/* A <select> lays itself out against its WIDEST option, not the one on show, so
+   a "Zoom In" box was as wide as "Roll Counterclockwise". These size it to the
+   option actually displayed and re-fit on change. One shared probe span does
+   the measuring: it copies the select's own font so the figure is real rather
+   than estimated. */
+let _selProbe = null;
+
+function fitSelect(sel) {
+  if (!sel?.options?.length) return;
+  try {
+    const cs = getComputedStyle(sel);
+    if (!cs.font) return;                 // not in the document yet
+    if (!_selProbe) {
+      _selProbe = el("span", { style: {
+        position: "absolute", top: "-9999px", left: "-9999px",
+        visibility: "hidden", whiteSpace: "pre" } });
+      document.body.append(_selProbe);
+    }
+    _selProbe.style.font = cs.font;
+    _selProbe.style.letterSpacing = cs.letterSpacing;
+    _selProbe.textContent = sel.options[sel.selectedIndex]?.text ?? "";
+    const text = _selProbe.getBoundingClientRect().width;
+    // Its own padding and borders, plus room for the native dropdown arrow.
+    const chrome = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)
+      + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth)
+      + SELECT_ARROW;
+    sel.style.width = `${Math.ceil(text + chrome)}px`;
+  } catch (e) { /* leave it at its natural width */ }
+}
+
+const SELECT_ARROW = 22;
+
+/** Fit now and on every change. Measuring needs the element in the document,
+ *  so the first pass waits for a frame. */
+function autoFitSelect(sel) {
+  if (!sel) return sel;
+  sel.addEventListener("change", () => fitSelect(sel));
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => fitSelect(sel));
+  else setTimeout(() => fitSelect(sel), 0);
+  return sel;
 }
 
 function linkHeights(a, b) {
