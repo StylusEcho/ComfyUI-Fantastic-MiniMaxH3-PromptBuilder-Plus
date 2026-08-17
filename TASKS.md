@@ -1,54 +1,49 @@
-### prompt studio to-do list
-* 🟩 solve the bug from upstream 1.4.2 that was mentioned.
-  * Already fixed in `e6e67fd`: `turn`/`quarter` were `const`-declared below the `if (it.crop)` block that reads them, so any cropped picture threw a temporal-dead-zone `ReferenceError` and took the whole panel render down. Declarations hoisted above first use (`web/medialoader.js`). Still present upstream.
-* 🟩 add a square with a dashed lines on the prompt builder window's media area, similar to the empty rectangles on the node interface, to drop and drop/copy/paste additional media on this screen, if possible for the current prompt mode and within limits.
-  * Dashed `+` tile appended to the editor's rail by `refChips()`, sized to match a media card (measured 130px wide, same as a card). Click opens the picker, files can be dropped on it, right-click offers paste — all delegated to the owning `LoaderPanel`'s existing `add()` / `slotMenu()` / `pasteItem()`, so uploads and budget refusals behave exactly as on the node. Shown only for kinds the current mode can still take: gated on `MODE_CAPACITY` plus the panel's own `capacityError()`, so it is hidden entirely in T2VA and when a mode's slots are full.
-* 🟩 when hovering over a thumbnail, the preview should be 50% larger than it is now, and the frame should follow the aspect ratio of the image.
-  * Peek grown 360px -> 540px (+50%, measured exactly 540 after switching it to `border-box`). The frame now sizes to the picture instead of letterboxing it: `width:max-content` on the box with `width/height:auto` and a cap on each axis for the media. Measured — landscape 1600x900 renders 540x304 (ratio 1.78) and portrait 600x1200 renders 378x756 (ratio 0.50), both matching source. Waveform buffer and the screen-edge clamp moved with it.
-* 🟩 remove the green media toggle switches from the prompt builder window.
-  * The on/off control is gone from the editor's thumbnails; only the crop/trim button remains there. Dead `.mmh3-cardtool.lit` rules removed. Switching media off is still available on the node tiles and from the slot right-click menu.
-* 🟩 put the detail dropdown for videos to the left of the video quantity counter.
-  * Moved out of the panel's top row into the videos section header, immediately left of the `N/3` count (it takes over the header's push-right so the two sit together). Still only rendered when a video is loaded.
-* 🟩 move the unload media button next to the Load files button
-  * Now directly after **Load files…** in the top row, where it previously sat past the spacer on the far right.
-* 🟩 add an icon to the left side of the node prompt preview of a scroll or letter to indicate that it is for prompting. when this icon is clicked, it opens the Prompt Builder.
-  * 📜 added at the left of the node's prompt bar; clicking it opens the Prompt Builder. Verified it renders as the bar's first child with a click handler. The whole bar already opened the editor — nothing said so.
-* 🟩 the node prompt preview should show the contents of integrated\_multimodal\_description in all modes except Reference. for Reference, the contents of detailed\_description.
-  * The bar now shows the description the mode is built around rather than the whole assembled prompt: `integrated_multimodal_description` in T2VA/I2VA/FL2VA/L2VA, and `detailed_description` (style opening + shots) in Reference. Verified across all three cases.
-* 🟩 resizing overall\_soundscape or non\_diegetic\_music should also resize the other.
-  * The two boxes are height-linked by a pair of ResizeObservers with a re-entrancy guard, so dragging either grip resizes the other and the pair stays level; applied in both the base and reference layouts. Degrades silently where ResizeObserver is unavailable. ⚠ The drag itself needs a pointer, so it is a manual check — the wiring and guards are verified, the gesture is not.
-* 🟩 the button I've asked to be added to the thumbnails in the prompt builder, they should be in the bottom right to match them on the node interface.
-  * The crop/trim control moved into the card's bottom bar, at its right-hand end, matching where the node's tiles put the same control — measured 5px from the card's right edge and 3px from its bottom. It no longer occupies a row of its own, so cards are shorter (130x97) and the dashed add-tile stretches to stay level with them.
-* 🟩 add a Pin button. red if enabled. remove the bottom buttons in the hover-over preview if you think they're redundant.
-  * 📌 added to each card in the editor, greyed when off and red when pinned. Offered for every reference including media wired straight into the node's inputs, since pinning works off the tag rather than the item. The hover preview's two buttons are gone as redundant: clicking a card already inserts its tag, and the pin now lives on the card — the preview is purely a preview.
-* 🟩 add an x like the node as well for removal.
-  * ✕ on each card, turning red on hover, removing the media through the panel's existing `remove()`. Any pin on that reference is dropped first, so the rail can't keep a tag that no longer exists. Measured: tag, count and all three controls fit the 128px bar (49px + 45px of controls).
-* 🟩 the audio trim window needs to be reverted to its original size.
-  * The trim window already carried an `audio` variant class, so audio-only clips now keep the original compact window (measured 640x258, height driven by content) while video and stills keep the full-height one (1240x994). Audio has a waveform and a few fields, not a frame to show.
-* 🟩 <> tags in the prompt builder should be colour coded (orange for <Picture x>, green for <Subject x>, etc). \[Shot x],<d>\[language] </d> tags should get their own colour too, decide that based on what's unused. same for (Sx) and N/A
-  * Picture/Video/Audio/Subject, [Shot x] and the <d> markers were already coloured; added the three that weren't, in hues the palette wasn't using — coral for the [language] bracket, pink for a (Sx) speaker, and grey italic for N/A, which marks a section as deliberately empty so it should read as absent rather than as content. Order in the replacement chain matters: the language bracket runs before [Shot x] and excludes it by lookahead, and every later pattern excludes < and > so none can match inside a span already inserted. Tested against the shipped chain (extracted from source, not a copy) across six inputs — no mis-tagging, no nested spans.
-* 🟩 the prompt preview on the node, there should be icons on the right (to the left of the mode dropdown).
-  * 🔊 and 🎵 sit between the preview text and the mode button, shown only when that section actually carries something. "N/A" in any casing does not count, and neither does a section switched off, since it never reaches the model. Reads ref.* in Reference mode and the top-level fields elsewhere. Verified across both-filled, either-alone, N/A, lowercase n/a, switched-off and Reference cases.
-🔊 if overall\_soundscape has content. 🎵 if non\_diegetic\_music has content. but not if they are just N/A.
-* 🟩 in the prompt builder, if there is linked audio and video media, the video should come first. also, reduce the space between the two to zero (teal next to purple border), no corner radius on the corners that are joined. when joined, there should only be one x removal button and one trim button, on the right media chip.
-  * The video chip now comes first and the pair is joined: measured zero gap between them (6px preserved between unjoined cards), the two touching corners squared while the outer ones keep their radius, and the doubled border removed so the teal video edge sits flush against the purple audio one. Only the *display* order changed — the pair is one underlying item and `tag` still carries the numbering H3 was given (`<Audio 1>` still precedes `<Video 1>`), so nothing downstream sees a different sequence. Trim and remove render once per pair, on the right chip; the pin stays on both since the two carry different tags.
-* 🟩 remove the 3 Prompt Builder/open media/etc buttons on the node.
-  * All three widget buttons removed. The prompt bar's 📜 opens the editor and the media panel is on the node itself, so the first two lose nothing. ⚠ The splitter shortcut is gone by your decision — a Reference Splitter is now added from the node menu and wired by hand; `addSplitter()` remains in use by the standalone Media Loader node. Dead imports and the slot constant went with them; the node's minimum height drops 600→528px.
-* 🟩 move the prompt builder bar below the media loader on the node interface.
-  * DOM widget order swapped, so the bar reads as a summary of the media above it rather than a header over an empty node. Verified the order is `mml_panel, mmh3_summary` and that vertical resizing still tracks — `fitPanel()`/`minSize()` measure the overhead rather than assuming it, so the reorder needed no sizing changes.
-* 🟩 clicking the node interface prompt preview opens a window to quickly edit the integrated\_multimodal\_description, overall\_soundscape and non\_diegetic\_music for non-Reference modes. for reference, show detailed\_description (style opening and shots) instead of integrated\_multimodal\_description.
-  * Clicking the prompt bar opens a Quick edit window with just the fields the prompt is made of; the 📜 still opens the full builder, and the window has a "Full editor…" button, so both routes stay open. Non-Reference modes get `integrated_multimodal_description`; Reference gets `detailed_description` as its two halves (style opening and shots). Both audio boxes are there, height-linked by the same `linkHeights` the full editor uses (lifted to module scope so both can share it). Built as one mountable block — `promptFields(node)` returns `{root, save}` — because task 21's T2VA case needs the same fields inline on the node; `save` does exactly what the full editor's Save does (`prompt_text = generate(state)` plus `builder_state`), so the two surfaces cannot disagree. Verified: correct fields per mode, edits reaching `builder_state` with version and mode intact, `prompt_text` regenerated, and Reference writing `ref.*` rather than the top level.
-* 🟩 add a button on prompt builder to toggle a view for the media to be on a single-column sidebar on the left edge of the main window. in this mode, the hover-over preview goes to the right of the thumbnail instead of down. for linked video/audio media, change the spacing and borders appropriately like I instructed before.
-  * A ◧ Sidebar button in the editor's head moves the reference strip into a 186px column down the left edge of the full-size Prompt Builder window. `.mmh3-body` was already a grid, so this is a track change plus a class; the rail element is always in the DOM so the track count only ever changes with the class, never with what happens to be rendered. The same cards move across, keeping their drag-reorder, tools and pins. Joined video+audio pairs meet top-to-bottom here, so the squared corners and the closed gap move to the horizontal edges (measured 0px). The hover preview opens to the right of the thumbnail in this view and below it otherwise, both clamped to the viewport. The preference is kept on the node, not in `builder_state` — it is a view choice, not part of the prompt. ⚠ Adding the rail track re-ran the ≥1800px collapse: with the pin pane out of flow up there, four tracks left the side panel in an empty one. Sidebar variants added inside that media query; measured `side w=400/440` across all four width × sidebar combinations.
-* 🟩 add a button at the top right of the node interface media loader. when clicked, it toggles between two layouts: the default, and a new layout where it only shows slots for media that are appropriate for the current prompting mode. eg:
-  * Two controls at the panel's top right. **◱ All / ◰ Mode** switches between every slot and only the slots the current mode uses: one large box for I2VA/L2VA, two side by side for FL2VA, the panel stepping aside in T2VA, and Reference left alone since it can carry everything. Shapes come from `MODE_CAPACITY`, moved into `medialoader.js` so the panel can read it without the two files importing each other. **⌸** opens the full-size window, which always shows the standard layout, and carries an amber badge counting anything the compact shape leaves out — media is never silently unreachable. Verified per mode: T2VA minimised/5 hidden, I2VA and L2VA one box/4, FL2VA two boxes/3, REF standard/0; toggling back gives the standard grid and a zero badge; the modal always renders standard with no top-right controls; and the standalone Media Loader, having no `builder_state`, has no mode and is offered only the window button.
-  * T2VA's other half: with the loader stepped aside, the node's prompt bar expands (52px → 300px) into the same `promptFields` block the quick-edit window mounts, saving as you type through the full editor's own save path. It collapses back to the two-line preview on leaving T2VA. The picture tile was extracted into `picCell()` so the standard grid and the shaped layout render an identical tile rather than two that drift.
-  * ⚠ Toggling the layout, and changing mode, both had to be made to notify the node — `render()` alone never reached it, so the bar would not have expanded when the button was pressed.
-one large box for i2v/l2va
-two side by side boxes for fl2va
-media prompter minimized in t2va and prompt preview bar maximised and taking up the remaining space, exposing editable integrated\_multimodal\_description, overall\_soundscape and non\_diegetic\_music.
-no change for reference mode.
-* 🟩 change dots in tag order bar to right arrows. colour code the tags.
-  * Separators are now → rather than ·, since this is a sequence and not a set, and each tag is built as its own span carrying the palette the prompt preview already uses — so a tag reads the same colour wherever it appears. Square brackets marking a soundtrack split off its video keep the audio colour. The arrows stay dim: they are punctuation, not content. Verified on a 5-item set: 7 tags all coloured, 6 arrows, no dots left, and the empty state preserved.
-* 🟩 add fl2va and ref2va model inputs, and one model output. the appropriate model is passed to the output depending on the prompt mode selected.
-  * Two optional `MODEL` inputs and a `model` output, appended last so every existing slot keeps its index. Reference passes `ref2va_model` through, every other mode `fl2va_model` — the type confirmed as plain `MODEL` from the AIO example workflow, where two `UNETLoader`s feed a `MODEL` chain. Both inputs are lazy, with a `check_lazy_status` that requests only the checkpoint the mode runs on, so the other is never pulled into memory; it also checks the graph first, so a mode whose input is unwired asks for nothing rather than stalling the prompt. A missing checkpoint prints why instead of passing nothing on quietly, since an empty model output fails far downstream where the cause isn't obvious. Verified: routing across all five modes, only the needed input requested, nothing more once supplied, no request against an empty socket, and the missing-model message.
+# Prompt Studio Tasks List
+
+1. if any of the below or past changes conflict, or are redundant compared to latest upstream repo changes, flag it. the majority of the following was written before those changes.
+2. remove the drag button on the media loader thumbnail for minimized I2VA mode
+3. show the 15 sec mark with a line after the starting marker in the trimming window. the ending marker can snap to this marker.
+4. join the prompt bar on the node with the media loader
+5. provide some alternative names to "Mode" for the media loader layout button
+6. put the model node output first in the outputs
+7. if there is never any other button options except N/A below the sound/audio boxes, move them to the top right of their sections.
+8. show playback controls for pinned videos
+9. allow drag and drop resorting of pinned media
+10. set max width for pinned sidebar to only as much as is needed to fit the widest images and videos, anchored from the right edge. same logic for vertical, anchor from the top edge.
+11. pinned audio only takes up the minimum amount of vertical space possible.
+12. for linked video/audio, combine them into a single chip. should say Video 1 + Audio 1 etc. when pinned or viewing the hover preview, simply play back as a normal video with audio.
+13. when clicking the X for combined video/audio chips, bring up a dialog box asking if the user wants to delete the video only, the audio only, or both, as long as this doesn't cause any issues or conflicts.
+14. change the citation count on chips to the top right corner.
+15. put the Guide button to the left of the prompt mode selector.
+16. when the sidebar is not enabled, chips area should have have a MEDIA header like it does with sidebar enabled.
+17. chips dimensions should be the same in sidebar mode.
+18. videos flash when clicking the prompt builder section toggles.
+19. the shot and camera control bar's dropdown boxes should only use the minimum width needed.
+20. the top and bottom margins of the prompt builder's main pane should be consistent with the left and right margins.
+21. add a dashed box with a plus on it for adding media in the chips area, if relevant for the current prompt mode.
+22. add N/A buttons to the audio prompt boxes in the prompt quick editor
+23. X should be in the top right
+24. change the "Full editor..." button to "Prompt Builder" and put it to the left of the X.
+25. colour code the tags on the prompt bar prompt preview
+26. change the Scroll to a full button that says "📜 Prompt Builder"
+27. crop button in the media thumbnails shows orange even if cropping was not used
+28. right click media slot should say "Paste Media" and accept file paths and any media not just images.
+29. put the retention\_analysis +Entry / auto-fill buttons to the right edge of the header, like how it is for the sound prompt headers
+30. retention\_analysis dropdown boxes take up the minimum amount of width possible to be legible
+31. move the (style) dropdown to the right side of the style opening header
+32. the resolution and aspect ratio of the full size image/video viewer should be to the right, next to the close button
+33. buttons at the top of the media loader should be a consistent height
+34. the detail dropdown for videos should be the minimum width required to be legible.
+35. allow a margin at the bottom edge of the node consistent with the margins on the left and right
+36. when right clicking a thumbnail in the media loader with media in the clipboard, offer an option to paste and replace (if the media type is the same the slot)
+37. there seems to be certain scenarios where the interface on the node will shrink below its minimum size, and become unable to be returned to its normal size via resizing the node. may or may not be a comfy frontend update bug.
+38. I have a subgraph with a bool input. this input goes to a switch, where if true, a ref2va is passed along, other wise fl2va. when I connect this bool input to the ref2va\_needed output of
+39. when in the full media view, allow navigating between different medias with left and right arrow keys.
+40. for the pinned media views, only show the cropped view.
+41. media chips should reflect the cropping as well.
+42. the hover over thumbnail should show the full image, but have a frame around the cropped area, like how the crop editor shows.
+43. immediately remove items from view when viewing the quick album and removing them from it.
+44. quick album hotkey doesn't work for fullscreen.
+45. going from quick prompt to prompt builder should transfer the prompt over.
+46. the quick prompt editor should show picture 1 and/or picture 2 on the left side.
+
