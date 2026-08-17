@@ -259,8 +259,26 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
     carries the auto margin and the X's is cancelled when it follows one
     (`.mmh3p-pushright ~ .mmh3p-x`) — with both set, the free space splits between
     them and the pair still ends up apart. Now 14px apart, X still hard right.
-25. 🟦 colour code the tags on the prompt bar prompt preview
-26. 🟦 change the Scroll to a full button that says "📜 Prompt Builder"
+25. 🟩 colour code the tags on the prompt bar prompt preview
+
+    Extracted the editor's tag-painting chain into a module-level `paintTags()`
+    and pointed both the editor's preview and the node's prompt bar at it, so the
+    two can't drift on what counts as a tag. Input is escaped first, so the only
+    markup in the result is ours.
+
+    One thing the extraction alone didn't fix: the colours were scoped
+    `.mmh3p-preview .mmh3p-t-*`, so the bar got the right classes and rendered
+    them all one colour — measured 8 classes, 1 colour. Unscoping the palette
+    fixed it: now 8 classes, 8 distinct colours, and verified identical between
+    the editor preview and the bar. The two-line clamp still holds.
+26. 🟩 change the Scroll to a full button that says "📜 Prompt Builder"
+
+    Now a real `<button>` labelled **📜 Prompt Builder**, styled to match the mode
+    button at the bar's other end so the two read as a pair. This mattered beyond
+    labelling: clicking the strip opens the *quick* editor, so the route to the full
+    one needed to say what it was. Measured on a 660px node — button 105px, mode
+    64px, preview keeps 430px — so the text still gets the bulk of the width.
+    Matches the button #24 put in the quick editor's header.
 27. 🟦 crop button in the media thumbnails shows orange even if cropping was not used
 28. 🟦 right click media slot should say "Paste Media" and accept file paths and any media not just images.
 29. 🟦 put the retention\_analysis +Entry / auto-fill buttons to the right edge of the header, like how it is for the sound prompt headers

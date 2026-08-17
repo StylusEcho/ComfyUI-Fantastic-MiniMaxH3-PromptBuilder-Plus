@@ -1270,16 +1270,18 @@ const CSS = `
 .mmh3p-retnote{grid-column:1/-1;margin-top:-2px;}
 .mmh3p-preview{flex:1;overflow:auto;margin:0;padding:12px 14px;font:12px/1.55 ui-monospace,
   SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word;color:#c4cad5;}
-.mmh3p-preview .mmh3p-t-pic{color:#e0a94c;} .mmh3p-preview .mmh3p-t-vid{color:#4cc3e0;}
-.mmh3p-preview .mmh3p-t-aud{color:#b48ce8;} .mmh3p-preview .mmh3p-t-subj{color:#7ec87e;}
-.mmh3p-preview .mmh3p-t-shot{color:#7ea7d8;font-weight:600;}
-.mmh3p-preview .mmh3p-t-d{color:#d8c07e;}
+/* Unscoped: paintTags() output appears in the editor's preview and in the
+   node's prompt bar, and a tag has to read the same colour in both. */
+.mmh3p-t-pic{color:#e0a94c;} .mmh3p-t-vid{color:#4cc3e0;}
+.mmh3p-t-aud{color:#b48ce8;} .mmh3p-t-subj{color:#7ec87e;}
+.mmh3p-t-shot{color:#7ea7d8;font-weight:600;}
+.mmh3p-t-d{color:#d8c07e;}
 /* Hues picked from what the tag palette wasn't already using: coral for the
    language bracket, pink for a speaker, and grey for N/A — which marks a
    section as deliberately empty, so it should read as absent, not as content. */
-.mmh3p-preview .mmh3p-t-lang{color:#e8846a;}
-.mmh3p-preview .mmh3p-t-spk{color:#e58fbf;font-weight:600;}
-.mmh3p-preview .mmh3p-t-na{color:#6b7484;font-style:italic;}
+.mmh3p-t-lang{color:#e8846a;}
+.mmh3p-t-spk{color:#e58fbf;font-weight:600;}
+.mmh3p-t-na{color:#6b7484;font-style:italic;}
 .mmh3p-issues{max-height:180px;overflow:auto;border-top:1px solid #2a2f3a;padding:8px 14px;font-size:12px;}
 .mmh3p-issues .error{color:#f07070;margin:3px 0;font-weight:500;}
 .mmh3p-issues .warn{color:#e0a94c;margin:3px 0;}
@@ -1303,9 +1305,11 @@ const CSS = `
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
   max-height:calc(2 * 1.5em);}
 .mmh3p-sumtext.empty{font-style:italic;color:#6b7484;}
-.mmh3p-sumicon{flex:0 0 auto;align-self:center;font-size:15px;line-height:1;
-  cursor:pointer;opacity:.75;user-select:none;}
-.mmh3p-sumicon:hover{opacity:1;}
+/* Matches .mmh3p-modebtn at the bar's other end, so the two read as a pair. */
+.mmh3p-sumbtn{flex:0 0 auto;align-self:center;display:inline-flex;align-items:center;
+  gap:5px;background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
+  padding:4px 9px;font-size:11px;font-family:inherit;cursor:pointer;white-space:nowrap;}
+.mmh3p-sumbtn:hover{background:#333b4d;border-color:#59637a;}
 .mmh3p-summark{flex:0 0 auto;align-self:center;font-size:12px;line-height:1;
   opacity:.85;user-select:none;}
 /* Quick edit: smaller than the full builder, same chrome. */
@@ -3676,16 +3680,7 @@ class Editor {
     // by lookahead, so the two can't claim each other's text; every pattern
     // after the first excludes < and > so none can match inside a span this
     // chain has already inserted.
-    let html = escapeHtml(text)
-      .replace(/&lt;(Subject|Picture|Video|Audio) (\d+)&gt;/g,
-        (m, k, n) => `<span class="mmh3p-t-${TAG_CLASS[k]}">&lt;${k} ${n}&gt;</span>`)
-      .replace(/\[(?!Shot\b)([^\]\n<>]{1,24})\]/g,
-        '<span class="mmh3p-t-lang">[$1]</span>')
-      .replace(/\[Shot (\d+)\]/g, '<span class="mmh3p-t-shot">[Shot $1]</span>')
-      .replace(/&lt;(\/?d|scenetrans|cutoff)&gt;/g, '<span class="mmh3p-t-d">&lt;$1&gt;</span>')
-      .replace(/\((S\d+)\)/g, '<span class="mmh3p-t-spk">($1)</span>')
-      .replace(/\bN\/A\b/g, '<span class="mmh3p-t-na">N/A</span>');
-    this.previewEl.innerHTML = html;
+    this.previewEl.innerHTML = paintTags(text);
 
     const rank = { error: 0, warn: 1, info: 2 };
     const icon = { error: "\u26d4 ", warn: "\u26a0 ", info: "\u2139 " };
@@ -3901,6 +3896,26 @@ function autoFitSelect(sel) {
   return sel;
 }
 
+/** Colour the H3 tokens in a block of prompt text, as HTML.
+ *
+ *  Shared by the editor's preview and the node's prompt bar so the two can
+ *  never drift apart on what counts as a tag. Order matters: the language
+ *  bracket runs before [Shot N] and excludes it by lookahead, so the two can't
+ *  claim each other's text, and every pattern after the first excludes < and >
+ *  so none can match inside a span this chain has already inserted. The input
+ *  is escaped first, so the only markup in the result is ours. */
+function paintTags(text) {
+  return escapeHtml(text)
+    .replace(/&lt;(Subject|Picture|Video|Audio) (\d+)&gt;/g,
+      (m, k, n) => `<span class="mmh3p-t-${TAG_CLASS[k]}">&lt;${k} ${n}&gt;</span>`)
+    .replace(/\[(?!Shot\b)([^\]\n<>]{1,24})\]/g,
+      '<span class="mmh3p-t-lang">[$1]</span>')
+    .replace(/\[Shot (\d+)\]/g, '<span class="mmh3p-t-shot">[Shot $1]</span>')
+    .replace(/&lt;(\/?d|scenetrans|cutoff)&gt;/g, '<span class="mmh3p-t-d">&lt;$1&gt;</span>')
+    .replace(/\((S\d+)\)/g, '<span class="mmh3p-t-spk">($1)</span>')
+    .replace(/\bN\/A\b/g, '<span class="mmh3p-t-na">N/A</span>');
+}
+
 function linkHeights(a, b) {
   if (typeof ResizeObserver !== "function" || !a || !b) return;
   // ta() now returns a .mmh3p-chipwrap div, not the bare textarea — the wrap
@@ -4016,10 +4031,14 @@ export function updateSummary(node) {
   // prompt is user text and must never be parsed as markup. CSS clamps it.
   const preview = el("div", { class: "mmh3p-sumtext" + (text ? "" : " empty") });
   // 300 chars is well past what two clamped lines can show at this width, so
-  // the node isn't carrying a whole prompt it will never display.
-  preview.textContent = text
-    ? text.slice(0, 300) + (text.length > 300 ? "\u2026" : "")
-    : "empty \u2014 click to open the editor";
+  // the node isn't carrying a whole prompt it will never display. Painted with
+  // the editor's own chain, so a tag reads the same colour in both places.
+  if (text) {
+    preview.innerHTML =
+      paintTags(text.slice(0, 300)) + (text.length > 300 ? "\u2026" : "");
+  } else {
+    preview.textContent = "empty \u2014 click to open the editor";
+  }
 
   // Everything the old single line used to spell out, kept as a tooltip so
   // the two-line preview doesn't lose it.
@@ -4046,15 +4065,14 @@ export function updateSummary(node) {
   }, el("b", {}, MODES.find((m) => m.id === state.mode)?.label || state.mode),
      el("span", { class: "mmh3p-modecaret" }, "\u25be"));
 
-  // A scroll on the left marks the bar as the prompt, and is an explicit
-  // target for opening the editor — the whole strip already opens it, but
-  // nothing said so.
-  const scroll = el("span", {
-    class: "mmh3p-sumicon",
-    title: "Open the Prompt Builder",
+  // A labelled button, not a bare icon: clicking the strip opens the *quick*
+  // editor, so the way through to the full one has to say what it is.
+  const scroll = el("button", {
+    class: "mmh3p-sumbtn",
+    title: "Open the full Prompt Builder",
     onmousedown: (e) => e.stopPropagation(),
-    onclick: (e) => { e.stopPropagation(); openEditor(node); },
-  }, "\u{1F4DC}");
+    onclick: (e) => { e.stopPropagation(); e.preventDefault(); openEditor(node); },
+  }, "\u{1F4DC} Prompt Builder");
 
   // Audio indicators, to the left of the mode button. "N/A" is how a section
   // is written when it deliberately carries nothing, so it must not light the
