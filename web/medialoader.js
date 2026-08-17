@@ -287,6 +287,12 @@ const CSS = `
 .mmlp-shapenone{flex:0 0 auto;padding:10px 8px;border:1px dashed #2e3440;
   border-radius:7px;color:#6b7484;font-size:11px;text-align:center;}
 .mmlp-panel.mmlp-min{height:auto;min-height:0;}
+/* On the Prompt Studio the prompt bar sits directly under this panel and the
+   two stack flush, so squaring off the edge they share makes them read as one
+   surface instead of two boxes. The bar keeps its own top border, which
+   becomes the divider between them. */
+.mmlp-panel.mmlp-joinbelow{border-bottom-left-radius:0;border-bottom-right-radius:0;
+  border-bottom:0;}
 .mmlp-col{display:flex;flex-direction:column;gap:5px;min-width:0;}
 .mmlp-modal .mmlp-panel{border:0;height:100%;min-height:0;}
 .mmlp-overlay{position:fixed;inset:0;z-index:10040;background:rgba(8,10,14,.62);

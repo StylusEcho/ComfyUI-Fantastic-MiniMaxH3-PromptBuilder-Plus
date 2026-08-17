@@ -52,7 +52,16 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
    the handles and takes no pointer events, so a handle parked on it is still
    grabbable and clicking through it still scrubs. The readout now also flags going
    *over* 15s, not just under 2s.
-4. 🟦 join the prompt bar on the node with the media loader
+4. 🟩 join the prompt bar on the node with the media loader
+
+   The two widgets already stacked flush (the node's 528px floor is exactly
+   476 + 52, no gap) — they only *read* as separate boxes because each drew its
+   own border and rounded corners. So the panel squares off its bottom corners and
+   drops its bottom border, and the bar squares off its top corners and takes the
+   panel's background and border colour, keeping its own top border as the divider
+   between them. Outer corners are matched at 8px. Measured in Chromium: seam gap
+   0px, identical backgrounds, one 1px divider, total height unchanged at 528.
+   Applied only on the Studio node, so the media loader's own modal is untouched.
 5. 🟦 provide some alternative names to "Mode" for the media loader layout button
 6. ❓ put the model node output first in the outputs — **see #1: this renumbers every output slot and breaks saved workflows. Needs your go-ahead.**
 7. 🟦 if there is never any other button options except N/A below the sound/audio boxes, move them to the top right of their sections.

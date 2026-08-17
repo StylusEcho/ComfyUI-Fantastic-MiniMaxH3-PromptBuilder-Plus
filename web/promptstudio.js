@@ -165,6 +165,9 @@ app.registerExtension({
         this._mmlOnCommit = () => refreshBar(this);
 
         this._mmlPanel = new LoaderPanel(this);
+        // The prompt bar mounts flush beneath this panel, so the two square
+        // off the edge they share and read as a single surface.
+        this._mmlPanel.root.classList.add("mmlp-joinbelow");
         const widget = this.addDOMWidget("mml_panel", "div",
           this._mmlPanel.root, { serialize: false });
         applyCanvasSizing(this, widget, NODE_W, PANEL_H);
@@ -178,7 +181,7 @@ app.registerExtension({
       try {
         if (this.addDOMWidget) {
           const summary = el("div", {
-            class: "mmh3p-summary",
+            class: "mmh3p-summary mmh3p-joinabove",
             title: "Quick-edit the prompt \u2014 the scroll opens the full editor",
             style: { cursor: "pointer", height: `${SUMMARY_H}px`,
                      minHeight: `${SUMMARY_H}px` },

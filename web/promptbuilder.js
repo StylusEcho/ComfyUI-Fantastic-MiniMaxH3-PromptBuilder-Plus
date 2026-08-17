@@ -1302,6 +1302,12 @@ const CSS = `
   border-radius:6px;padding:6px 9px;font-size:11px;line-height:1.5;color:#9aa3b2;
   overflow:hidden;cursor:default;display:flex;align-items:center;gap:9px;}
 .mmh3p-summary b{color:#d7dbe2;}
+/* Joined to the media panel above it (see .mmlp-joinbelow): square off the
+   shared edge and take the panel's background and border colour, so the pair
+   reads as one surface. The top border stays on as the divider. */
+.mmh3p-summary.mmh3p-joinabove{border-top-left-radius:0;border-top-right-radius:0;
+  border-bottom-left-radius:8px;border-bottom-right-radius:8px;
+  background:#191c22;border-color:#2a2f3a;}
 /* Two lines of the prompt, clamped. pre-line keeps the prompt's own breaks, so
    a short opening line spends line two on the next one instead of padding. */
 .mmh3p-sumtext{flex:1 1 auto;min-width:0;white-space:pre-line;overflow-wrap:anywhere;
