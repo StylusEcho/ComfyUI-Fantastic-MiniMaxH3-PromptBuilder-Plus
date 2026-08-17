@@ -1,6 +1,6 @@
 # Prompt Studio Tasks List
 
-Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` blocked · `❓` needs your call
+Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` blocked · `❓` needs your call · `⏸️` on hold
 
 ---
 
@@ -136,8 +136,8 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
 11. 🟩 pinned audio only takes up the minimum amount of vertical space possible.
 
    **Obsolete — pins removed, see #8.**
-12. 🟦 for linked video/audio, combine them into a single chip. should say Video 1 + Audio 1 etc. when pinned or viewing the hover preview, simply play back as a normal video with audio.
-13. 🟦 when clicking the X for combined video/audio chips, bring up a dialog box asking if the user wants to delete the video only, the audio only, or both, as long as this doesn't cause any issues or conflicts.
+12. ⏸️ **On hold at your request.** for linked video/audio, combine them into a single chip. should say Video 1 + Audio 1 etc. when pinned or viewing the hover preview, simply play back as a normal video with audio.
+13. ⏸️ **On hold — depends on #12.** when clicking the X for combined video/audio chips, bring up a dialog box asking if the user wants to delete the video only, the audio only, or both, as long as this doesn't cause any issues or conflicts.
 14. 🟦 change the citation count on chips to the top right corner.
 15. 🟦 put the Guide button to the left of the prompt mode selector.
 16. 🟦 when the sidebar is not enabled, chips area should have have a MEDIA header like it does with sidebar enabled.
