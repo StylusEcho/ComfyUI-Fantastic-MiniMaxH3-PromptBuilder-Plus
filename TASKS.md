@@ -78,7 +78,24 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
    chance to make the tooltips symmetric — the "All" state previously described what
    clicking would do while the "Mode" state described what you were looking at, so
    only one of them told you the current state. Both now do.
-6. ❓ put the model node output first in the outputs — **see #1: this renumbers every output slot and breaks saved workflows. Needs your go-ahead.**
+6. 🟩 put the model node output first in the outputs
+
+   Done on your go-ahead, knowing it breaks saved workflows. `model` is now slot 0
+   and everything else shifts down one: `prompt`, `references`, `picture_1`,
+   `picture_2`, `ref2va_needed`. The returned tuple, `RETURN_TYPES`,
+   `RETURN_NAMES` and the node DESCRIPTION were all reordered together, and a
+   harness asserts every slot still carries what its name says in FL2VA, REF and
+   T2VA — including that mode-gating still blanks the pictures in T2VA and that
+   `model` routes ref2va only in REF.
+
+   Nothing in the pack depended on the old indices (the JS that connected outputs
+   by slot went with the standalone nodes, and the shipped example workflow does
+   not use this node), so the impact is entirely on users' own graphs: links out
+   of a pre-2.0.0 Prompt Studio come back one slot off and need reconnecting.
+   Documented under a new "Upgrading from 1.x" heading in the README, and the
+   reasoning recorded next to `RETURN_TYPES` — including that this is a one-off
+   and later additions get appended last as before. The pyproject note for 2.0.0
+   now covers both breaking changes rather than just the node removal.
 7. 🟩 if there is never any other button options except N/A below the sound/audio boxes, move them to the top right of their sections.
 
    Confirmed the premise: N/A is the only button on those boxes, at all four call

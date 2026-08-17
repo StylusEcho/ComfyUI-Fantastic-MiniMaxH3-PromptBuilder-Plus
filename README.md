@@ -163,6 +163,24 @@ registered at startup.
 
 To confirm it worked, search the node menu for "MiniMax H3 Prompt Studio".
 
+### Upgrading from 1.x
+
+**2.0.0 is a breaking release — check any workflow you already have.** Two things
+changed that a saved workflow can't adapt to on its own:
+
+- **The standalone Prompt Builder, Media Loader, Reference Splitter and Filename
+  Prefix nodes are gone from this pack.** A workflow wired to them will report the
+  node types as missing. Install
+  [the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)
+  alongside this one and they come back, unchanged.
+- **Prompt Studio's outputs were reordered** to put `model` first. ComfyUI stores
+  connections by slot position, not by name, so every link out of a Prompt Studio
+  placed before 2.0.0 now points one slot off — the link that fed `prompt` is now
+  attached to `model`, and so on. **Reconnect its output wires**; there is no need
+  to delete and re-add the node, and you shouldn't, since your prompt, editor
+  state and loaded media all live on the node's own widgets and are carried
+  across the update intact.
+
 ---
 
 ## Prompt Studio
@@ -176,12 +194,12 @@ It takes **no required inputs**, and has six outputs:
 
 | Output | Type | Goes to |
 |---|---|---|
+| `model` | `MODEL` | the sampler, once you've wired both checkpoints in (see below) |
 | `prompt` | `STRING` | the `prompt` input on **Image to Video** or **Reference to Video** |
 | `references` | `H3_REFS` | a **Reference Splitter**, whose slots feed **Reference to Video** — from the original pack, if you have it installed too |
 | `picture_1` | `IMAGE` | `first_frame` on **Image to Video** (or `last_frame` for L2VA) |
 | `picture_2` | `IMAGE` | `last_frame` on **Image to Video**, for FL2VA |
 | `ref2va_needed` | `BOOLEAN` | a switch node, to pick which H3 node runs |
-| `model` | `MODEL` | the sampler, once you've wired both checkpoints in (see below) |
 
 `ref2va_needed` is true only in **Reference** mode — the one mode whose prompt
 goes to **Reference to Video** instead of **Image to Video**. Feed it to a
