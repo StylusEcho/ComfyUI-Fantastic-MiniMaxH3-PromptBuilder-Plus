@@ -1912,7 +1912,7 @@ export class LoaderPanel {
   /** One filled picture cell. Extracted so the standard grid and the
    *  mode-shaped layout render the identical tile rather than two that
    *  drift apart. */
-  picCell(it, tags) {
+  picCell(it, tags, reorder = true) {
       const tag = (tags.get(it) || "").slice(1, -1);
       return (this.reorderable(el("div",
         { class: "mmlp-slot filled pic" + (isOn(it) ? "" : " off") },
@@ -1978,9 +1978,11 @@ export class LoaderPanel {
           this.powerBtn(it),
           el("span", { class: "mmlp-tag pic" }, isOn(it) ? tag : "off"),
           this.trimBtn(it),
-          el("span", { class: "mmlp-drag", title: "Drag to reorder" }, "\u2630"),
+          reorder
+            ? el("span", { class: "mmlp-drag", title: "Drag to reorder" }, "\u2630")
+            : null,
           el("span", { class: "mmlp-x", title: "Remove",
-            onclick: () => this.remove(it) }, "\u2715"))), it));
+            onclick: () => this.remove(it) }, "\u2715"))), it, reorder));
   }
 
   /** Top-right controls: the layout toggle, and a way into the full-size
@@ -2171,9 +2173,13 @@ export class LoaderPanel {
     this.render();
   }
 
-  reorderable(node, item) {
-    node.draggable = true;
+  /** Drag-to-reorder plus the right-click menu. `enable` only gates the
+   *  reordering: the menu is how you copy, paste and remove a slot, so it
+   *  stays even in a layout with nothing to reorder into. */
+  reorderable(node, item, enable = true) {
     node.addEventListener("contextmenu", (e) => this.slotMenu(e, item));
+    if (!enable) return node;
+    node.draggable = true;
     node.addEventListener("dragstart", (e) => {
       e.stopPropagation();
       e.dataTransfer.effectAllowed = "move";
@@ -2352,7 +2358,12 @@ export class LoaderPanel {
     const sh = this.shape();
     if (sh) {
       const cells = [];
-      pics.slice(0, sh.pictures).forEach((it, i) => cells.push(this.picCell(it, tags)));
+      // One visible slot (I2VA / L2VA) has nothing to reorder against, so the
+      // ☰ handle and the drag itself are dropped — FL2VA keeps both, where
+      // swapping decides which picture is the first frame and which the last.
+      const canReorder = sh.pictures > 1;
+      pics.slice(0, sh.pictures).forEach((it, i) =>
+        cells.push(this.picCell(it, tags, canReorder)));
       for (let i = pics.length; i < sh.pictures; i += 1)
         cells.push(this.emptySlot("picture", i + 1));
       if (sh.pictures) {

@@ -34,7 +34,14 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
      editor's preview uses, so colouring the prompt bar's preview is reuse rather
      than new parsing.
 
-2. 🟦 remove the drag button on the media loader thumbnail for minimized I2VA mode
+2. 🟩 remove the drag button on the media loader thumbnail for minimized I2VA mode
+
+   `picCell()` takes a `reorder` flag, and the compact layout passes `false`
+   whenever it shows a single slot — I2VA and L2VA. The ☰ handle and the drag
+   listeners both go; FL2VA keeps them, since swapping there is what decides which
+   picture is the first frame and which the last. The right-click menu is attached
+   before the early return, so copy / paste / remove still work on a slot that can
+   no longer be dragged.
 3. 🟦 show the 15 sec mark with a line after the starting marker in the trimming window. the ending marker can snap to this marker.
 4. 🟦 join the prompt bar on the node with the media loader
 5. 🟦 provide some alternative names to "Mode" for the media loader layout button
