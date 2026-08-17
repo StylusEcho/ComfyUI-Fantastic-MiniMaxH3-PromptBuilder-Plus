@@ -138,10 +138,40 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
    **Obsolete — pins removed, see #8.**
 12. ⏸️ **On hold at your request.** for linked video/audio, combine them into a single chip. should say Video 1 + Audio 1 etc. when pinned or viewing the hover preview, simply play back as a normal video with audio.
 13. ⏸️ **On hold — depends on #12.** when clicking the X for combined video/audio chips, bring up a dialog box asking if the user wants to delete the video only, the audio only, or both, as long as this doesn't cause any issues or conflicts.
-14. 🟦 change the citation count on chips to the top right corner.
-15. 🟦 put the Guide button to the left of the prompt mode selector.
-16. 🟦 when the sidebar is not enabled, chips area should have have a MEDIA header like it does with sidebar enabled.
-17. 🟦 chips dimensions should be the same in sidebar mode.
+14. 🟩 change the citation count on chips to the top right corner.
+
+    Moved out of the bottom bar and badged into the card's top-right corner over
+    the thumbnail, as a dark rounded pill so a single digit stays legible against a
+    bright frame. It is `pointer-events:none`, so the corner remains part of the
+    card's click target — clicking a card inserts its tag, and that must not have a
+    dead spot. All three states move together: the count, the amber `–` for
+    "not cited yet", and the `⊘` shown when the mode can't use the reference.
+    Measured at 3px from both edges, clear of the bottom bar, in normal and
+    sidebar views.
+15. 🟩 put the Guide button to the left of the prompt mode selector.
+
+    Reordering alone wasn't enough: the mode selector carried `margin-left:auto`,
+    which is what opens the gap between the left- and right-hand groups, so Guide
+    would have been left stranded at the end of the left group with the gap between
+    them. The auto margin moves onto Guide instead, so the two travel together and
+    sit 14px apart. Close stays furthest right.
+16. 🟩 when the sidebar is not enabled, chips area should have have a MEDIA header like it does with sidebar enabled.
+
+    The inline strip now emits the same `mmh3p-railhead` "media" heading the
+    sidebar column already had, so the section is named either way round. It needed
+    one extra rule: in the sidebar the column's flex `gap` spaces the heading, but
+    inline it is a block, so the 6px is spelled out.
+17. 🟩 chips dimensions should be the same in sidebar mode.
+
+    The sidebar was overriding cards to `width:auto` and stretching them to fill the
+    column, making them 169px against 128px inline. Both overrides are gone and the
+    column centres the cards instead, so a card measures the same 130px (128 + the
+    1px borders) in either view. The joined video+audio pair still meets with a 0px
+    seam vertically.
+
+    Note the sidebar track is still 186px, so a centred 128px card leaves ~20px
+    either side. Tightening the column to fit is a separate call — say if you want
+    it, since it would hand that width to the form.
 18. 🟦 videos flash when clicking the prompt builder section toggles.
 19. 🟦 the shot and camera control bar's dropdown boxes should only use the minimum width needed.
 20. 🟦 the top and bottom margins of the prompt builder's main pane should be consistent with the left and right margins.

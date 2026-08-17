@@ -948,7 +948,11 @@ const CSS = `
   background:#171a20;border-bottom:1px solid #23272f;}
 .mmh3p-modesends.gated{color:#e0a94c;}
 .mmh3p-modes{display:flex;gap:2px;background:#12151b;border:1px solid #2a2f3a;
-  border-radius:7px;padding:2px;margin-left:auto;}
+  border-radius:7px;padding:2px;}
+/* Guide leads the right-hand group, so it carries the auto margin that used to
+   sit on the mode selector — otherwise the gap opens between the two and Guide
+   reads as part of the left-hand group instead. */
+.mmh3p-guidebtn{margin-left:auto;}
 .mmh3p-modes button{background:none;border:0;color:#9aa3b2;padding:5px 12px;border-radius:5px;
   cursor:pointer;font-size:12px;}
 .mmh3p-modes button.on{background:#2f3947;color:#fff;}
@@ -968,19 +972,24 @@ const CSS = `
   border-right:1px solid #2a2f3a;}
 .mmh3p-railhead{flex:0 0 auto;font-size:10px;text-transform:uppercase;
   letter-spacing:.08em;color:#8a93a3;}
+/* In the sidebar the column's own gap spaces this; inline it is a block, so it
+   needs the gap spelled out. */
+.mmh3p-chipbar>.mmh3p-railhead{margin-bottom:6px;}
 /* One column: the same cards, stacked. A joined video+audio pair meets
    top-to-bottom here, so the squared corners move to the horizontal edges. */
+/* Centred, not stretched: the cards keep the same 128px they have inline, so a
+   thumbnail is the same size whichever view you are in. */
 .mmh3p-body.sidebar .mmh3p-rail .mmh3p-chips{flex-direction:column;flex-wrap:nowrap;
-  max-height:none;overflow:visible;align-items:stretch;}
-.mmh3p-body.sidebar .mmh3p-rail .mmh3p-card{width:auto;}
+  max-height:none;overflow:visible;align-items:center;}
 .mmh3p-body.sidebar .mmh3p-rail .mmh3p-card.joinR{margin-right:0;margin-bottom:-6px;
   border-radius:7px 7px 0 0;}
 .mmh3p-body.sidebar .mmh3p-rail .mmh3p-card.joinL{border-left-width:1px;
   border-top-width:0;border-radius:0 0 7px 7px;}
 @media (max-width:980px){.mmh3p-body{grid-template-columns:1fr;}}
 
-.mmh3p-card{width:128px;flex:0 0 auto;border:1px solid #2e3440;border-radius:7px;
-  overflow:hidden;background:#12151b;cursor:pointer;user-select:none;}
+.mmh3p-card{position:relative;width:128px;flex:0 0 auto;border:1px solid #2e3440;
+  border-radius:7px;overflow:hidden;background:#12151b;cursor:pointer;
+  user-select:none;}
 .mmh3p-card:hover{border-color:#59637a;}
 .mmh3p-card.pic{border-color:#6d5527;} .mmh3p-card.vid{border-color:#255c6b;}
 .mmh3p-card.aud{border-color:#4c3d6e;}
@@ -991,9 +1000,17 @@ const CSS = `
 .mmh3p-tagname{font-family:ui-monospace,monospace;font-size:9px;}
 .mmh3p-tagname.pic{color:#e0a94c;} .mmh3p-tagname.vid{color:#4cc3e0;}
 .mmh3p-tagname.aud{color:#b48ce8;} .mmh3p-tagname.subj{color:#7ec87e;}
-.mmh3p-cite{margin-left:auto;font-size:9px;color:#7a8393;font-family:ui-monospace,monospace;}
+/* Badged into the card's top-right corner, over the thumbnail. The dark pill
+   and shadow are what keep a single digit legible against a bright frame;
+   pointer-events:none so the corner is still part of the card's click target
+   (clicking a card inserts its tag). */
+.mmh3p-cite{position:absolute;top:3px;right:3px;z-index:2;pointer-events:none;
+  min-width:14px;box-sizing:border-box;padding:1px 4px;border-radius:8px;
+  text-align:center;font-size:9px;line-height:1.35;
+  font-family:ui-monospace,monospace;color:#c4cad5;
+  background:rgba(10,12,16,.78);box-shadow:0 0 0 1px rgba(0,0,0,.45);}
 .mmh3p-cite.zero{color:#e0a94c;}
-.mmh3p-cite.off{color:#5c6472;}
+.mmh3p-cite.off{color:#8b93a2;}
 .mmh3p-card.unusable{opacity:.34;cursor:not-allowed;border-color:#2a2f3a !important;}
 .mmh3p-card.unusable:hover{opacity:.5;border-color:#3a4252 !important;}
 .mmh3p-card.unusable .mmh3p-tagname{color:#6b7484 !important;}
@@ -1905,7 +1922,7 @@ class Editor {
     const saveBtn = el("button", { class: "mmh3p-btn primary", onclick: () => this.save() },
       "Save to node");
 
-    const guideBtn = el("button", { class: "mmh3p-btn",
+    const guideBtn = el("button", { class: "mmh3p-btn mmh3p-guidebtn",
       title: "Open the bundled MiniMax H3 Video Prompt Writing Guide (PDF)",
       onclick: () => window.open(
         new URL("./Video_Prompt_Writing_Guide.pdf", import.meta.url).href,
@@ -1923,7 +1940,6 @@ class Editor {
         el("div", { class: "mmh3p-head" },
           el("div", { class: "mmh3p-title" }, "Fantastic H3 Prompt Builder",
             el("small", {}, "guide-conformant output")),
-          guideBtn,
           el("button", { class: "mmh3p-btn",
             title: "Browse saved prompts",
             onclick: () => new Library(this) }, "\u2630 Library"),
@@ -1942,6 +1958,7 @@ class Editor {
               this.closePeek();
               this.render();
             } }, "\u25e7 Sidebar"),
+          guideBtn,
           this.modeBar,
           this.prefsButton(),
           el("button", { class: "mmh3p-x",
@@ -2569,14 +2586,17 @@ class Editor {
         },
       },
         this.mediaThumb(s),
+        // Top-right of the card, over the thumbnail: the count is a property of
+        // the reference rather than of the tag name it used to sit beside, and
+        // the corner keeps it readable as the bar fills with tools.
+        ok
+          ? el("span", { class: "mmh3p-cite" + (cites ? "" : " zero"),
+              title: cites ? `cited ${cites}\u00d7 in the prompt` : "not cited yet" },
+              cites || "\u2013")
+          : el("span", { class: "mmh3p-cite off", title: this.modeNote(s) },
+              "\u2298"),
         el("div", { class: "mmh3p-cardbar" },
           el("span", { class: `mmh3p-tagname ${s.cls}` }, `${s.kind} ${s.idx}`),
-          ok
-            ? el("span", { class: "mmh3p-cite" + (cites ? "" : " zero"),
-                title: cites ? `cited ${cites}\u00d7` : "not cited yet" },
-                cites || "\u2013")
-            : el("span", { class: "mmh3p-cite off", title: this.modeNote(s) },
-                "\u2298"),
           this.cardTools(s)),
         s.note && s.note !== "standalone"
           ? el("span", { class: "mmh3p-cardnote" },
@@ -2732,6 +2752,9 @@ class Editor {
         el("div", { class: "mmh3p-railhead" }, "media"), chips);
     }
     return el("div", { class: "mmh3p-chipbar" },
+      // The sidebar labels its column "media"; the inline strip gets the same
+      // heading so the section is named either way round.
+      this.sidebar ? null : el("div", { class: "mmh3p-railhead" }, "media"),
       this.sidebar ? null : chips,
       extraChips.length
         ? el("div", { class: "mmh3p-subjrow" }, extraChips) : null,
