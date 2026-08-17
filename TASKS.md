@@ -62,7 +62,13 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
    between them. Outer corners are matched at 8px. Measured in Chromium: seam gap
    0px, identical backgrounds, one 1px divider, total height unchanged at 528.
    Applied only on the Studio node, so the media loader's own modal is untouched.
-5. 🟦 provide some alternative names to "Mode" for the media loader layout button
+5. 🟩 provide some alternative names to "Mode" for the media loader layout button
+
+   Offered *Used / All*, *Compact / Full*, *In use / All slots* and *Fit / All*; you
+   picked **Used / All**, so the toggle now reads `◰ Used` / `◱ All`. Took the
+   chance to make the tooltips symmetric — the "All" state previously described what
+   clicking would do while the "Mode" state described what you were looking at, so
+   only one of them told you the current state. Both now do.
 6. ❓ put the model node output first in the outputs — **see #1: this renumbers every output slot and breaks saved workflows. Needs your go-ahead.**
 7. 🟦 if there is never any other button options except N/A below the sound/audio boxes, move them to the top right of their sections.
 8. 🟦 show playback controls for pinned videos

@@ -2050,8 +2050,8 @@ export class LoaderPanel {
       out.push(el("button", {
         class: "mmlp-btn mmlp-sm" + (this.compact ? " mmlp-on" : ""),
         title: this.compact
-          ? `Showing only what ${m} uses \u2014 click for every slot`
-          : `Show only the slots ${m} uses`,
+          ? `Showing only the slots ${m} uses \u2014 click for every slot`
+          : `Showing every slot \u2014 click for only the ones ${m} uses`,
         onclick: () => {
           this.compact = !this.compact;
           this.render();
@@ -2059,7 +2059,7 @@ export class LoaderPanel {
           // node has to be told: render() alone never reaches it.
           try { this.node._mmlOnCommit?.(); } catch (e) { /* cosmetic */ }
         },
-      }, this.compact ? "\u25f0 Mode" : "\u25f1 All"));
+      }, this.compact ? "\u25f0 Used" : "\u25f1 All"));
     }
     const hidden = this.hiddenCount();
     out.push(el("button", {
