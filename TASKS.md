@@ -234,9 +234,31 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
     Also cleaned up two user-facing strings left over from removing the standalone
     nodes: the empty-state hint told you to use "+ Media loader", and a validation
     warning blamed "the Media Loader", neither of which this pack ships any more.
-22. 🟦 add N/A buttons to the audio prompt boxes in the prompt quick editor
-23. 🟦 X should be in the top right
-24. 🟦 change the "Full editor..." button to "Prompt Builder" and put it to the left of the X.
+22. 🟩 add N/A buttons to the audio prompt boxes in the prompt quick editor
+
+    Both audio sections in the quick editor now carry the same N/A the full editor
+    has, in the section heading (the `label.act` / `mmh3p-secact` pattern from #7,
+    so the two windows match). The handler writes through the field and fires
+    `input` rather than setting the state directly, which keeps a single save path
+    — the textarea's own handler is what records the value, so the debounced
+    save on the node's inline T2VA mount picks it up too. Verified end to end:
+    clicking N/A takes the state from "birdsong" to "N/A".
+23. 🟩 X should be in the top right
+
+    **Already the case — no change needed.** Measured the quick editor's header:
+    the close button sits 16px from the right edge, which is the header's own
+    padding. `.mmh3p-head .mmh3p-x{margin-left:auto}` was already doing it. Flagging
+    rather than inventing a change; if you meant a different window's X, point me at
+    it.
+24. 🟩 change the "Full editor..." button to "Prompt Builder" and put it to the left of the X.
+
+    Relabelled to **📜 Prompt Builder** — the scroll matches the icon the prompt bar
+    uses for the same action, which #26 turns into a full button. Moving it needed
+    more than reordering: it was already the X's DOM sibling but sat **602px** away,
+    because the X's `margin-left:auto` claimed all the header's slack. The button now
+    carries the auto margin and the X's is cancelled when it follows one
+    (`.mmh3p-pushright ~ .mmh3p-x`) — with both set, the free space splits between
+    them and the pair still ends up apart. Now 14px apart, X still hard right.
 25. 🟦 colour code the tags on the prompt bar prompt preview
 26. 🟦 change the Scroll to a full button that says "📜 Prompt Builder"
 27. 🟦 crop button in the media thumbnails shows orange even if cropping was not used

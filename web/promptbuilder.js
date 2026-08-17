@@ -953,6 +953,12 @@ const CSS = `
    sit on the mode selector — otherwise the gap opens between the two and Guide
    reads as part of the left-hand group instead. */
 .mmh3p-guidebtn{margin-left:auto;}
+/* Pushes an item, and everything after it, to the right of a flex header. */
+.mmh3p-pushright{margin-left:auto;}
+/* ...which only holds if the close button stops claiming the slack too: with
+   two auto margins the free space splits between them and the pair ends up
+   apart rather than together. */
+.mmh3p-head .mmh3p-pushright ~ .mmh3p-x{margin-left:0;}
 .mmh3p-modes button{background:none;border:0;color:#9aa3b2;padding:5px 12px;border-radius:5px;
   cursor:pointer;font-size:12px;}
 .mmh3p-modes button.on{background:#2f3947;color:#fff;}
@@ -3777,7 +3783,22 @@ export function promptFields(node) {
       rows: 3, placeholder, value: target[key] ?? "",
       oninput: (e) => { target[key] = e.target.value; },
     });
-    pair.append(el("div", { class: "mmh3p-sec" }, el("label", {}, label), t));
+    // Same N/A the full editor puts in these headings, so a section can be
+    // marked deliberately empty without leaving the quick window. Writing
+    // through the field and firing `input` keeps the one save path: the
+    // textarea's own handler is what updates the state.
+    const na = el("button", {
+      class: "mmh3p-btn",
+      title: `Mark ${label} as deliberately empty`,
+      onclick: () => {
+        t.value = "N/A";
+        t.dispatchEvent(new Event("input", { bubbles: true }));
+      },
+    }, "N/A");
+    pair.append(el("div", { class: "mmh3p-sec" },
+      el("label", { class: "act" }, label,
+        el("span", { class: "mmh3p-secact" }, na)),
+      t));
     return t;
   };
   const soundTa = audioBox("overall_soundscape", "soundscape",
@@ -3820,9 +3841,9 @@ export function openQuickEdit(node) {
       el("div", { class: "mmh3p-head" },
         el("div", { class: "mmh3p-title" }, "Quick edit",
           el("small", {}, mode === "REF" ? "Full-reference" : mode)),
-        el("button", { class: "mmh3p-btn",
+        el("button", { class: "mmh3p-btn mmh3p-pushright",
           title: "Open the full Prompt Builder instead",
-          onclick: () => { close(); openEditor(node); } }, "Full editor…"),
+          onclick: () => { close(); openEditor(node); } }, "📜 Prompt Builder"),
         el("button", { class: "mmh3p-x", onclick: close }, "✕")),
       el("div", { class: "mmh3p-quickbody" }, fields.root),
       el("div", { class: "mmh3p-foot" },
