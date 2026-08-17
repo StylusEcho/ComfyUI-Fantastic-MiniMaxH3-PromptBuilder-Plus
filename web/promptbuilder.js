@@ -19,6 +19,23 @@ const RAIL_MIME = "application/x-mmh3-rail";
 /* ------------------------------------------------------------------ */
 
 // What each mode actually sends once saved — mirrors MODE_LIMITS in nodes.py.
+// Reference tags the editor knows how to chip: <Picture 1>, <Video 2>,
+// <Audio 3>, <Subject 1>.
+const TAG_RE = /<(?:Picture|Video|Audio|Subject) \d+>/g;
+
+/* One pass over a field paints three things: dialogue blocks, reference tags
+   and speaker IDs. Dialogue is matched first so tags inside a spoken line
+   aren't chipped out of it. */
+const PAINT_RE = new RegExp([
+  "<d>[\\s\\S]*?<\\/d>",                      // a spoken line
+  // a cut marker, with its timestamp when one follows
+  "\\[Shot \\d+\\](?:\\s+at\\s+\\d{1,2}:\\d{2}(?:\\.\\d{1,3})?)?",
+  "<(?:Picture|Video|Audio|Subject) \\d+>",     // a reference tag
+  "\\(S\\d+(?:\\s*,\\s*S\\d+)*\\)",           // (S1) or (S1,S2)
+].join("|"), "g");
+
+const LANG_RE = /^(\s*\[[^\]\n]+\])/;
+
 const MODE_SENDS = {
   T2VA: "Sends: prompt only \u2014 no reference media leaves the node in this mode.",
   I2VA: "Sends: prompt + picture 1 (first frame). All other media is withheld.",
@@ -270,6 +287,74 @@ const TAG_CLASS = { Subject: "subj", Picture: "pic", Video: "vid", Audio: "aud" 
 /* ------------------------------------------------------------------ */
 /* Small DOM helpers                                                   */
 /* ------------------------------------------------------------------ */
+
+/* Editor preferences. Kept in localStorage so they follow the person rather
+   than the workflow — they're about how the window behaves, not about any
+   particular prompt. */
+const PREF_KEY = "mmh3.editorPrefs";
+const PREF_DEFAULTS = { closeOnBackdrop: true, warnUnsaved: true };
+
+function loadPrefs() {
+  try {
+    return { ...PREF_DEFAULTS, ...JSON.parse(localStorage.getItem(PREF_KEY) || "{}") };
+  } catch (e) {
+    return { ...PREF_DEFAULTS };
+  }
+}
+
+function savePrefs(prefs) {
+  try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); }
+  catch (e) { /* private mode: the session's choice still applies */ }
+}
+
+/** Turn a failed request into something actionable.
+ *
+ *  ComfyUI answers unknown POST paths with 405 rather than 404, because its
+ *  catch-all frontend route matches the path but only for GET. In practice
+ *  that always means the Python side hasn't been reloaded. */
+function routeError(resp, fallback) {
+  if (resp && (resp.status === 405 || resp.status === 404)) {
+    return "ComfyUI hasn't loaded this feature's routes yet \u2014 restart " +
+           "ComfyUI (a browser refresh isn't enough) and try again.";
+  }
+  return fallback || `request failed (${resp?.status})`;
+}
+
+/** Copy text, working outside a secure context.
+ *
+ *  navigator.clipboard only exists on https or localhost. ComfyUI started
+ *  with --listen is usually reached over plain http at a LAN address, where
+ *  the API is simply absent — the old call short-circuited on `?.` and then
+ *  threw on `.then`, so copying failed silently. execCommand is deprecated
+ *  but still the only thing that works there. */
+async function copyText(text) {
+  try {
+    if (window.isSecureContext && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (e) {
+    /* fall through to the textarea route */
+  }
+  try {
+    const holder = document.createElement("textarea");
+    holder.value = text;
+    holder.setAttribute("readonly", "");
+    Object.assign(holder.style, {
+      position: "fixed", top: "0", left: "-9999px", opacity: "0",
+    });
+    document.body.append(holder);
+    const prev = document.activeElement;
+    holder.select();
+    holder.setSelectionRange(0, text.length);
+    const ok = document.execCommand("copy");
+    holder.remove();
+    try { prev?.focus?.(); } catch (e) { /* focus is best effort */ }
+    return ok;
+  } catch (e) {
+    return false;
+  }
+}
 
 export function el(tag, props = {}, ...children) {
   const e = document.createElement(tag);
@@ -875,6 +960,8 @@ const CSS = `
   cursor:pointer;font-size:12px;}
 .mmh3-modes button.on{background:#2f3947;color:#fff;}
 .mmh3-x{background:none;border:0;color:#8a93a3;font-size:18px;cursor:pointer;padding:2px 8px;}
+/* Close always sits at the far right, as every other window does. */
+.mmh3-head .mmh3-x{margin-left:auto;}
 .mmh3-x:hover{color:#fff;}
 .mmh3-body{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 0 440px;min-height:0;
   transition:grid-template-columns .16s ease;}
@@ -983,7 +1070,9 @@ const CSS = `
 .mmh3-peekcite.zero{color:#e0a94c;}
 .mmh3-peeksrc{font-size:9px;color:#6b7484;margin:2px 0 6px;max-width:520px;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;}
-.mmh3-form{overflow-y:auto;padding:14px 16px 24px;min-width:0;
+/* No top padding: the sticky media bar owns that space, so it can pin flush
+   to the top of the scroll area with nothing able to scroll past it. */
+.mmh3-form{overflow-y:auto;padding:0 16px 24px;min-width:0;
   display:flex;flex-direction:column;}
 /* Sections keep their natural height; the one marked grow takes the slack, so
    the audio sections after it sit at the bottom of the form instead of
@@ -1023,10 +1112,85 @@ const CSS = `
   background:#2b2320;border:1px solid #7a4a3a;border-radius:7px;padding:8px 10px;
   margin-bottom:10px;font-size:12px;color:#e8c4b4;}
 .mmh3-clearnote{font-size:11px;color:#a08878;}
-.mmh3-clearbar .mmh3-btn{margin-left:auto;}
-.mmh3-clearbar .mmh3-btn + .mmh3-btn{margin-left:0;}
-.mmh3-chipbar{position:sticky;top:0;z-index:5;background:#191c22;padding:8px 0 10px;
-  border-bottom:1px solid #242a34;margin-bottom:14px;}
+/* The buttons live in their own nowrap group pinned right, so a narrow
+   window wraps the MESSAGE instead of stranding one button on a new line
+   at the far left. */
+.mmh3-clearactions{display:flex;gap:8px;flex-wrap:nowrap;margin-left:auto;
+  flex-shrink:0;}
+.mmh3-clearmsg{flex:1 1 220px;min-width:0;}
+.mmh3-prefwrap{position:relative;display:inline-block;}
+.mmh3-x.on{color:#dde2ea;}
+.mmh3-prefmenu{position:absolute;right:0;top:100%;margin-top:6px;z-index:20;
+  display:none;width:270px;background:#1e222a;border:1px solid #3a4252;
+  border-radius:9px;padding:8px;box-shadow:0 16px 40px rgba(0,0,0,.55);}
+.mmh3-prefmenu.on{display:block;}
+.mmh3-prefitem{display:flex;gap:8px;align-items:flex-start;padding:6px;
+  border-radius:6px;cursor:pointer;}
+.mmh3-prefitem:hover{background:#242a34;}
+.mmh3-prefitem input{margin-top:2px;flex-shrink:0;}
+.mmh3-preflabel{display:block;font-size:12px;color:#d7dbe2;}
+.mmh3-prefhint{display:block;font-size:10px;color:#6b7484;line-height:1.35;
+  margin-top:2px;}
+.mmh3-btn.mmh3-danger{border-color:#5c3a3a;color:#e08585;}
+.mmh3-btn.mmh3-danger:hover{background:#3a2626;color:#f0a0a0;}
+/* Full-bleed: negative side margins cancel the form's padding, so the bar's
+   background covers the gutters too. Text used to scroll visibly through
+   them and through the strip above the bar. */
+.mmh3-dialogrow{margin-top:6px;}
+/* nowrap matters: with wrapping allowed, flexbox breaks the line before it
+   shrinks anything, so a long phrase name pushed the buttons onto a second
+   row instead of narrowing the picker. */
+/* Compound selector so this beats .mmh3-tools, which sets flex-wrap:wrap
+   later in the sheet at the same specificity. */
+.mmh3-tools.mmh3-phraserow{margin-top:6px;flex-wrap:nowrap;}
+.mmh3-phrasewarn{font-size:12px;color:#e8b46a;}
+.mmh3-phrasepeek{position:fixed;z-index:10005;max-width:420px;
+  box-sizing:border-box;background:#1e222a;
+  border:1px solid #3a4252;border-radius:9px;padding:8px 10px;
+  box-shadow:0 16px 40px rgba(0,0,0,.55);pointer-events:none;}
+.mmh3-phrasepeekhead{display:flex;gap:8px;align-items:baseline;
+  margin-bottom:5px;}
+.mmh3-phrasepeekhead span:first-child{font-size:11px;color:#d7dbe2;
+  font-weight:600;}
+.mmh3-phrasepeekcat{font-size:9px;color:#6b7484;text-transform:uppercase;
+  letter-spacing:.06em;}
+.mmh3-phrasepeektext{font-size:12px;color:#a9b2c2;line-height:1.5;
+  white-space:pre-wrap;max-height:220px;overflow:hidden;}
+.mmh3-ctxmenu{position:fixed;z-index:10006;min-width:190px;background:#1e222a;
+  border:1px solid #3a4252;border-radius:8px;padding:4px;
+  box-shadow:0 16px 40px rgba(0,0,0,.55);}
+.mmh3-ctxitem{padding:7px 10px;border-radius:6px;font-size:12px;color:#d7dbe2;
+  cursor:pointer;white-space:nowrap;}
+.mmh3-ctxitem:hover{background:#2a313d;}
+.mmh3-phraseover{z-index:10004;display:flex;align-items:center;
+  justify-content:center;}
+.mmh3-phrasemodal{width:min(520px,92vw);background:#191c22;
+  border:1px solid #303642;border-radius:10px;overflow:hidden;
+  box-shadow:0 24px 64px rgba(0,0,0,.55);}
+.mmh3-phrasebody{padding:12px 14px;display:flex;flex-direction:column;gap:6px;}
+.mmh3-phrasebody label{font-size:11px;text-transform:uppercase;
+  letter-spacing:.08em;color:#8a93a3;}
+.mmh3-phrasetext{width:100%;box-sizing:border-box;background:#12151b;
+  color:#dde2ea;border:1px solid #2e3440;border-radius:6px;padding:7px 9px;
+  font-size:13px;font-family:inherit;line-height:1.6;resize:vertical;}
+.mmh3-phrasetext:focus{outline:none;border-color:#4a5568;}
+.mmh3-phrasefoot{display:flex;align-items:center;gap:8px;padding:10px 14px;
+  border-top:1px solid #2a2f3a;background:#1b1f27;}
+.mmh3-phrasecat{flex:0 1 150px;min-width:70px;}
+/* The phrase names are the long ones, so this picker absorbs whatever room
+   is left rather than truncating at a fixed width. */
+.mmh3-phrasesel{flex:1 1 120px;min-width:0;max-width:none;}
+.mmh3-toolspace{flex:0 0 8px;}
+.mmh3-toolgrow{flex:1 1 auto;}
+.mmh3-phraserow .mmh3-btn,.mmh3-phraserow .mmh3-toollabel{flex:0 0 auto;
+  white-space:nowrap;}
+.mmh3-toollabel{font-size:10px;text-transform:uppercase;letter-spacing:.07em;
+  color:#7d8698;align-self:center;}
+.mmh3-toolsep{width:1px;height:18px;background:#2e3440;align-self:center;}
+.mmh3-btn.ghost{opacity:.7;border-style:dashed;}
+.mmh3-chipbar{position:sticky;top:0;z-index:5;background:#191c22;
+  padding:12px 16px 10px;margin:0 -16px 14px;
+  border-bottom:1px solid #242a34;}
 /* Wraps instead of scrolling sideways: a second row is easier to scan than a
    strip you have to drag through, and every reference stays reachable for a
    drag. Caps at roughly three rows before scrolling vertically. */
@@ -1081,8 +1245,6 @@ const CSS = `
   border-left:1px solid #4a4260;padding-left:5px;margin-left:1px;}
 .mmh3-subjrow{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;}
 .mmh3-tools{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center;}
-/* Zero-height full-width flex item: forces the row after it onto a new line. */
-.mmh3-toolbreak{flex:0 0 100%;height:0;margin:0;}
 .mmh3-tools select{width:auto;background:#12151b;color:#c9cfda;border:1px solid #2e3440;
   border-radius:6px;padding:4px 6px;font-size:12px;}
 .mmh3-tools input[type=number]{width:84px;background:#12151b;color:#c9cfda;
@@ -1204,6 +1366,9 @@ const CSS = `
 .mmh3-saveform{background:#1d222b;border:1px solid #3a4252;border-radius:8px;
   padding:8px;margin-bottom:8px;}
 .mmh3-saverow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+.mmh3-savecat{background:#12151b;color:#d7dbe2;border:1px solid #2e3440;
+  border-radius:7px;padding:6px 8px;font-size:12px;max-width:190px;}
+.mmh3-savecat:focus{outline:none;border-color:#4a5568;}
 .mmh3-saverow input[type=text]{flex:1;min-width:130px;background:#12151b;
   color:#dde2ea;border:1px solid #2e3440;border-radius:6px;padding:5px 9px;
   font-size:12px;}
@@ -1241,6 +1406,88 @@ const CSS = `
 .mmh3-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:10001;
   background:#2b3140;color:#fff;border:1px solid #4a5568;border-radius:8px;
   padding:8px 16px;font-size:13px;}
+
+/* Reference chips. The mirror div sits under a textarea whose own text is
+   transparent, so the browser keeps selection/undo/IME while the tags get
+   styled. Every metric below is copied from .mmh3-form textarea — any
+   difference and the chips drift off the words as lines wrap. This block is
+   last, and uses .mmh3-chiptext, so it wins over the generic form rules. */
+/* The wrapper carries the field's frame; the textarea inside is invisible
+   except for its caret and selection. */
+.mmh3-chipwrap{position:relative;display:block;background:#12151b;
+  border:1px solid #2e3440;border-radius:6px;}
+.mmh3-chipwrap:focus-within{border-color:#4a5568;}
+/* Those two sections put the field in a flex row beside an N/A button; the
+   wrapper has to claim the space the bare textarea used to. */
+.mmh3-row .mmh3-chipwrap{flex:1;min-width:0;}
+.mmh3-chipmirror,
+.mmh3-chipwrap textarea.mmh3-chiptext{
+  width:100%;box-sizing:border-box;border:1px solid transparent;
+  border-radius:6px;padding:7px 9px;font-size:13px;font-family:inherit;
+  line-height:1.7;letter-spacing:normal;white-space:pre-wrap;
+  overflow-wrap:break-word;word-break:normal;tab-size:4;}
+.mmh3-chipmirror{position:absolute;inset:0;overflow:hidden;pointer-events:none;
+  color:#dde2ea;background:transparent;z-index:1;}
+.mmh3-chipwrap textarea.mmh3-chiptext{position:relative;display:block;
+  background:transparent;color:transparent;caret-color:#dde2ea;
+  resize:vertical;z-index:0;}
+.mmh3-chipwrap textarea.mmh3-chiptext:focus{outline:none;}
+.mmh3-chipwrap textarea.mmh3-chiptext::selection{
+  background:rgba(96,140,210,.38);color:transparent;}
+.mmh3-chipwrap textarea.mmh3-chiptext::placeholder{color:#5c6472;}
+/* Layout-neutral by construction. The mirror only lines up with the textarea
+   if a chip advances the text exactly as its bare glyphs would, so there is
+   no padding, no margin and no border here — the breathing room is an OUTER
+   box-shadow spread, which paints beyond the box without occupying space.
+   Anything that changes the advance shifts wrap points, and the error
+   compounds line after line. */
+.mmh3-reftag{border-radius:3px;background:rgba(224,169,76,.18);color:#e0a94c;
+  box-shadow:0 0 0 2px rgba(224,169,76,.18), inset 0 0 0 1px rgba(224,169,76,.45);
+  -webkit-box-decoration-break:clone;box-decoration-break:clone;}
+.mmh3-reftag.vid{background:rgba(76,195,224,.18);color:#4cc3e0;
+  box-shadow:0 0 0 2px rgba(76,195,224,.18), inset 0 0 0 1px rgba(76,195,224,.45);}
+.mmh3-reftag.aud{background:rgba(180,140,232,.18);color:#b48ce8;
+  box-shadow:0 0 0 2px rgba(180,140,232,.18), inset 0 0 0 1px rgba(180,140,232,.45);}
+.mmh3-reftag.subj{background:rgba(111,191,115,.18);color:#6fbf73;
+  box-shadow:0 0 0 2px rgba(111,191,115,.18), inset 0 0 0 1px rgba(111,191,115,.45);}
+.mmh3-reftag.unknown{background:rgba(240,112,112,.16);color:#f07070;
+  box-shadow:0 0 0 2px rgba(240,112,112,.16), inset 0 0 0 1px rgba(240,112,112,.5);}
+.mmh3-reftag.spk{background:rgba(126,167,216,.16);color:#7ea7d8;
+  box-shadow:0 0 0 2px rgba(126,167,216,.16), inset 0 0 0 1px rgba(126,167,216,.4);}
+/* Cut markers are the loudest thing in a prompt, so they're the only SOLID
+   chip: every other tag is a translucent tint. The weight does the work, which
+   also means the hue doesn't have to compete with audio's violet or the red
+   that means "undefined tag". */
+.mmh3-reftag.shot{background:#a34b7d;color:#ffe9f4;font-weight:700;
+  box-shadow:0 0 0 2px #a34b7d, inset 0 0 0 1px rgba(255,255,255,.18);}
+/* Spoken lines. The band shows how much of a paragraph is actually speech;
+   the markers dim because they're syntax, not words the model will say.
+   box-decoration-break keeps the band intact when a line wraps. */
+.mmh3-dblock{background:rgba(126,167,216,.10);border-radius:3px;
+  box-shadow:0 0 0 2px rgba(126,167,216,.10),
+             inset 0 0 0 1px rgba(126,167,216,.28);
+  -webkit-box-decoration-break:clone;box-decoration-break:clone;}
+.mmh3-dmark{color:#5f7899;}
+.mmh3-dlang{color:#9dc0e4;background:rgba(126,167,216,.16);border-radius:3px;
+  box-shadow:0 0 0 1px rgba(126,167,216,.16);}
+.mmh3-dtext{color:#e8eef6;}
+.mmh3-chippeek{position:fixed;z-index:10003;width:220px;background:#1e222a;
+  border:1px solid #3a4252;border-radius:9px;overflow:hidden;
+  box-shadow:0 16px 40px rgba(0,0,0,.55);pointer-events:none;}
+.mmh3-chippeekmedia{width:100%;max-height:150px;object-fit:contain;display:block;
+  background:#000;}
+.mmh3-chippeekcap{display:flex;align-items:center;gap:6px;padding:5px 8px;
+  font-size:9px;color:#6b7484;}
+.mmh3-chippeekcap span:last-child{overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;}
+.mmh3-chippeekcap.col{flex-direction:column;align-items:flex-start;gap:4px;}
+.mmh3-chippeekcap.col span:last-child{overflow:visible;white-space:normal;}
+.mmh3-chiprow{display:flex;align-items:baseline;gap:5px;flex-wrap:wrap;}
+.mmh3-chiplabel{font-size:9px;color:#6b7484;min-width:26px;}
+.mmh3-chipspk{font-size:9px;color:#7ea7d8;font-family:ui-monospace,monospace;}
+.mmh3-chiptags{display:flex;flex-wrap:wrap;gap:3px;}
+.mmh3-chiptags .mmh3-tagname{font-size:9px;}
+.mmh3-chipnone{color:#6b7484;font-style:italic;}
 `;
 
 let cssInjected = false;
@@ -1324,8 +1571,9 @@ class Library {
         this.paint();
       } }, "\u270e");
 
-    this.overlay = el("div", { class: "mmh3-overlay mmh3-libover",
-      onmousedown: (e) => { if (e.target === this.overlay) this.close(); } },
+    // Same reasoning as the editor: a stray click shouldn't discard a
+    // half-filled save form. Use \u2715, Cancel or Escape.
+    this.overlay = el("div", { class: "mmh3-overlay mmh3-libover" },
       el("div", { class: "mmh3-libmodal" },
         el("div", { class: "mmh3-head" },
           el("div", { class: "mmh3-title" }, "Prompt library"),
@@ -1379,8 +1627,25 @@ class Library {
     const ed = this.editor;
     const name = el("input", { type: "text", placeholder: "Prompt name",
       value: ed.libraryName || `${ed.state.mode} prompt` });
-    const category = el("input", { type: "text", list: this.formId,
-      placeholder: "Category (optional)", value: ed.libraryCategory || "" });
+    // Existing categories as a list, so saving into one is a pick rather
+    // than retyping it exactly; "(new category…)" reveals a text field.
+    const known = [...this.categories];
+    const current = ed.libraryCategory || "";
+    if (current && !known.includes(current)) known.unshift(current);
+    const catNew = el("input", { type: "text", placeholder: "New category name",
+      style: { display: "none" } });
+    const category = el("select", { class: "mmh3-savecat",
+      onchange: () => {
+        const isNew = category.value === "\u0000new";
+        catNew.style.display = isNew ? "" : "none";
+        if (isNew) setTimeout(() => catNew.focus(), 0);
+      } },
+      el("option", { value: "" }, "No category"),
+      known.map((c) => el("option",
+        { value: c, selected: c === current }, c)),
+      el("option", { value: "\u0000new" }, "(new category\u2026)"));
+    const categoryValue = () =>
+      (category.value === "\u0000new" ? catNew.value : category.value).trim();
     const fav = el("input", { type: "checkbox" });
     const err = el("span", { class: "mmh3-saveerr" });
 
@@ -1391,7 +1656,7 @@ class Library {
         const res = await libApi("/save", {
           name: value,
           rename_from: ed.libraryId,
-          category: category.value.trim(),
+          category: categoryValue(),
           favorite: fav.checked,
           mode: ed.state.mode,
           refs: ed.slots.filter((s) => s.tag).length,
@@ -1400,21 +1665,19 @@ class Library {
         });
         ed.libraryId = res.id;
         ed.libraryName = res.name;
-        ed.libraryCategory = category.value.trim();
+        ed.libraryCategory = categoryValue();
         this.saveOpen = false;
         toast(`Saved "${res.name}"`);
         this.refresh();
       } catch (e2) { err.textContent = e2.message; }
     };
     name.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); });
-    category.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); });
+    catNew.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); });
     setTimeout(() => { name.focus(); name.select(); }, 0);
 
     return el("div", { class: "mmh3-saveform" },
       el("div", { class: "mmh3-saverow" },
-        name, category,
-        el("datalist", { id: this.formId },
-          this.categories.map((c) => el("option", { value: c }))),
+        name, category, catNew,
         el("label", { class: "mmh3-savefav" }, fav, "favourite"),
         el("button", { class: "mmh3-btn primary", onclick: commit }, "Save"),
         el("button", { class: "mmh3-btn",
@@ -1610,6 +1873,11 @@ class Editor {
     this.libraryName = "";
     this.libraryCategory = "";
     this.clearPending = false;
+    this.closePending = false;
+    this.prefs = loadPrefs();
+    this.prefsOpen = false;
+    // What the node currently holds, to tell "edited" from "just looked".
+    this.openedWith = JSON.stringify(this.state);
     injectCSS();
     this.build();
     this.render();
@@ -1626,6 +1894,8 @@ class Editor {
     const end = t.selectionEnd ?? start;
     let before = t.value.slice(0, start);
     let pad;
+    // opts.newline is for [Shot N] and nothing else. A line break anywhere
+    // else reads to the model as a cut, which silently splits the clip.
     if (opts.newline) {
       before = before.replace(/\s+$/, "");
       pad = before ? "\n" : "";
@@ -1661,11 +1931,19 @@ class Editor {
       }, m.label)));
     this.modeSends = el("div", { class: "mmh3-modesends" });
 
-    const copyBtn = el("button", { class: "mmh3-btn", onclick: () => {
-      navigator.clipboard?.writeText(generate(this.state))
-        .then(() => toast("Prompt copied"));
+    const copyBtn = el("button", { class: "mmh3-btn", onclick: async () => {
+      // Always the live editor state — saving to the node is not a
+      // prerequisite for copying what you've written.
+      const text = generate(this.state);
+      const ok = await copyText(text);
+      // toast's second argument is a duration; >4000 also styles it as a
+      // warning, which is what a failure should look like.
+      if (ok) toast("Prompt copied");
+      else toast("Couldn't reach the clipboard \u2014 select the preview on " +
+                 "the right and copy manually", 6000);
     }}, "Copy prompt");
-    const cancelBtn = el("button", { class: "mmh3-btn", onclick: () => this.close() }, "Cancel");
+    const cancelBtn = el("button", { class: "mmh3-btn",
+      onclick: () => this.requestClose() }, "Cancel");
     const saveBtn = el("button", { class: "mmh3-btn primary", onclick: () => this.save() },
       "Save to node");
 
@@ -1676,10 +1954,16 @@ class Editor {
         "_blank") }, "\ud83d\udcd6 Guide");
 
     this.overlay = el("div", { class: "mmh3-overlay",
-      onmousedown: (e) => { if (e.target === this.overlay) this.close(); } },
+      onmousedown: (e) => {
+        if (e.target !== this.overlay) return;
+        if (this.prefsOpen) { this.togglePrefs(false); return; }
+        // Off by preference, this does nothing; on, it still goes through
+        // the unsaved-changes check rather than closing outright.
+        if (this.prefs.closeOnBackdrop) this.requestClose();
+      } },
       el("div", { class: "mmh3-modal" },
         el("div", { class: "mmh3-head" },
-          el("div", { class: "mmh3-title" }, "MiniMax H3 Prompt Builder",
+          el("div", { class: "mmh3-title" }, "Fantastic H3 Prompt Builder",
             el("small", {}, "guide-conformant output")),
           guideBtn,
           el("button", { class: "mmh3-btn",
@@ -1701,7 +1985,9 @@ class Editor {
               this.render();
             } }, "\u25e7 Sidebar"),
           this.modeBar,
-          el("button", { class: "mmh3-x", onclick: () => this.close() }, "\u2715"),
+          this.prefsButton(),
+          el("button", { class: "mmh3-x",
+            onclick: () => this.requestClose() }, "\u2715"),
         ),
         this.modeSends,
         el("div", { class: "mmh3-body" },
@@ -1719,6 +2005,25 @@ class Editor {
     this.formEl.addEventListener("focusin", (e) => {
       if (e.target.matches("textarea, input[type=text]") &&
           !e.target.dataset.noinsert) this.lastFocus = e.target;
+    });
+    this.overlay.addEventListener("mousedown", (e) => {
+      if (this.prefsOpen && !e.target.closest(".mmh3-prefwrap")) {
+        this.togglePrefs(false);
+      }
+      if (this._ctxMenu && !e.target.closest(".mmh3-ctxmenu")) this.closeCtx();
+    });
+
+    // Right-click on a selection offers to save it. The browser's own menu
+    // is only replaced when there IS a selection in one of our fields, and
+    // Copy is included so nothing is taken away.
+    this.formEl.addEventListener("contextmenu", (e) => {
+      const box = e.target;
+      if (!box || typeof box.value !== "string") return;
+      const a = box.selectionStart ?? 0;
+      const b = box.selectionEnd ?? 0;
+      if (b <= a) return;                       // no selection: native menu
+      e.preventDefault();
+      this.openCtx(e.clientX, e.clientY, box.value.slice(a, b));
     });
     this.formEl.addEventListener("input", () => {
       this.updatePreview();
@@ -1759,18 +2064,87 @@ class Editor {
 
   clearStrip() {
     return el("div", { class: "mmh3-clearbar" },
-      el("span", {}, `Clear every field and start a new ${this.state.mode} prompt?`),
+      el("span", { class: "mmh3-clearmsg" },
+        `Clear every field and start a new ${this.state.mode} prompt?`),
       el("span", { class: "mmh3-clearnote" },
         "The node keeps its current prompt until you save."),
-      el("button", { class: "mmh3-btn primary",
-        onclick: () => this.clearAll() }, "Clear"),
-      el("button", { class: "mmh3-btn",
-        onclick: () => { this.clearPending = false; this.render(); } }, "Cancel"));
+      el("div", { class: "mmh3-clearactions" },
+        el("button", { class: "mmh3-btn primary",
+          onclick: () => this.clearAll() }, "Clear"),
+        el("button", { class: "mmh3-btn",
+          onclick: () => { this.clearPending = false; this.render(); } },
+          "Cancel")));
+  }
+
+  /** True when the editor holds something the node hasn't been given. */
+  isDirty() {
+    try { return JSON.stringify(this.state) !== this.openedWith; }
+    catch (e) { return false; }
+  }
+
+  /** Close, but ask first if there's unsaved work. */
+  requestClose() {
+    if (!this.prefs.warnUnsaved || !this.isDirty()) { this.close(); return; }
+    this.closePending = true;
+    this.render();
+  }
+
+  prefsButton() {
+    const item = (key, label, hint) => {
+      const box = el("input", { type: "checkbox", checked: !!this.prefs[key],
+        onchange: (e) => {
+          this.prefs[key] = e.target.checked;
+          savePrefs(this.prefs);
+        } });
+      return el("label", { class: "mmh3-prefitem" }, box,
+        el("span", {}, el("span", { class: "mmh3-preflabel" }, label),
+          el("span", { class: "mmh3-prefhint" }, hint)));
+    };
+    const menu = el("div", { class: "mmh3-prefmenu" },
+      item("closeOnBackdrop", "Click outside to close",
+           "Off means only \u2715, Cancel and Escape close the window."),
+      item("warnUnsaved", "Warn about unsaved changes",
+           "Off means \u2715, Cancel and Escape discard your edits silently."));
+    this.prefsMenu = menu;
+    this.prefsCog = el("button", { class: "mmh3-x", title: "Editor settings",
+      onclick: (e) => { e.stopPropagation(); this.togglePrefs(); } }, "\u2699");
+    return el("span", { class: "mmh3-prefwrap" }, this.prefsCog, menu);
+  }
+
+  togglePrefs(force) {
+    this.prefsOpen = force === undefined ? !this.prefsOpen : force;
+    this.prefsMenu?.classList.toggle("on", this.prefsOpen);
+    this.prefsCog?.classList.toggle("on", this.prefsOpen);
+  }
+
+  closeStrip() {
+    return el("div", { class: "mmh3-clearbar" },
+      el("span", { class: "mmh3-clearmsg" },
+        "You have changes the node hasn't been given."),
+      el("span", { class: "mmh3-clearnote" },
+        "Discarding keeps the node's last saved prompt."),
+      el("div", { class: "mmh3-clearactions" },
+        el("button", { class: "mmh3-btn primary",
+          onclick: () => this.save() }, "Save to node"),
+        el("button", { class: "mmh3-btn mmh3-danger",
+          onclick: () => { this.state = JSON.parse(this.openedWith);
+            this.closePending = false; this.close(); } }, "Discard"),
+        el("button", { class: "mmh3-btn",
+          onclick: () => { this.closePending = false; this.render(); } },
+          "Keep editing")));
   }
 
   close() {
     this.closePeek();
+    this.closeCtx();
+    this.hidePhrasePeek();
     window.removeEventListener("keydown", this.escHandler);
+    // Nothing is carried over. Closing without saving discards the edits —
+    // which is what Cancel says on the tin. Keeping a draft here made the
+    // editor look like it autosaved: reopening showed the changes back even
+    // though the node still held the old prompt, and with the unsaved-changes
+    // warning switched off there was no moment where you chose either way.
+    this.node._mmh3Draft = null;
     this.overlay.remove();
   }
 
@@ -1779,6 +2153,9 @@ class Editor {
     const sw = this.node.widgets?.find((w) => w.name === "builder_state");
     if (pw) pw.value = generate(this.state);
     if (sw) sw.value = JSON.stringify(this.state);
+    this.node._mmh3Draft = null;
+    this.closePending = false;
+    this.openedWith = JSON.stringify(this.state);
     updateSummary(this.node);
     try {
       this.node.setDirtyCanvas?.(true, true);
@@ -1791,11 +2168,213 @@ class Editor {
   /* ---------- shared UI pieces ---------- */
 
   ta(obj, key, rows, placeholder) {
-    return el("textarea", {
+    const box = el("textarea", {
       rows, placeholder,
       value: obj[key] ?? "",
       oninput: (e) => { obj[key] = e.target.value; },
     });
+    return this.chipField(box);
+  }
+
+  /* --- reference tags as chips ------------------------------------- */
+
+  /** Wrap a textarea so <Picture 1> and friends read as chips.
+   *
+   *  A textarea can't contain elements, so a mirror div renders the same
+   *  text underneath with the tags wrapped in spans. The textarea keeps its
+   *  own text transparent, which leaves selection, undo, IME and paste
+   *  exactly as the browser implements them — a contenteditable rewrite
+   *  would put all of that on us. */
+  chipField(box) {
+    const mirror = el("div", { class: "mmh3-chipmirror", "aria-hidden": "true" });
+    // Order matters: the mirror is painted ON TOP of the textarea so the
+    // selection band (drawn by the textarea) sits behind the glyphs instead
+    // of covering them. It's click-through, so the textarea still gets every
+    // pointer event.
+    const wrap = el("div", { class: "mmh3-chipwrap" }, box, mirror);
+    box.classList.add("mmh3-chiptext");
+
+    const paint = () => {
+      const text = box.value || "";
+      mirror.replaceChildren();
+      let last = 0;
+      PAINT_RE.lastIndex = 0;
+      let m;
+      while ((m = PAINT_RE.exec(text)) !== null) {
+        if (m.index > last)
+          mirror.append(document.createTextNode(text.slice(last, m.index)));
+        mirror.append(...this.paintToken(m[0]));
+        last = m.index + m[0].length;
+      }
+      // The trailing newline keeps the mirror's last line height in step with
+      // the textarea's when the text ends mid-line.
+      mirror.append(document.createTextNode(text.slice(last) + "\n"));
+      mirror.scrollTop = box.scrollTop;
+      mirror.scrollLeft = box.scrollLeft;
+    };
+
+    box.addEventListener("input", paint);
+    box.addEventListener("scroll", () => {
+      mirror.scrollTop = box.scrollTop;
+      mirror.scrollLeft = box.scrollLeft;
+    });
+    // Hover a chip for its thumbnail. The mirror can't take pointer events
+    // (it sits under the textarea), so hit-test the chip boxes directly.
+    box.addEventListener("mousemove", (e) => this.chipHover(e, mirror));
+    box.addEventListener("mouseleave", () => this.chipLeave());
+
+    this._chipFields = this._chipFields || [];
+    this._chipFields.push(paint);
+    paint();
+    return wrap;
+  }
+
+  /** Render one matched token as the spans the mirror shows. */
+  paintToken(tok) {
+    if (tok.startsWith("<d>")) {
+      const inner = tok.slice(3, -4);
+      const kids = [el("span", { class: "mmh3-dmark" }, "<d>")];
+      const lang = inner.match(LANG_RE);
+      const body = lang ? inner.slice(lang[0].length) : inner;
+      if (lang) kids.push(el("span", { class: "mmh3-dlang" }, lang[1]));
+      kids.push(el("span", { class: "mmh3-dtext" }, body));
+      kids.push(el("span", { class: "mmh3-dmark" }, "</d>"));
+      return [el("span", { class: "mmh3-dblock" }, ...kids)];
+    }
+    if (tok.startsWith("[Shot")) {
+      return [el("span", { class: "mmh3-reftag shot" }, tok)];
+    }
+    if (tok.startsWith("(")) {
+      return [el("span", { class: "mmh3-reftag spk", dataset: { tag: tok } }, tok)];
+    }
+    let cls;
+    if (tok.startsWith("<Subject")) {
+      cls = this.subjectInfo(tok) ? "subj" : "unknown";
+    } else {
+      const slot = this.slotFor(tok);
+      cls = slot ? (slot.cls || "pic") : "unknown";
+    }
+    return [el("span", { class: "mmh3-reftag " + cls, dataset: { tag: tok } }, tok)];
+  }
+
+  /** What a <Subject N> chip should show: the first picture its definition
+   *  cites, plus every media tag that line mentions. */
+  subjectInfo(tag) {
+    const defs = this.state?.ref?.subjectDefs || [];
+    const line = defs.find((d) => !d.off &&
+      (d.text || "").trim().startsWith(tag));
+    if (!line) return null;
+    const tags = [...new Set((line.text.match(TAG_RE) || [])
+      .filter((t) => t !== tag))];
+
+    // A voice reference is usually declared the other way round — the audio's
+    // own line names the subject ("<Audio 1> is the voice-timbre reference
+    // for <Subject 1> (S1)") — so the attachment has to be read from every
+    // other definition that mentions this subject, not just its own.
+    const voices = [], speakers = [];
+    for (const d of defs) {
+      if (d === line || d.off) continue;
+      const text = d.text || "";
+      if (!text.includes(tag)) continue;
+      for (const t of text.match(TAG_RE) || [])
+        if (t.startsWith("<Audio") && !tags.includes(t) && !voices.includes(t))
+          voices.push(t);
+      for (const m of text.matchAll(/\((S\d+(?:\s*,\s*S\d+)*)\)/g))
+        if (!speakers.includes(m[0])) speakers.push(m[0]);
+    }
+    for (const m of (line.text || "").matchAll(/\((S\d+(?:\s*,\s*S\d+)*)\)/g))
+      if (!speakers.includes(m[0])) speakers.push(m[0]);
+
+    const slot = tags.map((t) => this.slotFor(t))
+      .find((sl) => sl && sl.preview?.url && sl.preview.type === "img")
+      || tags.map((t) => this.slotFor(t)).find((sl) => sl && sl.preview?.url);
+    return { slot, tags, voices, speakers, line };
+  }
+
+  slotFor(tag) {
+    if (!this._slotMap || this._slotMapAt !== this.slots)
+      this._slotMap = new Map((this.slots || []).map((s) => [s.tag, s]));
+    this._slotMapAt = this.slots;
+    return this._slotMap.get(tag);
+  }
+
+  chipHover(e, mirror) {
+    let hit = null;
+    for (const chip of mirror.querySelectorAll(".mmh3-reftag")) {
+      const r = chip.getBoundingClientRect();
+      if (e.clientX >= r.left && e.clientX <= r.right &&
+          e.clientY >= r.top && e.clientY <= r.bottom) { hit = chip; break; }
+    }
+    if (!hit) { this.chipLeave(); return; }
+    if (this._chipOpenFor === hit.dataset.tag) return;
+    this.chipLeave();
+    const tag = hit.dataset.tag;
+    let slot = null, subject = null;
+    if (tag.startsWith("<Subject")) {
+      subject = this.subjectInfo(tag);
+      if (!subject) return;                  // undefined subject: nothing to show
+      slot = subject.slot;
+    } else {
+      slot = this.slotFor(tag);
+      if (!slot || !slot.preview?.url) return;
+    }
+    this._chipOpenFor = tag;
+    this._chipTimer = setTimeout(
+      () => this.openChipPeek(hit, slot, tag, subject), 180);
+  }
+
+  chipLeave() {
+    clearTimeout(this._chipTimer);
+    this._chipOpenFor = null;
+    if (this._chipPeek) { this._chipPeek.remove(); this._chipPeek = null; }
+  }
+
+  /** Small thumbnail beside the chip. Deliberately not interactive: it must
+   *  never steal the pointer while you're typing. */
+  openChipPeek(chip, slot, tag, subject) {
+    const media = !slot ? null
+      : slot.preview.type === "video"
+      ? el("video", { src: slot.preview.url, muted: true, loop: true,
+          autoplay: true, class: "mmh3-chippeekmedia" })
+      : slot.preview.type === "audio"
+        ? this.mediaThumb(slot, true)
+        : el("img", { src: slot.preview.url, class: "mmh3-chippeekmedia" });
+    const tagRow = (label, list) => list.length
+      ? el("span", { class: "mmh3-chiprow" },
+          el("span", { class: "mmh3-chiplabel" }, label),
+          el("span", { class: "mmh3-chiptags" },
+            list.map((t) => {
+              const sl = this.slotFor(t);
+              return el("span", {
+                class: `mmh3-tagname ${sl ? (sl.cls || "pic") : "unknown"}`,
+              }, t);
+            })))
+      : null;
+    const caption = subject
+      ? el("div", { class: "mmh3-chippeekcap col" },
+          el("span", { class: "mmh3-chiprow" },
+            el("span", { class: "mmh3-tagname subj" }, tag),
+            subject.speakers.length
+              ? el("span", { class: "mmh3-chipspk" }, subject.speakers.join(" "))
+              : null),
+          tagRow("cites", subject.tags),
+          tagRow("voice", subject.voices),
+          (!subject.tags.length && !subject.voices.length)
+            ? el("span", { class: "mmh3-chipnone" }, "no media attached")
+            : null)
+      : el("div", { class: "mmh3-chippeekcap" },
+          el("span", { class: `mmh3-tagname ${slot.cls}` }, slot.tag),
+          el("span", {}, slot.source || ""));
+    const box = el("div", { class: "mmh3-chippeek" }, media, caption);
+    const r = chip.getBoundingClientRect();
+    box.style.left = `${Math.min(r.left, window.innerWidth - 240)}px`;
+    box.style.top = `${r.bottom + 6}px`;
+    document.body.append(box);
+    // Flip above the chip when there's no room below.
+    const bb = box.getBoundingClientRect();
+    if (bb.bottom > window.innerHeight - 8)
+      box.style.top = `${Math.max(8, r.top - bb.height - 6)}px`;
+    this._chipPeek = box;
   }
 
 
@@ -1968,6 +2547,11 @@ class Editor {
 
   drawPins() {
     if (!this.pinsEl) return;
+    // Chips in the text carry the previews now, so the rail never opens —
+    // it used to widen the body and shove every field sideways.
+    this.pinsEl.replaceChildren();
+    this.pinsEl.parentElement?.classList.remove("haspins");
+    if (true) return;
     const shown = [];
     if (this.autoPin && !this.pins.includes(this.autoPin)) shown.push(this.autoPin);
     shown.push(...this.pins);
@@ -2225,14 +2809,6 @@ class Editor {
     }}, "+ Camera");
 
     const lang = el("select", {}, LANGS.map((l) => el("option", { value: l }, l)));
-    const spk = el("select", {}, ["S1", "S2", "S3", "S4"]
-      .map((s) => el("option", { value: s }, s)));
-    const diaBtn = el("button", { class: "mmh3-btn", onclick: () =>
-      this.insert(`(${spk.value}) says: <d>[${lang.value}] </d>`) }, "+ Dialogue");
-    const voBtn = el("button", { class: "mmh3-btn", title: "Voiceover (guide §4.4)",
-      onclick: () => this.insert(
-        `(${spk.value}) says in an off-screen voiceover: <d>[${lang.value}] </d> ` +
-        "while his lips remain completely closed.") }, "+ Voiceover");
 
     const timeIn = el("input", {
       type: "number", min: "0", max: "900", step: "0.1", value: "3.0",
@@ -2297,18 +2873,375 @@ class Editor {
       extraChips.length
         ? el("div", { class: "mmh3-subjrow" }, extraChips) : null,
       el("div", { class: "mmh3-tools" },
-        timeIn, shotBtn, camMove, camAmp, camSpd, camBtn,
-        // Force a wrap so the dialogue controls always start a fresh line
-        // with the speaker picker first, instead of trailing the camera row
-        // at whatever point it happens to run out of width.
-        el("div", { class: "mmh3-toolbreak" }),
-        spk, lang, diaBtn, voBtn,
-        el("button", { class: "mmh3-btn", title: "Dialogue crossing a cut",
-          onclick: () => this.insert("<scenetrans>") }, "+ scenetrans"),
-        el("button", { class: "mmh3-btn", title: "Speech truncated by video end",
-          onclick: () => this.insert("<cutoff>") }, "+ cutoff"),
-        styleSel,
-      ));
+        timeIn, shotBtn, camMove, camAmp, camSpd, camBtn, styleSel),
+      this.dialogueRow(lang),
+      this.phraseRow());
+  }
+
+  /* --- phrases: reusable fragments, saved server-side ---------------- */
+
+  async loadPhrases() {
+    this.phraseRouteMissing = false;
+    try {
+      const resp = await api.fetchApi("/minimax_h3/phrases");
+      if (!resp.ok) {
+        this.phraseRouteMissing = resp.status === 404 || resp.status === 405;
+        throw new Error("unavailable");
+      }
+      const data = await resp.json();
+      this.phrases = Array.isArray(data.phrases) ? data.phrases : [];
+      this.phraseCats = data.categories || [];
+    } catch (e) {
+      this.phrases = [];
+      this.phraseCats = [];
+    }
+    this.drawPhrases();
+  }
+
+  /** Category picker, phrase picker, insert, and add/remove. */
+  phraseRow() {
+    this.phrases = this.phrases || [];
+    this.phraseCats = this.phraseCats || [];
+    this.phraseCatEl = el("select", { class: "mmh3-phrasecat",
+      title: "Filter phrases by category",
+      onchange: () => { this.phraseCat = this.phraseCatEl.value;
+        this.drawPhrases(); } });
+    this.phraseEl = el("select", { class: "mmh3-phrasesel",
+      onchange: () => this.showPhrasePeek(),
+      onmouseenter: () => this.showPhrasePeek(),
+      onmouseleave: () => this.hidePhrasePeek(),
+      // Opening the list would leave the popover floating over it.
+      onmousedown: () => this.hidePhrasePeek(),
+      onblur: () => this.hidePhrasePeek() });
+    this.phraseBar = el("div", { class: "mmh3-tools mmh3-phraserow" });
+    this.drawPhraseBar();
+    this.drawPhrases();
+    this.loadPhrases();
+    return this.phraseBar;
+  }
+
+  /** The row in its normal state, or asking to confirm a delete. Confirming
+   *  inline keeps it with the rest of the pack — no browser dialogs. */
+  drawPhraseBar() {
+    if (!this.phraseBar) return;
+    if (this.phraseConfirm) {
+      const p = this.phraseConfirm;
+      this.phraseBar.replaceChildren(
+        el("span", { class: "mmh3-toollabel" }, "Phrases:"),
+        el("span", { class: "mmh3-phrasewarn" }, `Delete \u201c${p.name}\u201d?`),
+        // The normal row relies on the picker to take up the slack; this one
+        // has no flexible control, so it needs a growing spacer of its own.
+        el("span", { class: "mmh3-toolgrow" }),
+        el("button", { class: "mmh3-btn mmh3-danger",
+          onclick: () => this.confirmDeletePhrase() }, "Delete"),
+        el("button", { class: "mmh3-btn",
+          onclick: () => { this.phraseConfirm = null; this.drawPhraseBar(); } },
+          "Cancel"));
+      return;
+    }
+    this.phraseBar.replaceChildren(
+      el("span", { class: "mmh3-toollabel" }, "Phrases:"),
+      this.phraseCatEl, this.phraseEl,
+      el("button", { class: "mmh3-btn",
+        title: "Insert the selected phrase at the caret",
+        onclick: () => this.insertPhrase() }, "+ Phrase"),
+      el("span", { class: "mmh3-toolspace" }),
+      el("button", { class: "mmh3-btn",
+        title: "Save the selected text as a phrase",
+        onclick: () => this.newPhrase() }, "+ New"),
+      el("button", { class: "mmh3-btn mmh3-danger",
+        title: "Delete the selected phrase",
+        onclick: () => this.deletePhrase() }, "Delete"));
+  }
+
+  drawPhrases() {
+    if (!this.phraseCatEl) return;
+    this.hidePhrasePeek();
+    if (this.phraseConfirm) return;      // the row is asking something
+    const cats = this.phraseCats || [];
+    const cat = this.phraseCat || "";
+    this.phraseCatEl.replaceChildren(
+      el("option", { value: "", selected: cat === "" }, "all categories"),
+      ...cats.map((c) => el("option", { value: c, selected: c === cat }, c)));
+    const list = (this.phrases || [])
+      .filter((p) => !cat || (p.category || "") === cat);
+    this.phraseEl.replaceChildren(
+      ...(list.length
+        ? list.map((p) => el("option",
+            { value: p.id, title: p.text.slice(0, 300) }, p.name))
+        : [el("option", { value: "" }, this.phraseRouteMissing
+            ? "restart ComfyUI to use phrases"
+            : "no phrases saved")]));
+    const empty = list.length === 0;
+    this.phraseEl.disabled = empty;
+    [...(this.phraseBar?.querySelectorAll("button") || [])].forEach((b) => {
+      if (b.textContent === "+ Phrase" || b.textContent === "Delete") {
+        b.disabled = empty;
+      }
+    });
+  }
+
+  /** Show the whole phrase on hover — the picker only has room for its name,
+   *  and the text is the part you actually need to check before inserting. */
+  showPhrasePeek() {
+    this.hidePhrasePeek();
+    const p = this.selectedPhrase();
+    if (!p || !p.text) return;
+    const box = el("div", { class: "mmh3-phrasepeek" },
+      el("div", { class: "mmh3-phrasepeekhead" },
+        el("span", {}, p.name),
+        p.category ? el("span", { class: "mmh3-phrasepeekcat" }, p.category) : null),
+      el("div", { class: "mmh3-phrasepeektext" }, p.text));
+    document.body.append(box);
+    const r = this.phraseEl.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    box.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - b.width - 8))}px`;
+    // Prefer above the picker, since the rows below it are the editor body.
+    box.style.top = r.top - b.height - 6 >= 8
+      ? `${r.top - b.height - 6}px`
+      : `${r.bottom + 6}px`;
+    this._phrasePeek = box;
+  }
+
+  hidePhrasePeek() {
+    this._phrasePeek?.remove();
+    this._phrasePeek = null;
+  }
+
+  selectedPhrase() {
+    const id = this.phraseEl?.value;
+    return (this.phrases || []).find((p) => p.id === id) || null;
+  }
+
+  insertPhrase() {
+    const p = this.selectedPhrase();
+    if (!p) return;
+    // A phrase saved from a multi-line selection would otherwise carry cuts
+    // into the description, since the model reads a line break as a new shot.
+    const flat = p.text.replace(/\s*\n+\s*/g, " ").trim();
+    this.insert(flat);
+    if (flat !== p.text.trim()) {
+      toast("Line breaks in that phrase were flattened \u2014 they read as " +
+            "shot cuts", 4500);
+    }
+  }
+
+  closeCtx() {
+    this._ctxMenu?.remove();
+    this._ctxMenu = null;
+  }
+
+  openCtx(x, y, text) {
+    this.closeCtx();
+    const item = (label, fn) => el("div", { class: "mmh3-ctxitem",
+      onclick: () => { this.closeCtx(); fn(); } }, label);
+    const menu = el("div", { class: "mmh3-ctxmenu" },
+      item("Save selection as phrase\u2026", () => this.phraseDialog(text)),
+      item("Copy", async () => {
+        const ok = await copyText(text);
+        if (!ok) toast("Couldn't reach the clipboard", 4000);
+      }));
+    document.body.append(menu);
+    // Keep it on screen when the click lands near an edge.
+    const r = menu.getBoundingClientRect();
+    menu.style.left = `${Math.min(x, window.innerWidth - r.width - 8)}px`;
+    menu.style.top = `${Math.min(y, window.innerHeight - r.height - 8)}px`;
+    this._ctxMenu = menu;
+  }
+
+  /** Text currently selected in a field of this editor, if any. */
+  selectedText() {
+    const box = document.activeElement && this.overlay.contains(document.activeElement)
+      ? document.activeElement : this.lastFocus;
+    if (!box || typeof box.value !== "string") return "";
+    const a = box.selectionStart ?? 0;
+    const b = box.selectionEnd ?? 0;
+    return b > a ? box.value.slice(a, b) : "";
+  }
+
+  newPhrase() {
+    this.phraseDialog(this.selectedText());
+  }
+
+  /** Compose a phrase. Opens prefilled from a selection, or empty and focused
+   *  so there's always somewhere to type — reaching for the whole field when
+   *  nothing was selected surprised people. */
+  phraseDialog(initial) {
+    const text = el("textarea", { rows: 5, class: "mmh3-phrasetext",
+      placeholder: "The wording to save\u2026" });
+    text.value = initial || "";
+    const name = el("input", { type: "text", placeholder: "Name",
+      value: (initial || "").trim().slice(0, 40) });
+
+    const known = [...(this.phraseCats || [])];
+    const catNew = el("input", { type: "text", placeholder: "New category name",
+      style: { display: "none" } });
+    const cat = el("select", { class: "mmh3-savecat",
+      onchange: () => {
+        const isNew = cat.value === "\u0000new";
+        catNew.style.display = isNew ? "" : "none";
+        if (isNew) setTimeout(() => catNew.focus(), 0);
+      } },
+      el("option", { value: "" }, "No category"),
+      known.map((c) => el("option",
+        { value: c, selected: c === this.phraseCat }, c)),
+      el("option", { value: "\u0000new" }, "(new category\u2026)"));
+
+    const close = () => {
+      window.removeEventListener("keydown", onKey);
+      overlay.remove();
+    };
+    const commit = () => {
+      const body = text.value.trim();
+      if (!body) { text.focus(); toast("The phrase is empty", 3000); return; }
+      if (!name.value.trim()) { name.focus(); toast("Give it a name", 3000); return; }
+      this.savePhrase({
+        name: name.value.trim(),
+        category: (cat.value === "\u0000new" ? catNew.value : cat.value).trim(),
+        text: body,
+      });
+      close();
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.stopPropagation(); close(); }
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit();
+    };
+    window.addEventListener("keydown", onKey);
+
+    const overlay = el("div", { class: "mmh3-overlay mmh3-phraseover" },
+      el("div", { class: "mmh3-phrasemodal" },
+        el("div", { class: "mmh3-head" },
+          el("div", { class: "mmh3-title" }, "Save a phrase"),
+          el("button", { class: "mmh3-x", onclick: close }, "\u2715")),
+        el("div", { class: "mmh3-phrasebody" },
+          el("label", {}, "Phrase"), text,
+          el("div", { class: "mmh3-saverow" }, name, cat, catNew)),
+        el("div", { class: "mmh3-phrasefoot" },
+          el("span", { class: "mmh3-clearnote" },
+            "Ctrl+Enter saves \u00b7 Esc closes"),
+          el("div", { class: "mmh3-clearactions" },
+            el("button", { class: "mmh3-btn primary", onclick: commit }, "Save"),
+            el("button", { class: "mmh3-btn", onclick: close }, "Cancel")))));
+    document.body.append(overlay);
+    (initial ? name : text).focus();
+  }
+
+  async savePhrase(entry) {
+    if (!entry.name) { toast("Give the phrase a name", 3500); return; }
+    try {
+      const resp = await api.fetchApi("/minimax_h3/phrases/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(entry),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.error || routeError(resp, "save failed"));
+      this.phraseCat = entry.category || this.phraseCat;
+      await this.loadPhrases();
+      toast(`Saved "${entry.name}"`);
+    } catch (e) {
+      toast(`Couldn't save the phrase: ${e.message}`, 5000);
+    }
+  }
+
+  deletePhrase() {
+    const p = this.selectedPhrase();
+    if (!p) return;
+    this.hidePhrasePeek();
+    this.phraseConfirm = p;
+    this.drawPhraseBar();
+  }
+
+  async confirmDeletePhrase() {
+    const p = this.phraseConfirm;
+    this.phraseConfirm = null;
+    this.drawPhraseBar();
+    if (!p) return;
+    try {
+      const resp = await api.fetchApi("/minimax_h3/phrases/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: p.id }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.error || routeError(resp, "delete failed"));
+      await this.loadPhrases();
+      toast(`Deleted "${p.name}"`);
+    } catch (e) {
+      toast(`Couldn't delete the phrase: ${e.message}`, 5000);
+    }
+  }
+
+  /** Speaker IDs already used in the prompt, in numeric order. */
+  usedSpeakers() {
+    const text = JSON.stringify(this.state || {});
+    const found = new Set();
+    for (const m of text.matchAll(/\((S\d+(?:\s*,\s*S\d+)*)\)/g)) {
+      for (const id of m[1].split(",")) found.add(id.trim());
+    }
+    return [...found].sort((a, b) => (+a.slice(1)) - (+b.slice(1)));
+  }
+
+  /** Dialogue controls: language, one button per speaker already in use plus
+   *  the next unused ID, a voiceover toggle, and the two continuity markers.
+   *  Speaker IDs follow the target video's speaking order, so offering a
+   *  fixed S1-S4 would invent numbers the prompt has no use for. */
+  dialogueRow(lang) {
+    const used = this.usedSpeakers();
+    const next = `S${used.length ? Math.max(...used.map((s) => +s.slice(1))) + 1 : 1}`;
+
+    const vo = el("button", {
+      class: "mmh3-btn" + (this.voiceover ? " primary" : ""),
+      title: "Off-screen voiceover. While on, inserted lines use the guide's " +
+             "exact phrasing and append the lips-closed clause, which is " +
+             "required on every voiceover line.",
+      onclick: () => { this.voiceover = !this.voiceover; this.render(); },
+    }, "\u{1F399} voiceover");
+
+    const line = (id) => {
+      const said = this.voiceover
+        ? `(${id}) says in an off-screen voiceover: `
+        : `(${id}) says: `;
+      const tail = this.voiceover
+        ? " while their lips remain completely closed."
+        : "";
+      // Deliberately NOT on its own line: the model reads a line break as a
+      // shot boundary, so only [Shot N] may introduce one. Dialogue joins the
+      // description it belongs to.
+      return `${said}<d>[${lang.value}] </d>${tail}`;
+    };
+
+    const spkBtn = (id, isNew) => el("button", {
+      class: "mmh3-btn" + (isNew ? " ghost" : ""),
+      title: isNew
+        ? `Add ${id} \u2014 the next speaker in the video's speaking order`
+        : `Insert a line for ${id}`,
+      onclick: () => this.insert(line(id)),
+    }, isNew ? `+ (${id})` : `(${id})`);
+
+    const pair = used.length >= 2
+      ? el("button", { class: "mmh3-btn",
+          title: "Two speakers vocalising together",
+          onclick: () => this.insert(line(`${used[0]},${used[1]}`)) },
+          `(${used[0]},${used[1]})`)
+      : null;
+
+    return el("div", { class: "mmh3-tools mmh3-dialogrow" },
+      el("span", { class: "mmh3-toollabel" }, "Dialogue:"),
+      lang,
+      ...used.map((id) => spkBtn(id, false)),
+      spkBtn(next, true),
+      pair,
+      vo,
+      el("span", { class: "mmh3-toolsep" }),
+      el("button", { class: "mmh3-btn",
+        title: "A line crossing a cut. Use it twice \u2014 once at the end of " +
+               "the pre-cut half, once at the start of the post-cut half \u2014 " +
+               "and say the audio continues.",
+        onclick: () => this.insert("<scenetrans>") }, "\u2933 scenetrans"),
+      el("button", { class: "mmh3-btn",
+        title: "Speech truncated by the end of the video",
+        onclick: () => this.insert("<cutoff>") }, "\u2301 cutoff"));
   }
 
   durationRow() {
@@ -2335,8 +3268,15 @@ class Editor {
   naButton(obj, key) {
     return el("button", { class: "mmh3-btn", style: { alignSelf: "flex-start" },
       onclick: (e) => {
-        obj[key] = "N/A";
-        e.target.closest(".mmh3-sec").querySelector("textarea").value = "N/A";
+        const box = e.target.closest(".mmh3-sec").querySelector("textarea");
+        if (box) {
+          box.value = "N/A";
+          // Let the field's own handlers run: they update the state and
+          // repaint the chip mirror. Assigning .value fires nothing.
+          box.dispatchEvent(new Event("input", { bubbles: true }));
+        } else {
+          obj[key] = "N/A";
+        }
         this.updatePreview();
       } }, "N/A");
   }
@@ -2348,13 +3288,18 @@ class Editor {
     const scroll = this.formEl.scrollTop;
     [...this.modeBar.children].forEach((b, i) =>
       b.classList.toggle("on", MODES[i].id === this.state.mode));
+    this._slotMap = null;                 // slots may have changed
+    (this._chipFields || []).forEach((paint) => { try { paint(); } catch (e) {} });
     this.modeSends.textContent = MODE_SENDS[this.state.mode] || "";
     this.modeSends.classList.toggle("gated", this.state.mode !== "REF");
     this.formEl.replaceChildren();
     this.slots = getRefSlots(this.node);
     if (this.state.mode === "REF") this.renderRef();
     else this.renderBase();
-    if (this.clearPending) {
+    if (this.closePending) {
+      this.formEl.prepend(this.closeStrip());
+      this.formEl.scrollTop = 0;
+    } else if (this.clearPending) {
       this.formEl.prepend(this.clearStrip());
       this.formEl.scrollTop = 0;
     } else this.formEl.scrollTop = scroll;
@@ -2995,6 +3940,11 @@ export function openQuickEdit(node) {
 
 function linkHeights(a, b) {
   if (typeof ResizeObserver !== "function" || !a || !b) return;
+  // ta() now returns a .mmh3-chipwrap div, not the bare textarea — the wrap
+  // has no CSS height of its own (block content sizes it), so a height set
+  // on the wrap wouldn't reach the textarea inside. Sync the textareas.
+  a = a.querySelector?.("textarea") || a;
+  b = b.querySelector?.("textarea") || b;
   let syncing = false;
   const pair = (from, to) => new ResizeObserver(() => {
     if (syncing) return;
@@ -3169,34 +4119,46 @@ app.registerExtension({
 
     const onNodeCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
-      const r = onNodeCreated?.apply(this, arguments);
-      injectCSS();
-      hideWidget(this, "prompt_text");
-      hideWidget(this, "builder_state");
+      try {
+        const r = onNodeCreated?.apply(this, arguments);
+        injectCSS();
+        hideWidget(this, "prompt_text");
+        hideWidget(this, "builder_state");
 
-      // Canvas buttons first so no DOM widget can sit on top of them.
-      this.addWidget("button", "Prompt Builder", null, () => openEditor(this));
-      this.addWidget("button", "+ Media loader", null, () => addMediaLoader(this));
+        // Canvas buttons first so no DOM widget can sit on top of them.
+        this.addWidget("button", "Prompt Builder", null, () => openEditor(this));
+        this.addWidget("button", "+ Media loader", null, () => addMediaLoader(this));
 
-      // Clickable DOM summary as a second, layout-independent way in.
-      if (this.addDOMWidget) {
-        const summary = el("div", {
-          class: "mmh3-summary",
-          title: "Quick-edit the prompt — the scroll opens the full editor",
-          style: { cursor: "pointer", height: "52px", minHeight: "52px" },
-          onclick: () => openQuickEdit(this),
-        });
-        this._mmh3Summary = summary;
-        const sw = this.addDOMWidget("mmh3_summary", "div", summary,
-          { serialize: false });
-        // Explicit height so either renderer reserves space for it.
-        sw.computedHeight = 52;
-        sw.computeSize = () => [330, 52];
+        // Clickable DOM summary as a second, layout-independent way in.
+        if (this.addDOMWidget) {
+          const summary = el("div", {
+            class: "mmh3-summary",
+            title: "Quick-edit the prompt \u2014 the scroll opens the full editor",
+            style: { cursor: "pointer", height: "52px", minHeight: "52px" },
+            onclick: () => openQuickEdit(this),
+          });
+          this._mmh3Summary = summary;
+          const sw = this.addDOMWidget("mmh3_summary", "div", summary,
+            { serialize: false });
+          // Explicit height so either renderer reserves space for it.
+          sw.computedHeight = 52;
+          sw.computeSize = () => [330, 52];
+        }
+
+        try { this.size[0] = Math.max(this.size[0], 330); } catch (e) { /* Vue sizes it */ }
+        setTimeout(() => updateSummary(this), 0);
+        return r;
+      } catch (err) {
+        // Without this the node still registers but none of the UI
+        // appears, which looks like "the node did not load".
+        console.error("[Fantastic H3 Prompt Builder] setup failed for this node:", err);
+        try { this.addWidget("button", "\u26a0 UI failed \u2014 click", null, () => {
+          alert("Fantastic H3 Prompt Builder could not build its interface.\n\n" + err +
+            "\n\nOpen the browser console for the full trace.");
+        }); } catch (e2) { /* nothing more we can do */ }
+        return undefined;
       }
 
-      try { this.size[0] = Math.max(this.size[0], 330); } catch (e) { /* Vue sizes it */ }
-      setTimeout(() => updateSummary(this), 0);
-      return r;
     };
 
     // Canvas-only convenience; the button and summary panel are the

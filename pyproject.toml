@@ -1,7 +1,10 @@
 [project]
-name = "fantastic-minimax-h3-prompt-builder"
-version = "1.5.1"
-description = "Guided prompt writing and reference media handling for the MiniMax H3 video model: fillable templates for every mode, live checking against MiniMax's prompt guide, and a drag-and-drop media loader that keeps reference tags straight."
+name = "fantastic-minimax-h3-prompt-builder-plus"
+# 2.0.0: this release drops the standalone Prompt Builder / Media Loader /
+# Reference Splitter / Filename Prefix nodes in favour of Prompt Studio alone
+# — a breaking change for any saved workflow still wired to those node types.
+version = "2.0.0"
+description = "MiniMax H3 Prompt Studio: a single guided prompt-writing and reference-media node for the H3 video model, with live checking against MiniMax's prompt guide."
 license = { file = "LICENSE" }
 requires-python = ">=3.9"
 classifiers = [
@@ -17,10 +20,10 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder"
-"Bug Tracker" = "https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder/issues"
+Repository = "https://github.com/StylusEcho/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder-Plus"
+"Bug Tracker" = "https://github.com/StylusEcho/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder-Plus/issues"
 
 [tool.comfy]
 PublisherId = "adudeguyman"
-DisplayName = "Fantastic MiniMax H3 Prompt Builder"
+DisplayName = "MiniMax H3 Prompt Studio"
 requires-comfyui = ">=0.30.0"
