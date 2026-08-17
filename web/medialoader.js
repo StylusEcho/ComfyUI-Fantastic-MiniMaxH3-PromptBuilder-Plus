@@ -310,7 +310,13 @@ const CSS = `
 .mmlp-modalhead button:hover{color:#fff;}
 .mmlp-modalbody{flex:1;min-height:0;padding:8px;overflow:auto;}
 .mmlp-panel.drop{border-color:#6f86b8;background:#1d2330;}
+/* One height for everything in the top row. The controls come from three
+   different rules (.mmlp-btn at 22px, .mmlp-sm at 19px, the preset select at
+   23px), which read as a ragged strip; pinning the height here lets each keep
+   its own padding and font without setting the row's height. */
 .mmlp-top{display:flex;align-items:center;gap:8px;flex:0 0 auto;}
+.mmlp-top>button,.mmlp-top button,.mmlp-top select,.mmlp-top input{
+  height:22px;box-sizing:border-box;}
 .mmlp-btn{background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
   padding:4px 10px;font-size:11px;cursor:pointer;}
 .mmlp-btn:hover{background:#333b4d;}
@@ -400,6 +406,7 @@ const CSS = `
   text-shadow:0 1px 2px rgba(0,0,0,.9);z-index:2;}
 .mmlp-dims:empty{display:none;}
 .mmlp-lightdims{font-size:10px;color:#8a93a3;font-family:ui-monospace,monospace;}
+.mmlp-lightnav{font-size:10px;color:#6b7484;font-family:ui-monospace,monospace;}
 .mmlp-pic{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
   display:block;cursor:zoom-in;background:#0d1015;}
 .mmlp-picbar{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;
@@ -1498,36 +1505,63 @@ export class TrimModal {
   }
 }
 
-function lightbox(item, tag) {
-  const url = viewURL(item.file);
-  const media = item.kind === "video"
-    ? el("video", { src: url, controls: true, autoplay: true, loop: true })
-    : el("img", { src: url });
-  if (!item.width) {
-    media.addEventListener(item.kind === "video" ? "loadedmetadata" : "load",
-      () => {
+/** Full-size viewer. `siblings` is the other viewable references, so ← and →
+ *  step between them without closing and reopening; passing none simply leaves
+ *  the arrows inert. */
+function lightbox(item, tag, siblings = []) {
+  const list = siblings.length ? siblings : [{ item, tag }];
+  let i = Math.max(0, list.findIndex((e) => e.item === item));
+  const box = el("div", { class: "mmlp-lightbox" });
+
+  const draw = () => {
+    const { item: it, tag: tg } = list[i];
+    const url = viewURL(it.file);
+    const media = it.kind === "video"
+      ? el("video", { src: url, controls: true, autoplay: true, loop: true })
+      : el("img", { src: url });
+    const dims = el("span", { class: "mmlp-lightdims",
+      style: { marginLeft: "auto" } }, dimsLabel(it.width, it.height));
+    if (!it.width) {
+      media.addEventListener(it.kind === "video" ? "loadedmetadata" : "load", () => {
         const w = media.naturalWidth || media.videoWidth;
         const h = media.naturalHeight || media.videoHeight;
         if (!w) return;
-        item.width = w; item.height = h;
-        const cap = overlay.querySelector(".mmlp-lightdims");
-        if (cap) cap.textContent = dimsLabel(w, h);
+        it.width = w; it.height = h;
+        dims.textContent = dimsLabel(w, h);
       });
-  }
-  const overlay = el("div", { class: "mmlp-light",
-    onclick: (e) => { if (e.target === overlay) overlay.remove(); } },
-    el("div", { class: "mmlp-lightbox" }, media,
+    }
+    box.replaceChildren(media,
       el("div", { class: "mmlp-lightcap" },
-        el("span", { class: `mmlp-tag ${tag.startsWith("<Video") ? "vid" : "pic"}` }, tag),
-        el("span", {}, item.name),
-        el("span", { class: "mmlp-lightdims" },
-          dimsLabel(item.width, item.height)),
-        el("button", { class: "mmlp-btn", style: { marginLeft: "auto" },
-          onclick: () => overlay.remove() }, "Close"))));
-  const esc = (e) => {
-    if (e.key === "Escape") { overlay.remove(); window.removeEventListener("keydown", esc); }
+        el("span", { class: `mmlp-tag ${tg.startsWith("<Video") ? "vid" : "pic"}` }, tg),
+        el("span", {}, it.name),
+        list.length > 1
+          ? el("span", { class: "mmlp-lightnav" }, `${i + 1}/${list.length}`)
+          : null,
+        // Size and ratio ride with Close on the right, clear of the name,
+        // which is the part that varies in length.
+        dims,
+        el("button", { class: "mmlp-btn",
+          onclick: () => overlay.remove() }, "Close")));
   };
-  window.addEventListener("keydown", esc);
+
+  const step = (by) => {
+    if (list.length < 2) return;
+    i = (i + by + list.length) % list.length;
+    draw();
+  };
+  draw();
+
+  const overlay = el("div", { class: "mmlp-light",
+    onclick: (e) => { if (e.target === overlay) overlay.remove(); } }, box);
+  const keys = (e) => {
+    if (e.key === "Escape") { overlay.remove(); window.removeEventListener("keydown", keys); return; }
+    // Leave the arrows alone while a video's own controls have focus, or
+    // seeking with the keyboard would jump to the next clip instead.
+    if (e.target instanceof HTMLMediaElement) return;
+    if (e.key === "ArrowLeft") { e.preventDefault(); step(-1); }
+    if (e.key === "ArrowRight") { e.preventDefault(); step(1); }
+  };
+  window.addEventListener("keydown", keys);
   document.body.append(overlay);
 }
 
@@ -2043,7 +2077,7 @@ export class LoaderPanel {
                 this.commit();
               }
             },
-            onclick: () => lightbox(it, tags.get(it) || "") });
+            onclick: () => lightbox(it, tags.get(it) || "", this.viewable(tags)) });
           return [img, marquee, badge];
         })(),
         el("div", { class: "mmlp-picbar" },
@@ -2208,6 +2242,14 @@ export class LoaderPanel {
     this.items[idx] = copy;
     this.commit();
     return true;
+  }
+
+  /** Pictures and videos in load order — what the full-size viewer can step
+   *  through. Audio has no lightbox, so it is left out. */
+  viewable(tags) {
+    return this.items
+      .filter((i) => i.kind === "picture" || i.kind === "video")
+      .map((i) => ({ item: i, tag: tags.get(i) || "" }));
   }
 
   /** Right-click menu for a slot. `item` is null on an empty slot. */
@@ -2494,6 +2536,10 @@ export class LoaderPanel {
       }
       this.root.replaceChildren(...kids.filter(Boolean));
       this.root.classList.toggle("mmlp-min", !sh.pictures);
+      // .mmlp-min collapses the panel through a class rule, which an inline
+      // height set by the node's fitPanel() would silently outrank — leaving
+      // the panel pinned open and the prompt bar with no room to expand into.
+      if (!sh.pictures) { this.root.style.height = ""; this.root.style.minHeight = ""; }
       return;
     }
     this.root.classList.remove("mmlp-min");
@@ -2530,7 +2576,7 @@ export class LoaderPanel {
           preload: "metadata",
           onmouseenter: (e) => e.target.play().catch(() => {}),
           onmouseleave: (e) => e.target.pause(),
-          onclick: () => lightbox(it, tags.get(it) || "") }),
+          onclick: () => lightbox(it, tags.get(it) || "", this.viewable(tags)) }),
         el("div", { class: "mmlp-meta" },
           el("div", { class: "mmlp-tag vid" },
             isOn(it) ? (tags.get(it) || "").slice(1, -1) : "off"),

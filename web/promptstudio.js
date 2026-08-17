@@ -24,6 +24,12 @@ console.log("[MiniMaxH3 PromptStudio] module loaded");
 const STUDIO_NAME = "MiniMaxH3PromptStudio";
 const SUMMARY_H = 52;   // two clamped preview lines + padding
 const EDITOR_H = 300;   // the bar expanded into the three prompt fields
+/* The prompt bar is the node's last widget, so without this it sits hard
+   against the bottom edge while the panel above it is inset left and right.
+   Reported as part of the widget's height but not given to the element, so it
+   reads as a margin under the bar. fitPanel()/minSize() measure the overhead
+   rather than assuming it, so both pick this up on their own. */
+const BOTTOM_GAP = 8;
 
 /** In T2VA there is no reference media, so the mode-shaped loader steps aside
  *  and the prompt bar takes the room instead — the three fields inline, using
@@ -42,8 +48,8 @@ function refreshBar(node) {
     if (node._mmh3Expanded) {
       node._mmh3Expanded = false;
       bar.classList.remove("mmh3p-summary-open");
-      widget.computedHeight = SUMMARY_H;
-      widget.computeSize = () => [NODE_W, SUMMARY_H];
+      widget.computedHeight = SUMMARY_H + BOTTOM_GAP;
+      widget.computeSize = () => [NODE_W, SUMMARY_H + BOTTOM_GAP];
     }
     updateSummary(node);
     return;
@@ -61,8 +67,8 @@ function refreshBar(node) {
   });
   bar.classList.add("mmh3p-summary-open");
   bar.replaceChildren(fields.root);
-  widget.computedHeight = EDITOR_H;
-  widget.computeSize = () => [NODE_W, EDITOR_H];
+  widget.computedHeight = EDITOR_H + BOTTOM_GAP;
+  widget.computeSize = () => [NODE_W, EDITOR_H + BOTTOM_GAP];
 }
 
 /** The panel widget's current height, read back off the widget rather than
@@ -119,6 +125,10 @@ function minSize(node, base) {
 function fitPanel(node, base) {
   const widget = node.widgets?.find((w) => w.name === "mml_panel");
   if (!widget) return;
+  // Minimised (T2VA): the panel is deliberately collapsed to its content and
+  // the prompt bar takes the room. Writing an inline height here would beat
+  // the class rule that collapses it and pin the panel open for good.
+  if (node._mmlPanel?.shape?.()?.pictures === 0) return;
   const overhead = minSize(node, base)[1] - PANEL_H;
   const height = Math.max(PANEL_H, Math.round((node.size?.[1] || 0) - overhead));
   if (!Number.isFinite(height) || height === panelHeight(widget)) return;
@@ -190,8 +200,8 @@ app.registerExtension({
           this._mmh3Summary = summary;
           const sw = this.addDOMWidget("mmh3_summary", "div", summary,
             { serialize: false });
-          sw.computedHeight = SUMMARY_H;
-          sw.computeSize = () => [NODE_W, SUMMARY_H];
+          sw.computedHeight = SUMMARY_H + BOTTOM_GAP;
+          sw.computeSize = () => [NODE_W, SUMMARY_H + BOTTOM_GAP];
         }
       } catch (e) {
         console.error("[MiniMaxH3 PromptStudio] summary panel failed:", e);

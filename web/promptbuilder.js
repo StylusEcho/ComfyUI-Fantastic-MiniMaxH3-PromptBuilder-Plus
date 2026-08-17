@@ -1005,6 +1005,16 @@ const CSS = `
 .mmh3p-card.aud{border-color:#4c3d6e;}
 .mmh3p-card .mmh3p-thumb{width:100%;height:80px;object-fit:cover;display:block;
   background:#0d1015;}
+/* #41: the window onto a cropped reference. The media inside is oversized and
+   offset so the kept rect fills this box. */
+.mmh3p-cropwrap{position:relative;width:100%;height:80px;overflow:hidden;
+  background:#0d1015;}
+.mmh3p-cropwrap .mmh3p-cropped{position:absolute;height:auto;}
+/* #42: the hover preview keeps the whole frame and outlines what is kept, so
+   you can see what was dropped as well as what is left. */
+.mmh3p-peekcrop{position:relative;display:block;margin:0 auto;line-height:0;}
+.mmh3p-peekmark{position:absolute;border:1px solid rgba(76,195,224,.9);
+  box-shadow:0 0 0 4000px rgba(8,10,14,.55);pointer-events:none;}
 .mmh3p-wave{background:#0d1015;}
 .mmh3p-cardbar{display:flex;align-items:center;gap:3px;padding:2px 4px;}
 .mmh3p-tagname{font-family:ui-monospace,monospace;font-size:9px;}
@@ -1209,7 +1219,11 @@ const CSS = `
 .mmh3p-dropkinds{font-size:9px;text-transform:uppercase;letter-spacing:.06em;}
 /* Sits at the right-hand end of the card's bottom bar, matching where the
    node's tiles put the same control. */
-.mmh3p-cardtools{display:flex;align-items:center;gap:6px;margin-left:5px;
+/* auto, not a fixed gap: the citation badge used to sit between the tag name
+   and these and carried the auto margin. It moved to the card's corner in #14,
+   so the tools have to claim the slack themselves or they bunch up against
+   the tag name. */
+.mmh3p-cardtools{display:flex;align-items:center;gap:6px;margin-left:auto;
   flex:0 0 auto;}
 .mmh3p-cardtool{cursor:pointer;font-size:11px;line-height:1;color:#5a6373;
   user-select:none;}
@@ -1319,6 +1333,15 @@ const CSS = `
   box-shadow:0 24px 64px rgba(0,0,0,.55);}
 .mmh3p-quickbody{flex:1;min-height:0;overflow-y:auto;padding:14px 16px 18px;}
 .mmh3p-quick{display:flex;flex-direction:column;min-height:100%;}
+/* #46: keyframes on the left, fields on the right. */
+.mmh3p-quickwrap{display:flex;gap:12px;align-items:stretch;min-height:100%;}
+.mmh3p-quickwrap>.mmh3p-quick{flex:1 1 auto;min-width:0;}
+.mmh3p-quickpics{flex:0 0 auto;width:132px;display:flex;flex-direction:column;gap:8px;}
+.mmh3p-quickpic{border:1px solid #2e3440;border-radius:7px;overflow:hidden;
+  background:#12151b;}
+.mmh3p-quickpic .mmh3p-thumb{width:100%;height:80px;object-fit:cover;display:block;
+  background:#0d1015;}
+.mmh3p-quickpic .mmh3p-tagname{display:block;padding:3px 5px;}
 .mmh3p-quick>*{flex:0 0 auto;}
 .mmh3p-quick .mmh3p-sec.mmh3p-grow{flex:1 1 auto;display:flex;flex-direction:column;
   min-height:200px;}
@@ -2464,6 +2487,9 @@ class Editor {
         width: big ? 495 : 124, height: big ? 135 : 80 });
       if (s.preview?.url) setTimeout(() => this.drawWave(node, s.preview.url), 0);
     }
+    // A cropped reference shows its kept region on the card, so the chip
+    // matches what the model will actually receive.
+    node = cropFrame(node, s.item?.crop);
     if (key) this._thumbs.set(key, node);
     return node;
   }
@@ -2484,7 +2510,7 @@ class Editor {
                 style: { width: "100%", height: "28px" } }))
           : el("img", { src: s.preview?.url, class: "mmh3p-peekmedia" });
       const cites = this.citationCount(s.tag);
-      box.append(media,
+      box.append(peekCrop(media, s.item?.crop),
         el("div", { class: "mmh3p-peekmeta" },
           el("div", { class: "mmh3p-peekrow" },
             el("span", { class: `mmh3p-tagname ${s.cls}` }, s.tag),
@@ -3761,6 +3787,26 @@ export function promptFields(node) {
   const target = isRef ? state.ref : state;
 
   const root = el("div", { class: "mmh3p-quick" });
+
+  /** The pictures this mode actually sends as keyframes, shown beside the
+   *  fields so you can see what you are writing against. Reference mode has no
+   *  keyframes and T2VA no pictures, so both get nothing and the fields take
+   *  the full width. */
+  const keyframes = () => {
+    if (isRef) return null;
+    const cap = MODE_CAPACITY[state.mode]?.Picture || 0;
+    if (!cap) return null;
+    let pics;
+    try {
+      pics = getRefSlots(node).filter((sl) => sl.kind === "Picture").slice(0, cap);
+    } catch (e) { return null; }
+    if (!pics.length) return null;
+    return el("div", { class: "mmh3p-quickpics" },
+      ...pics.map((sl) => el("div", { class: "mmh3p-quickpic" },
+        cropFrame(el("img", { class: "mmh3p-thumb", src: sl.preview?.url }),
+          sl.item?.crop),
+        el("span", { class: `mmh3p-tagname ${sl.cls}` }, sl.tag))));
+  };
   const field = (label, obj, key, rows, placeholder, cls) => {
     const t = el("textarea", {
       rows, placeholder, value: obj[key] ?? "",
@@ -3825,7 +3871,11 @@ export function promptFields(node) {
       app.graph.setDirtyCanvas(true, true);
     } catch (e) { /* Vue redraws itself */ }
   };
-  return { root, save, state };
+  // Wrapped so the keyframe column can sit beside the fields without changing
+  // any of the .mmh3p-quick rules the fields themselves rely on.
+  const pics = keyframes();
+  const shell = pics ? el("div", { class: "mmh3p-quickwrap" }, pics, root) : root;
+  return { root: shell, save, state };
 }
 
 /** The quick-edit window, opened by clicking the node's prompt bar. The bar's
@@ -3848,8 +3898,11 @@ export function openQuickEdit(node) {
         el("div", { class: "mmh3p-title" }, "Quick edit",
           el("small", {}, mode === "REF" ? "Full-reference" : mode)),
         el("button", { class: "mmh3p-btn mmh3p-pushright",
-          title: "Open the full Prompt Builder instead",
-          onclick: () => { close(); openEditor(node); } }, "📜 Prompt Builder"),
+          title: "Open the full Prompt Builder, keeping what you have typed",
+          // Save first: the full editor reads the node's widgets, so without
+          // this everything typed here since opening was dropped on the way.
+          onclick: () => { fields.save(); close(); openEditor(node); } },
+          "📜 Prompt Builder"),
         el("button", { class: "mmh3p-x", onclick: close }, "✕")),
       el("div", { class: "mmh3p-quickbody" }, fields.root),
       el("div", { class: "mmh3p-foot" },
@@ -3915,6 +3968,39 @@ function autoFitSelect(sel) {
  *  claim each other's text, and every pattern after the first excludes < and >
  *  so none can match inside a span this chain has already inserted. The input
  *  is escaped first, so the only markup in the result is ours. */
+/** Wrap a thumbnail so only `crop` shows, scaled to fill the tile.
+ *
+ *  The media is blown up to 1/w by 1/h of the window and shifted so the kept
+ *  rect lands on it, which is the same mapping the decoder applies — so the
+ *  card shows what the model receives. Returns the node untouched when there
+ *  is no crop, so uncropped media keeps the plain element the cache holds. */
+function cropFrame(node, crop) {
+  if (!crop) return node;
+  const w = crop.w || 1, h = crop.h || 1;
+  if (w >= 0.999 && h >= 0.999) return node;
+  node.classList.add("mmh3p-cropped");
+  Object.assign(node.style, {
+    width: `${100 / w}%`, height: `${100 / h}%`,
+    left: `${-(crop.x || 0) * 100 / w}%`, top: `${-(crop.y || 0) * 100 / h}%`,
+  });
+  return el("div", { class: "mmh3p-cropwrap" }, node);
+}
+
+/** The hover preview keeps the whole frame and draws the kept rect over it,
+ *  dimming everything outside — the same reading the crop editor gives, so you
+ *  can see what was dropped as well as what is left. The overlay is a wrapper
+ *  around the media, not a change to it, so the media element is untouched. */
+function peekCrop(media, crop) {
+  if (!crop) return media;
+  const w = crop.w || 1, h = crop.h || 1;
+  if (w >= 0.999 && h >= 0.999) return media;
+  return el("div", { class: "mmh3p-peekcrop" }, media,
+    el("div", { class: "mmh3p-peekmark", style: {
+      left: `${(crop.x || 0) * 100}%`, top: `${(crop.y || 0) * 100}%`,
+      width: `${w * 100}%`, height: `${h * 100}%`,
+    } }));
+}
+
 function paintTags(text) {
   return escapeHtml(text)
     .replace(/&lt;(Subject|Picture|Video|Audio) (\d+)&gt;/g,

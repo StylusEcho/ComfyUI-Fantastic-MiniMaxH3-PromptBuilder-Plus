@@ -327,15 +327,34 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
     modes have no style-opening section, so they keep the dropdown in the toolbar —
     otherwise T2VA/I2VA/FL2VA/L2VA would simply lose it. The dropdown is built by a
     shared `styleSelect()` so both mounts stay identical.
-32. 🟦 the resolution and aspect ratio of the full size image/video viewer should be to the right, next to the close button
-33. 🟦 buttons at the top of the media loader should be a consistent height
+32. 🟩 the resolution and aspect ratio of the full size image/video viewer should be to the right, next to the close button
+
+    The dimensions carry the auto margin now instead of Close, so the pair sits
+    together at the right (8px apart) clear of the filename, which is the part that
+    varies in length. Close stays hard right.
+33. 🟩 buttons at the top of the media loader should be a consistent height
+
+    Measured three heights across that row — 22px for `.mmlp-btn`, 19px for the
+    `.mmlp-sm` variants, 23px for the preset select. Pinning the height on the row's
+    controls makes it one 22px line while each keeps its own padding and font.
 34. 🟩 the detail dropdown for videos should be the minimum width required to be legible.
 
     **Obsolete — no change made.** The detail dropdown was removed by the upstream
     merge; per-item decode size is now the `resize` cap in the ✂ editor, which
     already sizes itself. See #1.
 
-35. 🟦 allow a margin at the bottom edge of the node consistent with the margins on the left and right
+35. 🟩 allow a margin at the bottom edge of the node consistent with the margins on the left and right
+
+    The prompt bar is the node's last widget, so it sat hard against the bottom edge
+    while the panel above was inset left and right. It now reports 8px more height
+    than the element occupies, which reads as a margin beneath it. `fitPanel()` and
+    `minSize()` measure the overhead rather than assuming it, so both picked this up
+    unchanged — the node's floor moved 528 → 536 and the panel still returns to
+    exactly 476.
+
+    ⚠ The exact left/right inset is decided by ComfyUI's own widget layout, which I
+    can't measure outside a running ComfyUI, so 8px is a judged match rather than a
+    measured one. Easy to nudge if it looks off against the sides.
 36. 🟩 when right clicking a thumbnail in the media loader with media in the clipboard, offer an option to paste and replace (if the media type is the same the slot)
 
     A **Replace with <name>** row appears on a filled slot when the clipboard holds
@@ -348,15 +367,63 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
     swap isn't refused for the slot it is about to free — verified by replacing into
     a full 9/9 picture set. A replacement video whose soundtrack would breach the
     audio budget arrives with its audio off and says so, matching paste.
-37. 🟦 there seems to be certain scenarios where the interface on the node will shrink below its minimum size, and become unable to be returned to its normal size via resizing the node. may or may not be a comfy frontend update bug.
+37. 🟨 there seems to be certain scenarios where the interface on the node will shrink below its minimum size, and become unable to be returned to its normal size via resizing the node. may or may not be a comfy frontend update bug.
+
+    **Found and fixed one concrete cause; can't rule out others.**
+
+    `fitPanel()` writes an **inline** height on the media panel, while the T2VA
+    collapse is a *class* rule (`.mmlp-min{height:auto}`). Inline always outranks a
+    class, so once the node had been resized even once, the panel was pinned at that
+    height for good — the collapse silently stopped working and the prompt bar could
+    never take the room back. Entering the minimised shape now clears the inline
+    height, and `fitPanel()` bails out while minimised so it can't re-pin. Verified
+    the whole sequence: resize in REF → switch to T2VA → resize again → back to REF,
+    with the panel collapsing and re-fitting correctly at each step.
+
+    ⚠ Left 🟨 deliberately. That is *a* cause matching your description, not
+    provably *the* one — you mention it might be a Comfy frontend bug, and I can't
+    reproduce against a real ComfyUI here. If you still see it after this, tell me
+    which mode and what you did just before, and I'll dig again.
 38. ❓ I have a subgraph with a bool input. this input goes to a switch, where if true, a ref2va is passed along, other wise fl2va. when I connect this bool input to the ref2va\_needed output of — **sentence is cut off; can't tell what goes wrong. See #1.**
-39. 🟦 when in the full media view, allow navigating between different medias with left and right arrow keys.
+39. 🟩 when in the full media view, allow navigating between different medias with left and right arrow keys.
+
+    The viewer takes the other viewable references and ← / → step through them,
+    wrapping at both ends, with an `n/total` counter in the caption once there is
+    more than one. Audio is excluded, having no lightbox. Two details: the arrows are
+    ignored while focus is inside a video's own controls, so keyboard seeking doesn't
+    jump to the next clip; and the list follows load order, matching the tag order
+    bar you read the numbering off.
 40. 🟩 for the pinned media views, only show the cropped view.
 
     **Obsolete — pins removed, see #8.** The cropped-view intent lives on in #41
     (chips reflect cropping) and #42 (hover thumbnail frames the crop), both still
     open.
-41. 🟦 media chips should reflect the cropping as well.
-42. 🟦 the hover over thumbnail should show the full image, but have a frame around the cropped area, like how the crop editor shows.
-45. 🟦 going from quick prompt to prompt builder should transfer the prompt over.
-46. 🟦 the quick prompt editor should show picture 1 and/or picture 2 on the left side.
+41. 🟩 media chips should reflect the cropping as well.
+
+    A cropped reference's card now shows its kept region: the media is scaled to
+    1/w by 1/h and offset so the crop fills the tile, which is the same mapping the
+    decoder applies. Measured against a test image with a known crop — the visible
+    window maps to exactly `x=0.5 y=0.25 w=0.25 h=0.25`. Uncropped media is returned
+    untouched, so it keeps the plain cached element from #18.
+42. 🟩 the hover over thumbnail should show the full image, but have a frame around the cropped area, like how the crop editor shows.
+
+    The hover preview keeps the whole frame and draws the kept rect over it with
+    everything outside dimmed, the same reading the crop editor gives. Measured: the
+    outline lands on the crop rect and the full image is still shown whole. Note this
+    is deliberately the opposite treatment to #41 — the chip shows what the model
+    gets, the preview shows what was dropped as well.
+45. 🟩 going from quick prompt to prompt builder should transfer the prompt over.
+
+    Was a real bug: the button ran `close(); openEditor(node)` with no save, and the
+    full editor reads the node's widgets — so everything typed in the quick window
+    since opening was silently dropped on the way through. It saves first now.
+    Verified `save()` both persists to `builder_state` and regenerates
+    `prompt_text`.
+46. 🟩 the quick prompt editor should show picture 1 and/or picture 2 on the left side.
+
+    A keyframe column sits left of the fields, showing exactly the pictures the mode
+    sends — verified per mode: T2VA 0, I2VA 1, FL2VA 2, L2VA 1, Reference 0 (it has
+    no keyframes). It disappears when no pictures are loaded, so the fields keep the
+    full width. The thumbnails reuse #41's crop treatment, so they show the kept
+    region too. Wrapped in a new container rather than restructuring `.mmh3p-quick`,
+    so none of the existing field rules changed.
