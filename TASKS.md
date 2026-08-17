@@ -12,16 +12,15 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
      exists. Upstream replaced the `detail` field with a per-item `resize` cap set
      in the ✂ trim/crop editor (and removed `DETAIL_CAPS`), so there is no control
      left to resize. Closed as 🟩 with nothing to do.
-   - **#6 needs your call (❓)** — moving `model` to the first output renumbers
-     *every* output slot, which silently rewires every saved workflow built on this
-     node. The pack has an explicit rule against this (new outputs are appended last
-     precisely so slots never shift; see the comment on `RETURN_NAMES` in
-     `nodes.py`). Happy to do it if you accept the breakage — say the word.
+   - **#6 flagged, then approved and done.** Moving `model` to the first output
+     renumbers *every* output slot, which mis-wires any saved workflow built on this
+     node — the pack had an explicit rule against exactly that. You accepted the
+     breakage, so it is implemented; see #6.
    - **#38 is truncated (❓)** — the sentence ends mid-clause: "when I connect this
      bool input to the ref2va\_needed output of". Can't tell what the symptom is.
+     You've asked to leave this one for now.
    - **#43 / #44 reference a "quick album" (❓)** — there is no album feature in this
-     pack, and none in the upstream repo either (checked both). If it is something
-     you saw in another pack, or a name for an existing view, let me know which.
+     pack, and none in the upstream repo either (checked both). Also left for now.
 
    **Found later, while starting #8 — the biggest one:** upstream's 1.5.0 commit
    **disabled the pinned-media pane** (`drawPins()` opens with `if (true) return;`,
