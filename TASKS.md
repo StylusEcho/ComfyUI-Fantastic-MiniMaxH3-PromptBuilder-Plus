@@ -42,7 +42,16 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
    picture is the first frame and which the last. The right-click menu is attached
    before the early return, so copy / paste / remove still work on a slot that can
    no longer be dragged.
-3. 🟦 show the 15 sec mark with a line after the starting marker in the trimming window. the ending marker can snap to this marker.
+3. 🟩 show the 15 sec mark with a line after the starting marker in the trimming window. the ending marker can snap to this marker.
+
+   A dashed amber line labelled `15s` is drawn at `start + 15s` on the trim bar and
+   rides with the start handle, since the budget is measured from wherever the kept
+   range begins. It is hidden when the clip already fits inside the budget, where it
+   would only ever pin to the end. Dragging the end handle within ~1% of the line
+   snaps it exactly onto 15.00s; the start handle is unaffected. The line sits below
+   the handles and takes no pointer events, so a handle parked on it is still
+   grabbable and clicking through it still scrubs. The readout now also flags going
+   *over* 15s, not just under 2s.
 4. 🟦 join the prompt bar on the node with the media loader
 5. 🟦 provide some alternative names to "Mode" for the media loader layout button
 6. ❓ put the model node output first in the outputs — **see #1: this renumbers every output slot and breaks saved workflows. Needs your go-ahead.**

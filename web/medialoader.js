@@ -498,6 +498,16 @@ const CSS = `
 .mmlp-tmbar{position:relative;height:20px;background:#12151b;border-radius:5px;
   margin:2px 0 6px;cursor:pointer;}
 .mmlp-tmsel{position:absolute;top:0;bottom:0;background:#1f6f96;border-radius:5px;}
+/* The 15s-from-start budget line. Sits under the handles (z-index 2) so a
+   handle parked on it stays grabbable, and takes no pointer events of its own
+   — it marks a limit, it isn't a control. */
+.mmlp-tmcap{position:absolute;top:-4px;bottom:-4px;width:2px;z-index:1;
+  background:repeating-linear-gradient(#e0a94c 0 3px,transparent 3px 6px);
+  transform:translateX(-50%);pointer-events:none;
+  box-shadow:0 0 0 1px rgba(0,0,0,.5);}
+.mmlp-tmcap::after{content:"15s";position:absolute;left:50%;bottom:-13px;
+  transform:translateX(-50%);font-size:9px;line-height:1;color:#e0a94c;
+  white-space:nowrap;}
 .mmlp-tmhandle{position:absolute;top:-3px;bottom:-3px;width:9px;background:#4cc3e0;
   border-radius:3px;transform:translateX(-50%);cursor:ew-resize;z-index:2;}
 .mmlp-tmhandle:hover{background:#7fd8ee;box-shadow:0 0 6px rgba(76,195,224,.7);}
@@ -832,9 +842,16 @@ export class TrimModal {
     this.playTime = el("span", { class: "mmlp-tmplaytime" });
     this.outside = el("span", { class: "mmlp-tmoutside" });
     this.note = el("div", { class: "mmlp-tmnote" });
+    // The furthest the end can go and still be inside H3's per-clip budget,
+    // measured from wherever the start currently sits. Drawn only when it
+    // falls inside the clip — on anything 15s or shorter the whole file is
+    // already within budget and the line would just pin to the end.
+    this.capLine = el("div", { class: "mmlp-tmcap",
+      title: `${CLIP.max}s from the start — H3's longest reference clip. `
+        + "Drag the end handle near it to snap." });
     this.bar = el("div", { class: "mmlp-tmbar",
       onmousedown: (e) => this.barDown(e) },
-      this.selEl, this.hStart, this.hEnd, this.playhead);
+      this.selEl, this.capLine, this.hStart, this.hEnd, this.playhead);
     if (this.item.kind === "audio") {
       this.wave = el("canvas", { class: "mmlp-tmwave", width: 560, height: 46 });
       this.drawWave(this.wave);
@@ -910,12 +927,30 @@ export class TrimModal {
     window.addEventListener("mouseup", up);
   }
 
+  /** Where the 15s budget line sits, or null when the whole clip fits inside
+   *  it and there is nothing to mark. */
+  capAt() {
+    if (this.isStill || !this.dur) return null;
+    const at = this.start + CLIP.max;
+    return at < this.dur ? at : null;
+  }
+
   barMove(e) {
     if (!this.drag) return;
     const t = this.timeAt(e);
     if (this.drag === "playhead") { this.seek(t); return; }
     if (this.drag === "s") this.start = Math.min(t, this.end - 0.1);
-    else this.end = Math.max(t, this.start + 0.1);
+    else {
+      // Snap the end to the budget line when it lands near it, so hitting
+      // exactly 15s is a drag rather than a typed number. The tolerance is a
+      // share of the clip so it stays the same distance on screen whatever
+      // the duration, and is only ever a nudge.
+      const cap = this.capAt();
+      const near = Math.max(0.05, this.dur * 0.012);
+      this.end = Math.max(
+        cap !== null && Math.abs(t - cap) <= near ? cap : t,
+        this.start + 0.1);
+    }
     this.seek(t);                      // preview follows the handle being moved
     this.layoutTimeline();
   }
@@ -932,15 +967,28 @@ export class TrimModal {
       this.numStart.value = this.start.toFixed(2);
     if (this.numEnd && this.typing !== this.numEnd)
       this.numEnd.value = this.end.toFixed(2);
+    // The 15s line rides with the start handle, since the budget is measured
+    // from wherever the kept range begins.
+    if (this.capLine) {
+      const cap = this.capAt();
+      this.capLine.style.display = cap === null ? "none" : "";
+      if (cap !== null) this.capLine.style.left = p(cap);
+    }
     this.readout.textContent = `${span.toFixed(1)}s kept`;
     this.checkOutside();
-    const bad = span < CLIP.min;
-    this.readout.classList.toggle("bad", bad);
-    this.readout.title = bad
+    const under = span < CLIP.min;
+    const over = span > CLIP.max + 0.001;
+    this.readout.classList.toggle("bad", under || over);
+    this.readout.title = under
       ? `Kept span is under ${CLIP.min}s. MiniMax H3 was trained on ` +
         `${CLIP.min}\u2013${CLIP.max}s reference clips; shorter ones tend to be ` +
         "weakly followed or ignored. Widen the range, or pad short files " +
-        "(like sound effects) with silence before loading." : "";
+        "(like sound effects) with silence before loading."
+      : over
+        ? `Kept span is over ${CLIP.max}s, H3's longest reference clip. `
+          + "Drag the end handle back to the marked line to sit exactly on "
+          + "the limit."
+        : "";
   }
 
   updatePlayhead() {
