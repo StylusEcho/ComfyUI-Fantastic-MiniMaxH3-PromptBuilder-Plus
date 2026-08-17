@@ -774,9 +774,9 @@ function validate(state, slots) {
     }
     if (!total)
       info(slots.bundled
-        ? "The Media Loader is connected but empty."
-        : "No reference media is mirrored on this node yet. Use '+ Media loader' " +
-          "for a single-cable setup.");
+        ? "No reference media loaded yet — add some in the panel on the node, "
+          + "or with the + tile above."
+        : "No reference media is mirrored on this node yet.");
   } else {
     // Base modes: pictures are keyframes, and there are no video/audio slots.
     const used = byKind.Picture.filter((s) => s.idx <= cap.Picture);
@@ -873,7 +873,7 @@ function validate(state, slots) {
       warn(`${t} is cited, but ${state.mode} only uses ${kind} 1${cap[kind] > 1 ? `\u2013${cap[kind]}` : ""}.`);
     } else if (!connected.has(t)) {
       if (slots.bundled)
-        warn(`${t} is cited but the Media Loader does not provide it.`);
+        warn(`${t} is cited but no such reference is loaded.`);
       else
         info(`${t} is cited but not mirrored on this node (fine if wired only to the native node).`);
     }
@@ -1037,8 +1037,10 @@ const CSS = `
 .mmh3p-peeksrc{font-size:9px;color:#6b7484;margin:2px 0 6px;max-width:520px;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;}
 /* No top padding: the sticky media bar owns that space, so it can pin flush
-   to the top of the scroll area with nothing able to scroll past it. */
-.mmh3p-form{overflow-y:auto;padding:0 16px 24px;min-width:0;
+   to the top of the scroll area with nothing able to scroll past it — the top
+   gap is the bar's own 16px instead, which is why it matches the sides here.
+   Bottom is 16px to match too. */
+.mmh3p-form{overflow-y:auto;padding:0 16px 16px;min-width:0;
   display:flex;flex-direction:column;}
 /* Sections keep their natural height; the one marked grow takes the slack, so
    the audio sections after it sit at the bottom of the form instead of
@@ -1051,6 +1053,11 @@ const CSS = `
 .mmh3p-sec.mmh3p-grow textarea{flex:1 1 auto;min-height:140px;}
 .mmh3p-side{border-left:1px solid #2a2f3a;display:flex;flex-direction:column;min-height:0;background:#15181e;}
 .mmh3p-sec{margin-bottom:16px;}
+/* The form is a flex column, so margins don't collapse: the last section's own
+   16px would stack onto the form's padding and make the bottom gap twice the
+   sides. Drop it so the pane's four edges match. */
+.mmh3p-form>:last-child{margin-bottom:0;}
+.mmh3p-form>.mmh3p-audiopair:last-child>.mmh3p-sec{margin-bottom:0;}
 .mmh3p-rowpow{cursor:pointer;font-size:11px;color:#3f4855;user-select:none;
   flex-shrink:0;line-height:1;text-align:center;}
 .mmh3p-defrow .mmh3p-rowpow{align-self:flex-start;margin-top:11px;}
@@ -1168,7 +1175,7 @@ const CSS = `
 .mmh3p-toolsep{width:1px;height:18px;background:#2e3440;align-self:center;}
 .mmh3p-btn.ghost{opacity:.7;border-style:dashed;}
 .mmh3p-chipbar{position:sticky;top:0;z-index:5;background:#191c22;
-  padding:12px 16px 10px;margin:0 -16px 14px;
+  padding:16px 16px 10px;margin:0 -16px 14px;
   border-bottom:1px solid #242a34;}
 /* Wraps instead of scrolling sideways: a second row is easier to scan than a
    strip you have to drag through, and every reference stays reachable for a
@@ -2590,10 +2597,10 @@ class Editor {
     const tile = this.dropTile();
     if (!live.length) {
       return [tile, el("span", { class: "hint" },
-        "No reference media on this node yet \u2014 use '+ Media loader', or wire " +
-        "loaders into the picture_/video_/audio_ inputs.")].filter(Boolean);
+        "No reference media on this node yet \u2014 add some in the panel on the "
+        + "node, or with the + tile here.")].filter(Boolean);
     }
-    return live.map((s) => {
+    const cards = live.map((s) => {
       const ok = this.usable(s);
       const cites = ok ? this.citationCount(s.tag) : 0;
       const card = el("div", {
@@ -2633,6 +2640,10 @@ class Editor {
       if (ok) this.peekFor(card, s);
       return card;
     });
+    // Trailing "+" tile. dropTile() returns null once the mode has no room
+    // left \u2014 roomLeft() gates on the mode's own per-kind ceiling, the loader's
+    // capacity check and the total \u2014 so it shows only when it is relevant.
+    return tile ? [...cards, tile] : cards;
   }
 
   /** The node tile's own per-clip controls, on the editor's rail: the trim /

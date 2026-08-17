@@ -208,8 +208,32 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
     One ordering detail: the style dropdown resets its own value inside its change
     handler, so its fit is registered *after* that handler — registering first
     would measure the style just picked and then miss the reset back to "(style)".
-20. 🟦 the top and bottom margins of the prompt builder's main pane should be consistent with the left and right margins.
-21. 🟦 add a dashed box with a plus on it for adding media in the chips area, if relevant for the current prompt mode.
+20. 🟩 the top and bottom margins of the prompt builder's main pane should be consistent with the left and right margins.
+
+    Sides were 16px, top 0 and bottom 24px. Two things had to change rather than
+    one. The form keeps `padding-top:0` on purpose — the media bar is sticky and
+    pins flush to the top of the scroll area, and giving the form top padding would
+    put a gap above it that collapses on scroll — so the top gap now comes from the
+    bar's own padding, raised 12px → 16px. Bottom went 24px → 16px, but measured
+    32px, because the form is a flex column so the last section's own 16px
+    `margin-bottom` doesn't collapse and was stacking onto the padding; the last
+    child's margin is now zeroed. Measured with the pane scrolled to the bottom:
+    16px on all four edges, bar still full-bleed.
+21. 🟩 add a dashed box with a plus on it for adding media in the chips area, if relevant for the current prompt mode.
+
+    The dashed `+` tile already existed but `refChips()` only emitted it when there
+    was **no** media at all, so it vanished as soon as you had one reference. It now
+    trails the cards as well as standing in for them when empty.
+
+    The "if relevant for the current prompt mode" half needed nothing: `dropTile()`
+    returns null when `roomLeft()` is empty, and that already gates on the mode's
+    per-kind ceiling (`MODE_CAPACITY`), the loader's own capacity check — which also
+    counts split soundtracks — and the total reference cap. So it hides itself in
+    T2VA, and once I2VA's single picture is filled.
+
+    Also cleaned up two user-facing strings left over from removing the standalone
+    nodes: the empty-state hint told you to use "+ Media loader", and a validation
+    warning blamed "the Media Loader", neither of which this pack ships any more.
 22. 🟦 add N/A buttons to the audio prompt boxes in the prompt quick editor
 23. 🟦 X should be in the top right
 24. 🟦 change the "Full editor..." button to "Prompt Builder" and put it to the left of the X.
