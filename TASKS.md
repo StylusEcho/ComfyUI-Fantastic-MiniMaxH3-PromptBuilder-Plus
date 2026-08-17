@@ -70,7 +70,20 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
    clicking would do while the "Mode" state described what you were looking at, so
    only one of them told you the current state. Both now do.
 6. ❓ put the model node output first in the outputs — **see #1: this renumbers every output slot and breaks saved workflows. Needs your go-ahead.**
-7. 🟦 if there is never any other button options except N/A below the sound/audio boxes, move them to the top right of their sections.
+7. 🟩 if there is never any other button options except N/A below the sound/audio boxes, move them to the top right of their sections.
+
+   Confirmed the premise: N/A is the only button on those boxes, at all four call
+   sites (soundscape + music, in base and REF modes). `secLabel()` now takes
+   trailing `actions` that lay out against the right edge of the heading, and the
+   audio sections pass their N/A there — so the field below runs the full width of
+   the section instead of sharing a row. Two details worth noting: the button's
+   click handler resolves its field with `closest('.mmh3p-sec')`, which still
+   works from inside the label (verified in Chromium — it finds the textarea and
+   fires the `input` event that updates state and repaints the chip mirror); and
+   the switched-off heading style is a strikethrough, which is now explicitly
+   cancelled on the actions so it can't strike through the button. The header rule
+   is a descendant selector, otherwise `.mmh3p-btn` — declared later in the sheet —
+   won on equal specificity and left a 31px button in a 12px heading.
 8. 🟦 show playback controls for pinned videos
 9. 🟦 allow drag and drop resorting of pinned media
 10. 🟦 set max width for pinned sidebar to only as much as is needed to fit the widest images and videos, anchored from the right edge. same logic for vertical, anchor from the top edge.

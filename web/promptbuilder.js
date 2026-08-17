@@ -1100,6 +1100,19 @@ const CSS = `
 .mmh3p-sec>label.off ~ *{opacity:.45;}
 .mmh3p-sec>label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.08em;
   color:#8a93a3;margin-bottom:5px;}
+/* A heading carrying its own controls: they sit against the right edge, clear
+   of the field below. min-height keeps a header with buttons the same height
+   as one without, so sections in a row still line up. */
+.mmh3p-sec>label.act{display:flex;align-items:center;gap:8px;}
+.mmh3p-secact{margin-left:auto;display:flex;align-items:center;gap:5px;
+  flex:0 0 auto;text-transform:none;letter-spacing:normal;}
+/* Header-sized: the standard .mmh3p-btn padding is built for a footer row and
+   makes the heading much taller than the ones without buttons. Written as a
+   descendant selector so it outranks .mmh3p-btn regardless of which is
+   declared later in this sheet. */
+.mmh3p-secact .mmh3p-btn{padding:1px 7px;font-size:10px;line-height:1.5;}
+/* .off strikes the heading through — that must not carry into its buttons. */
+.mmh3p-sec>label.off .mmh3p-secact{text-decoration:none;}
 .mmh3p-sec .hint{font-size:11px;color:#6b7484;margin-top:4px;line-height:1.4;}
 .mmh3p-form textarea,.mmh3p-form input[type=text],.mmh3p-form input[type=number],.mmh3p-form select{
   width:100%;box-sizing:border-box;background:#12151b;color:#dde2ea;border:1px solid #2e3440;
@@ -3272,7 +3285,9 @@ class Editor {
   }
 
   naButton(obj, key) {
-    return el("button", { class: "mmh3p-btn", style: { alignSelf: "flex-start" },
+    return el("button", { class: "mmh3p-btn mmh3p-secbtn",
+      title: `Mark ${key === "music" ? "non_diegetic_music" : "overall_soundscape"} `
+        + "as deliberately empty",
       onclick: (e) => {
         const box = e.target.closest(".mmh3p-sec").querySelector("textarea");
         if (box) {
@@ -3365,11 +3380,11 @@ class Editor {
       "1\u20133 sentences: instrumentation, tempo, rhythm, dynamics. No abstract mood words.");
     f.append(el("div", { class: "mmh3p-audiopair" },
       el("div", { class: "mmh3p-sec" },
-        this.secLabel("overall_soundscape"),
-        el("div", { class: "mmh3p-row" }, soundTa, this.naButton(s, "soundscape"))),
+        this.secLabel("overall_soundscape", null, this.naButton(s, "soundscape")),
+        soundTa),
       el("div", { class: "mmh3p-sec" },
-        this.secLabel("non_diegetic_music"),
-        el("div", { class: "mmh3p-row" }, musicTa, this.naButton(s, "music")))));
+        this.secLabel("non_diegetic_music", null, this.naButton(s, "music")),
+        musicTa)));
     linkHeights(soundTa, musicTa);
   }
 
@@ -3687,11 +3702,11 @@ class Editor {
       "audience-only score.\"");
     f.append(el("div", { class: "mmh3p-audiopair" },
       el("div", { class: "mmh3p-sec" },
-        this.secLabel("overall_soundscape"),
-        el("div", { class: "mmh3p-row" }, refSoundTa, this.naButton(r, "soundscape"))),
+        this.secLabel("overall_soundscape", null, this.naButton(r, "soundscape")),
+        refSoundTa),
       el("div", { class: "mmh3p-sec" },
-        this.secLabel("non_diegetic_music"),
-        el("div", { class: "mmh3p-row" }, refMusicTa, this.naButton(r, "music")))));
+        this.secLabel("non_diegetic_music", null, this.naButton(r, "music")),
+        refMusicTa)));
     linkHeights(refSoundTa, refMusicTa);
   }
 
@@ -3716,7 +3731,10 @@ class Editor {
 
   /** Section heading with an on/off switch. Off keeps the text but stops the
    *  section reaching the prompt — handy while media comes and goes. */
-  secLabel(name, text) {
+  /** A section heading. `actions` are laid out against the right edge of the
+   *  header, which is where a section's own controls belong once there are
+   *  any — beside the field they act on, they compete with it for width. */
+  secLabel(name, text, ...actions) {
     const state = this.state;
     state.off = state.off || {};
     const on = !state.off[name];
@@ -3731,7 +3749,10 @@ class Editor {
         this.updatePreview();
       },
     }, on ? "\u25c9" : "\u25cb");
-    return el("label", { class: on ? "" : "off" }, dot, text || name);
+    const act = actions.filter(Boolean);
+    return el("label", { class: (on ? "" : "off") + (act.length ? " act" : "") },
+      dot, text || name,
+      act.length ? el("span", { class: "mmh3p-secact" }, ...act) : null);
   }
 
   updatePreview() {
