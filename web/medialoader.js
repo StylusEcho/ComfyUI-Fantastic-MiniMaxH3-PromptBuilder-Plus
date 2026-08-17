@@ -642,6 +642,8 @@ export class TrimModal {
     this.start = item.trim?.start || 0;
     this.end = item.trim?.end ?? this.dur;
     this.crop = item.crop ? { ...item.crop } : null;
+    // True only while the rect is one we put up for the handles' sake.
+    this.cropAuto = false;
     this.mirror = !!item.mirror;
     this.rotate = ((parseInt(item.rotate, 10) || 0) % 360 + 360) % 360;
     this.resize = parseInt(item.resize, 10) || 0;
@@ -1075,15 +1077,29 @@ export class TrimModal {
       title: "Crop the frame",
       onclick: () => {
         this.cropMode = !this.cropMode;
-        if (this.cropMode && !this.crop)
+        if (this.cropMode && !this.crop) {
+          // Inset so the handles are grabbable — the frame edge is not. That
+          // makes opening the tool *look* like a 75% crop, so it is marked as
+          // ours: if it is never dragged, closing throws it away rather than
+          // leaving media cropped that the user only glanced at.
           this.crop = { x: 0.125, y: 0.125, w: 0.75, h: 0.75 };
-        if (!this.cropMode && this.crop &&
-            this.crop.w > 0.995 && this.crop.h > 0.995) this.crop = null;
+          this.cropAuto = true;
+        }
+        if (!this.cropMode && this.crop
+            && (this.cropAuto
+                || (this.crop.w > 0.995 && this.crop.h > 0.995))) {
+          this.crop = null;
+          this.cropAuto = false;
+        }
         if (!this.cropMode) this.seek(this.media?.currentTime || 0, false);
         this.syncCrop();
       } }, "\u25a3 Crop");
     this.aspectEl = el("select", { class: "mmlp-tmaspect",
-      onchange: (e) => { this.aspect = e.target.value; this.forceAspect(); } },
+      onchange: (e) => {
+        this.aspect = e.target.value;
+        if (this.crop) this.cropAuto = false;
+        this.forceAspect();
+      } },
       [["free", "freeform"], ["1", "1:1"],
        [String(16 / 9), "16:9"], [String(9 / 16), "9:16"],
        [String(4 / 3), "4:3"], [String(3 / 4), "3:4"],
@@ -1193,6 +1209,7 @@ export class TrimModal {
       const dx = (ev.clientX - c0.mx) / wrap.width;
       const dy = (ev.clientY - c0.my) / wrap.height;
       const c = this.crop;
+      this.cropAuto = false;             // touched: it is a real crop now
       if (mode === "move") {
         c.x = Math.min(Math.max(c0.x + dx, 0), 1 - c.w);
         c.y = Math.min(Math.max(c0.y + dy, 0), 1 - c.h);
@@ -1450,7 +1467,8 @@ export class TrimModal {
             ? el("button", { class: "mmlp-btn mmlp-sm",
                 title: "Whole clip, no crop",
                 onclick: () => { this.start = 0; this.end = this.dur;
-                  this.crop = null; this.cropMode = false; this.mirror = false;
+                  this.crop = null; this.cropAuto = false;
+                  this.cropMode = false; this.mirror = false;
                   this.rotate = 0; this.resize = 0;
                   if (this.sizeEl) this.sizeEl.value = "0";
                   this.syncCrop(); this.syncMirror(); this.syncRotate();
@@ -2161,6 +2179,37 @@ export class LoaderPanel {
     return true;
   }
 
+  /** Swap a slot's media for the clipboard's, keeping its position — and so
+   *  its tag number, which is what makes this different from remove + paste:
+   *  tags already written into the prompt keep pointing at the same slot. */
+  replaceItem(target) {
+    if (!_mediaClip) return false;
+    const idx = this.items.indexOf(target);
+    if (idx < 0) return false;
+    let copy;
+    try {
+      copy = JSON.parse(JSON.stringify(_mediaClip));
+    } catch (e) { return false; }
+    // Measured with the outgoing item already gone: a like-for-like swap must
+    // not be refused for a slot the replacement is about to free.
+    const held = this.items;
+    this.items = held.filter((i) => i !== target);
+    const why = this.capacityError(copy.kind, copy.name);
+    if (why) { this.items = held; this.say(why, true); this.render(); return true; }
+    this.items = held.slice();
+    if (copy.kind === "video" && copy.audio_mode === "paired"
+        && audioCount(this.items.filter((i) => i !== target)) >= MAX.audio) {
+      copy.audio_mode = "off";
+      this.say(`Replaced ${target.name} with ${copy.name}, audio off — already `
+        + `using ${MAX.audio} audio clips.`, true);
+    } else {
+      this.say(`Replaced ${target.name} with ${copy.name}.`);
+    }
+    this.items[idx] = copy;
+    this.commit();
+    return true;
+  }
+
   /** Right-click menu for a slot. `item` is null on an empty slot. */
   slotMenu(e, item) {
     e.preventDefault();
@@ -2172,9 +2221,15 @@ export class LoaderPanel {
       rows.push(["Duplicate", () => { this.copyItem(item); this.pasteItem(); }]);
     }
     rows.push([
-      _mediaClip ? `Paste ${_mediaClip.name}` : "Paste image from clipboard",
+      _mediaClip ? `Paste ${_mediaClip.name}` : "Paste Media",
       () => { if (!this.pasteItem()) this.pasteFromSystem(); },
     ]);
+    // Only for a like-for-like swap: replacing a picture with a video would
+    // renumber both kinds, which is what the plain paste is for.
+    if (item && _mediaClip && _mediaClip.kind === item.kind
+        && _mediaClip !== item) {
+      rows.push([`Replace with ${_mediaClip.name}`, () => this.replaceItem(item)]);
+    }
     if (item) {
       rows.push([isOn(item) ? "Switch off" : "Switch on", () => {
         item.enabled = !isOn(item);
@@ -2210,14 +2265,18 @@ export class LoaderPanel {
     try {
       const entries = await navigator.clipboard?.read?.();
       for (const entry of entries || []) {
-        const type = entry.types.find((t) => t.startsWith("image/"));
+        // Any media the clipboard will hand over, not just images. In practice
+        // browsers rarely expose video or audio here, but Ctrl+V over the panel
+        // carries real files of any kind and already accepts them.
+        const type = entry.types.find((t) => /^(image|video|audio)\//.test(t));
         if (!type) continue;
         const blob = await entry.getType(type);
         const ext = type.split("/")[1] || "png";
         await this.add([new File([blob], `pasted-${Date.now()}.${ext}`, { type })]);
         return;
       }
-      this.say("Nothing to paste — copy a picture or a slot first.", true);
+      this.say("Nothing to paste — copy media or a slot first, or drop a file "
+        + "onto the panel.", true);
     } catch (err) {
       // Reading the clipboard needs permission and a secure context; a plain
       // Ctrl+V over the panel still works and doesn't go through this path.

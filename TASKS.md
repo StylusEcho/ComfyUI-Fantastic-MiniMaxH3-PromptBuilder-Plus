@@ -19,8 +19,9 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
    - **#38 is truncated (❓)** — the sentence ends mid-clause: "when I connect this
      bool input to the ref2va\_needed output of". Can't tell what the symptom is.
      You've asked to leave this one for now.
-   - **#43 / #44 reference a "quick album" (❓)** — there is no album feature in this
-     pack, and none in the upstream repo either (checked both). Also left for now.
+   - **#43 / #44 removed.** They referenced a "quick album", which exists neither in
+     this pack nor upstream (checked both) — you've confirmed they belong to a
+     different project, so they are deleted rather than left open.
 
    **Found later, while starting #8 — the biggest one:** upstream's 1.5.0 commit
    **disabled the pinned-media pane** (`drawPins()` opens with `if (true) return;`,
@@ -279,11 +280,53 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
     one needed to say what it was. Measured on a 660px node — button 105px, mode
     64px, preview keeps 430px — so the text still gets the bulk of the width.
     Matches the button #24 put in the quick editor's header.
-27. 🟦 crop button in the media thumbnails shows orange even if cropping was not used
-28. 🟦 right click media slot should say "Paste Media" and accept file paths and any media not just images.
-29. 🟦 put the retention\_analysis +Entry / auto-fill buttons to the right edge of the header, like how it is for the sound prompt headers
-30. 🟦 retention\_analysis dropdown boxes take up the minimum amount of width possible to be legible
-31. 🟦 move the (style) dropdown to the right side of the style opening header
+27. 🟩 crop button in the media thumbnails shows orange even if cropping was not used
+
+    Real cause: pressing **▣ Crop** immediately wrote a 75% rect. The rect is inset
+    so the handles are grabbable (the frame edge isn't), but that meant merely
+    *opening* the crop tool cropped your media — and the clear-on-close check only
+    fired for a near-full-frame rect, which the 0.75 default could never be. So the
+    button went orange for a crop you never made.
+
+    An auto-created rect is now marked as ours and thrown away on close unless it
+    was actually dragged (or its aspect ratio changed). Verified: open+close leaves
+    no crop; open+drag+close keeps it; a pre-existing crop survives open+close
+    untouched; and dragging out to the full frame still clears it.
+28. 🟨 right click media slot should say "Paste Media" and accept file paths and any media not just images.
+
+    **Label and "any media" done; "file paths" needs your call — see below.**
+
+    Relabelled to **Paste Media**. The right-click paste read only `image/*` off the
+    system clipboard and now takes video and audio too. Worth knowing the Ctrl+V
+    path over the panel already accepted any media file — it reads
+    `clipboardData.files` — so this closes the gap between the two routes.
+
+    **⚠ Flagged: file paths.** A browser cannot read an arbitrary local path, so
+    supporting one means a server route that opens files by path — effectively an
+    arbitrary-file-read endpoint on the ComfyUI server. I'm not adding that
+    unprompted. Options, if you want it: restrict it to paths under ComfyUI's own
+    input/output directories (safe, covers most real use), or accept the wider
+    exposure knowingly. Say which and I'll build it.
+29. 🟩 put the retention\_analysis +Entry / auto-fill buttons to the right edge of the header, like how it is for the sound prompt headers
+
+    Both buttons moved into the section heading through the same `secLabel()`
+    actions slot #7 added for the audio N/A, so they line up the same way. The
+    separate `.mmh3p-tools` row they sat in is gone, which also reclaims its height.
+    Measured: the button group's right edge matches the heading's.
+30. 🟩 retention\_analysis dropdown boxes take up the minimum amount of width possible to be legible
+
+    The row is a grid whose label and marker columns were pinned at 150px and 160px,
+    so the dropdowns were that wide whatever they held. Those tracks are now `auto`
+    and both selects go through `fitSelect()` from #19, so each sizes to the option
+    on show. The marker dropdown measures 118px against 133px before, nothing is
+    clipped, and the freed width goes to the context field.
+31. 🟩 move the (style) dropdown to the right side of the style opening header
+
+    Moved into the `detailed_description — style opening` heading, right-aligned.
+    One thing worth flagging: that heading only exists in **Reference** mode. Base
+    modes have no style-opening section, so they keep the dropdown in the toolbar —
+    otherwise T2VA/I2VA/FL2VA/L2VA would simply lose it. The dropdown is built by a
+    shared `styleSelect()` so both mounts stay identical.
 32. 🟦 the resolution and aspect ratio of the full size image/video viewer should be to the right, next to the close button
 33. 🟦 buttons at the top of the media loader should be a consistent height
 34. 🟩 the detail dropdown for videos should be the minimum width required to be legible.
@@ -293,7 +336,18 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
     already sizes itself. See #1.
 
 35. 🟦 allow a margin at the bottom edge of the node consistent with the margins on the left and right
-36. 🟦 when right clicking a thumbnail in the media loader with media in the clipboard, offer an option to paste and replace (if the media type is the same the slot)
+36. 🟩 when right clicking a thumbnail in the media loader with media in the clipboard, offer an option to paste and replace (if the media type is the same the slot)
+
+    A **Replace with <name>** row appears on a filled slot when the clipboard holds
+    media of the same kind, and only then — a picture slot offers it for a copied
+    picture but not for a copied video. It swaps in place, so the slot keeps its
+    position and therefore its tag number; that's the point of it over remove+paste,
+    since tags already written into the prompt keep pointing at the same slot.
+
+    Capacity is measured with the outgoing item already removed, so a like-for-like
+    swap isn't refused for the slot it is about to free — verified by replacing into
+    a full 9/9 picture set. A replacement video whose soundtrack would breach the
+    audio budget arrives with its audio off and says so, matching paste.
 37. 🟦 there seems to be certain scenarios where the interface on the node will shrink below its minimum size, and become unable to be returned to its normal size via resizing the node. may or may not be a comfy frontend update bug.
 38. ❓ I have a subgraph with a bool input. this input goes to a switch, where if true, a ref2va is passed along, other wise fl2va. when I connect this bool input to the ref2va\_needed output of — **sentence is cut off; can't tell what goes wrong. See #1.**
 39. 🟦 when in the full media view, allow navigating between different medias with left and right arrow keys.
@@ -304,7 +358,5 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
     open.
 41. 🟦 media chips should reflect the cropping as well.
 42. 🟦 the hover over thumbnail should show the full image, but have a frame around the cropped area, like how the crop editor shows.
-43. ❓ immediately remove items from view when viewing the quick album and removing them from it. — **no "quick album" exists in this pack or upstream. See #1.**
-44. ❓ quick album hotkey doesn't work for fullscreen. — **same as #43.**
 45. 🟦 going from quick prompt to prompt builder should transfer the prompt over.
 46. 🟦 the quick prompt editor should show picture 1 and/or picture 2 on the left side.

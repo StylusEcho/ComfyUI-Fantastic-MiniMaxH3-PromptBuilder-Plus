@@ -1264,7 +1264,7 @@ const CSS = `
 .mmh3p-ttypes{display:flex;flex-wrap:wrap;gap:4px 12px;margin-bottom:6px;}
 .mmh3p-ttypes label{display:flex;gap:5px;align-items:center;font-size:12px;color:#c9cfda;
   text-transform:none;letter-spacing:0;cursor:pointer;}
-.mmh3p-retrow{display:grid;grid-template-columns:14px 150px 1fr 160px 26px;gap:6px;
+.mmh3p-retrow{display:grid;grid-template-columns:14px auto 1fr auto 26px;gap:6px;
   margin-bottom:6px;align-items:center;}
 .mmh3p-retrow input,.mmh3p-retrow select{font-size:12px;}
 .mmh3p-retnote{grid-column:1/-1;margin-top:-2px;}
@@ -2725,6 +2725,21 @@ class Editor {
     });
   }
 
+  /** The "(style)" dropdown: picking one inserts it at the caret and resets.
+   *  Shared by the toolbar and, in REF, the style-opening heading. */
+  styleSelect() {
+    const sel = el("select", {},
+      [el("option", { value: "" }, "(style)"),
+        ...STYLES.map((s) => el("option", { value: s }, s))]);
+    sel.addEventListener("change", () => {
+      if (sel.value) { this.insert(sel.value + ", "); sel.value = ""; }
+    });
+    // Fitted after its own handler, which resets the value — registering first
+    // would measure the style just picked, then miss the reset back to "(style)".
+    autoFitSelect(sel);
+    return sel;
+  }
+
   toolBar(extraChips = []) {
     const camMove = autoFitSelect(el("select", {},
       CAMERA_MOVES.map(([k]) => el("option", { value: k }, k))));
@@ -2785,15 +2800,10 @@ class Editor {
       if (e.key === "Enter") { e.preventDefault(); shotBtn.click(); }
     });
 
-    const styleSel = el("select", {},
-      [el("option", { value: "" }, "(style)"),
-        ...STYLES.map((s) => el("option", { value: s }, s))]);
-    styleSel.addEventListener("change", () => {
-      if (styleSel.value) { this.insert(styleSel.value + ", "); styleSel.value = ""; }
-    });
-    // Fitted after its own handler, which resets the value — registering first
-    // would measure the style just picked, then miss the reset back to "(style)".
-    autoFitSelect(styleSel);
+    // REF puts this in its style-opening heading instead, where the wording it
+    // writes actually belongs; every other mode has no such section, so the
+    // toolbar keeps it.
+    const styleSel = this.state.mode === "REF" ? null : this.styleSelect();
 
     const chips = el("div", { class: "mmh3p-chips" }, this.refChips());
     if (this.sidebar) {
@@ -3520,17 +3530,17 @@ class Editor {
         if (!markers.includes(row.marker)) row.marker = markers[0];
         retWrap.append(el("div", { class: "mmh3p-retrow" + (row.off ? " off" : "") },
           this.rowPower(row, drawRet),
-          el("select", {
+          autoFitSelect(el("select", {
             onchange: (e) => { row.label = e.target.value; drawRet(); this.updatePreview(); } },
             knownLabels().map((l) =>
-              el("option", { value: l, selected: l === row.label }, l))),
+              el("option", { value: l, selected: l === row.label }, l)))),
           el("input", { type: "text", value: row.context,
             dataset: { shotlist: "1" },
             placeholder: "appears in [Shot 1], [Shot 2]  \u2014 or leave empty",
             oninput: (e) => { row.context = e.target.value; } }),
-          el("select", {
+          autoFitSelect(el("select", {
             onchange: (e) => { row.marker = e.target.value; this.updatePreview(); } },
-            markers.map((m) => el("option", { value: m, selected: m === row.marker }, m))),
+            markers.map((m) => el("option", { value: m, selected: m === row.marker }, m)))),
           el("button", { class: "mmh3p-btn ghost",
             onclick: () => { r.retention.splice(i, 1); drawRet(); this.updatePreview(); } },
             "\u2715"),
@@ -3545,11 +3555,7 @@ class Editor {
       });
     };
     drawRet();
-    f.append(el("div", { class: "mmh3p-sec" },
-      this.secLabel("retention_analysis"),
-      retWrap,
-      el("div", { class: "mmh3p-tools" },
-        el("button", { class: "mmh3p-btn", onclick: () => {
+    const addEntryBtn = el("button", { class: "mmh3p-btn", onclick: () => {
           const labels = knownLabels();
           if (!labels.length) { toast("Define a subject or connect media first"); return; }
           const used = new Set(r.retention.map((x) => x.label));
@@ -3562,8 +3568,8 @@ class Editor {
             // note rather than only hinting at it — the role chips already do.
             note: hint ? hint.note : "" });
           drawRet(); this.updatePreview();
-        } }, "+ Entry"),
-        el("button", { class: "mmh3p-btn",
+        } }, "+ Entry");
+    const autoFillBtn = el("button", { class: "mmh3p-btn",
           title: "One entry per item defined above \u2014 not per picture cited " +
             "inside a subject",
           onclick: () => {
@@ -3585,7 +3591,10 @@ class Editor {
             });
             drawRet(); this.updatePreview();
             if (!added) toast("Every defined label already has an entry", 2600);
-          } }, "Auto-fill from labels")),
+          } }, "Auto-fill from labels");
+    f.append(el("div", { class: "mmh3p-sec" },
+      this.secLabel("retention_analysis", null, addEntryBtn, autoFillBtn),
+      retWrap,
       el("span", { class: "hint" },
         "Visual labels: fully_preserved / partially_preserved / attribute_transfer / " +
         "weak_reference. Audio labels: fully_copy / partially_copy / reference / weak_reference.")));
@@ -3603,7 +3612,9 @@ class Editor {
       "[Shot 1] A medium shot establishes <Subject 1>, ...\n[Shot 2] At 00:03.000, the shot cuts to ...");
     detTa.addEventListener("input", paintWc);
     f.append(el("div", { class: "mmh3p-sec" },
-      el("label", {}, "detailed_description \u2014 style opening (before [Shot 1])"),
+      el("label", { class: "act" },
+        "detailed_description \u2014 style opening (before [Shot 1])",
+        el("span", { class: "mmh3p-secact" }, this.styleSelect())),
       this.ta(r, "styleLine", 2,
         "The target video is in a realistic multi-camera sitcom style with warm indoor lighting.")));
     f.append(el("div", { class: "mmh3p-sec mmh3p-grow" },
