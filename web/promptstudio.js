@@ -41,7 +41,7 @@ function refreshBar(node) {
   if (!expand) {
     if (node._mmh3Expanded) {
       node._mmh3Expanded = false;
-      bar.classList.remove("mmh3-summary-open");
+      bar.classList.remove("mmh3p-summary-open");
       widget.computedHeight = SUMMARY_H;
       widget.computeSize = () => [NODE_W, SUMMARY_H];
     }
@@ -59,7 +59,7 @@ function refreshBar(node) {
     clearTimeout(timer);
     timer = setTimeout(() => fields.save(), 300);
   });
-  bar.classList.add("mmh3-summary-open");
+  bar.classList.add("mmh3p-summary-open");
   bar.replaceChildren(fields.root);
   widget.computedHeight = EDITOR_H;
   widget.computeSize = () => [NODE_W, EDITOR_H];
@@ -125,7 +125,7 @@ function fitPanel(node, base) {
 
   widget.computedHeight = height;
   widget.computeSize = () => [NODE_W, height];
-  // Inline styles beat .mml-panel's fixed height without touching the shared
+  // Inline styles beat .mmlp-panel's fixed height without touching the shared
   // rule the standalone Media Loader still relies on.
   const root = node._mmlPanel?.root;
   if (root) {
@@ -135,7 +135,7 @@ function fitPanel(node, base) {
 }
 
 app.registerExtension({
-  name: "MiniMaxH3.PromptStudio",
+  name: "MiniMaxH3Plus.PromptStudio",
   async beforeRegisterNodeDef(nodeType, nodeData) {
     if (nodeData.name !== STUDIO_NAME) return;
     console.log("[MiniMaxH3 PromptStudio] extension registered");
@@ -178,7 +178,7 @@ app.registerExtension({
       try {
         if (this.addDOMWidget) {
           const summary = el("div", {
-            class: "mmh3-summary",
+            class: "mmh3p-summary",
             title: "Quick-edit the prompt \u2014 the scroll opens the full editor",
             style: { cursor: "pointer", height: `${SUMMARY_H}px`,
                      minHeight: `${SUMMARY_H}px` },

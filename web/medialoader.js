@@ -271,334 +271,334 @@ export function currentPreset(node) {
 }
 
 const CSS = `
-.mml-panel{font-family:system-ui,sans-serif;color:#d7dbe2;font-size:12px;
+.mmlp-panel{font-family:system-ui,sans-serif;color:#d7dbe2;font-size:12px;
   background:#191c22;border:1px solid #2a2f3a;border-radius:8px;padding:8px;
   display:flex;flex-direction:column;gap:6px;box-sizing:border-box;
   width:100%;height:476px;min-height:476px;overflow:hidden;}
-.mml-cols{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+.mmlp-cols{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:9px;}
 /* Mode-shaped layout: one big slot for a single keyframe, two side by side
    for first+last. The slots grow to the panel instead of the fixed tile size,
    since there are only one or two of them. */
-.mml-shape{flex:1;min-height:0;display:grid;gap:9px;}
-.mml-shape.one{grid-template-columns:1fr;}
-.mml-shape.two{grid-template-columns:1fr 1fr;}
-.mml-shape .mml-slot{width:auto;height:auto;min-height:0;}
-.mml-shape .mml-pic{object-fit:contain;}
-.mml-shapenone{flex:0 0 auto;padding:10px 8px;border:1px dashed #2e3440;
+.mmlp-shape{flex:1;min-height:0;display:grid;gap:9px;}
+.mmlp-shape.one{grid-template-columns:1fr;}
+.mmlp-shape.two{grid-template-columns:1fr 1fr;}
+.mmlp-shape .mmlp-slot{width:auto;height:auto;min-height:0;}
+.mmlp-shape .mmlp-pic{object-fit:contain;}
+.mmlp-shapenone{flex:0 0 auto;padding:10px 8px;border:1px dashed #2e3440;
   border-radius:7px;color:#6b7484;font-size:11px;text-align:center;}
-.mml-panel.mml-min{height:auto;min-height:0;}
-.mml-col{display:flex;flex-direction:column;gap:5px;min-width:0;}
-.mml-modal .mml-panel{border:0;height:100%;min-height:0;}
-.mml-overlay{position:fixed;inset:0;z-index:10040;background:rgba(8,10,14,.62);
+.mmlp-panel.mmlp-min{height:auto;min-height:0;}
+.mmlp-col{display:flex;flex-direction:column;gap:5px;min-width:0;}
+.mmlp-modal .mmlp-panel{border:0;height:100%;min-height:0;}
+.mmlp-overlay{position:fixed;inset:0;z-index:10040;background:rgba(8,10,14,.62);
   display:flex;align-items:center;justify-content:center;}
 /* As with the prompt editor, the pixel cap is what decides this modal's height
    on a tall screen — 92vh only bites on a short one. */
-.mml-modal{box-sizing:border-box;width:min(1240px,95vw);height:min(1290px,92vh);background:#191c22;
+.mmlp-modal{box-sizing:border-box;width:min(1240px,95vw);height:min(1290px,92vh);background:#191c22;
   border:1px solid #303642;border-radius:10px;display:flex;flex-direction:column;
   overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.55);}
-.mml-modalhead{display:flex;align-items:center;gap:10px;padding:9px 13px;
+.mmlp-modalhead{display:flex;align-items:center;gap:10px;padding:9px 13px;
   background:#1e222a;border-bottom:1px solid #2a2f3a;font-size:13px;
   font-weight:500;color:#d7dbe2;font-family:system-ui,sans-serif;}
-.mml-modalhead button{margin-left:auto;background:none;border:0;color:#8a93a3;
+.mmlp-modalhead button{margin-left:auto;background:none;border:0;color:#8a93a3;
   font-size:17px;cursor:pointer;}
-.mml-modalhead button:hover{color:#fff;}
-.mml-modalbody{flex:1;min-height:0;padding:8px;overflow:auto;}
-.mml-panel.drop{border-color:#6f86b8;background:#1d2330;}
-.mml-top{display:flex;align-items:center;gap:8px;flex:0 0 auto;}
-.mml-btn{background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
+.mmlp-modalhead button:hover{color:#fff;}
+.mmlp-modalbody{flex:1;min-height:0;padding:8px;overflow:auto;}
+.mmlp-panel.drop{border-color:#6f86b8;background:#1d2330;}
+.mmlp-top{display:flex;align-items:center;gap:8px;flex:0 0 auto;}
+.mmlp-btn{background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
   padding:4px 10px;font-size:11px;cursor:pointer;}
-.mml-btn:hover{background:#333b4d;}
-.mml-presetrow{flex:0 0 auto;display:flex;align-items:center;gap:5px;}
+.mmlp-btn:hover{background:#333b4d;}
+.mmlp-presetrow{flex:0 0 auto;display:flex;align-items:center;gap:5px;}
 /* Preset controls inline in the top row. flex-shrink lets the dropdown give up
    width first when the panel is narrow, so the buttons stay reachable. */
-.mml-presetgrp{display:flex;align-items:center;gap:5px;min-width:0;flex:0 1 auto;}
-.mml-presetgrp .mml-preset{flex:0 1 auto;min-width:60px;}
-.mml-slotmenu{position:fixed;z-index:10060;background:#1e222a;border:1px solid #3a4252;
+.mmlp-presetgrp{display:flex;align-items:center;gap:5px;min-width:0;flex:0 1 auto;}
+.mmlp-presetgrp .mmlp-preset{flex:0 1 auto;min-width:60px;}
+.mmlp-slotmenu{position:fixed;z-index:10060;background:#1e222a;border:1px solid #3a4252;
   border-radius:8px;padding:4px;min-width:170px;box-shadow:0 12px 32px rgba(0,0,0,.5);
   font-family:system-ui,sans-serif;font-size:11px;}
-.mml-slotitem{padding:6px 9px;border-radius:6px;cursor:pointer;color:#c9cfda;
+.mmlp-slotitem{padding:6px 9px;border-radius:6px;cursor:pointer;color:#c9cfda;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.mml-slotitem:hover{background:#2a3140;}
-.mml-slotitem.danger{color:#f0a0a0;}
-.mml-slotitem.danger:hover{background:#3a2020;}
-.mml-presetlbl{font-size:10px;text-transform:uppercase;letter-spacing:.07em;
+.mmlp-slotitem:hover{background:#2a3140;}
+.mmlp-slotitem.danger{color:#f0a0a0;}
+.mmlp-slotitem.danger:hover{background:#3a2020;}
+.mmlp-presetlbl{font-size:10px;text-transform:uppercase;letter-spacing:.07em;
   color:#6b7484;}
-.mml-preset{flex:1;min-width:0;background:#12151b;color:#c9cfda;
+.mmlp-preset{flex:1;min-width:0;background:#12151b;color:#c9cfda;
   border:1px solid #2e3440;border-radius:6px;padding:3px 6px;font-size:11px;
   font-family:system-ui,sans-serif;}
-.mml-preset:focus{outline:none;border-color:#4a5568;}
-.mml-btn.mml-sm{padding:3px 9px;font-size:10px;}
-.mml-btn.mml-on{border-color:#4a6fa5;background:#22304a;color:#c9dcf5;}
-.mml-winbtn{position:relative;}
-.mml-winbtn.mml-hasHidden{border-color:#7a5a2a;color:#e0a94c;}
-.mml-badge{position:absolute;top:-5px;right:-5px;min-width:13px;height:13px;
+.mmlp-preset:focus{outline:none;border-color:#4a5568;}
+.mmlp-btn.mmlp-sm{padding:3px 9px;font-size:10px;}
+.mmlp-btn.mmlp-on{border-color:#4a6fa5;background:#22304a;color:#c9dcf5;}
+.mmlp-winbtn{position:relative;}
+.mmlp-winbtn.mmlp-hasHidden{border-color:#7a5a2a;color:#e0a94c;}
+.mmlp-badge{position:absolute;top:-5px;right:-5px;min-width:13px;height:13px;
   padding:0 3px;border-radius:7px;background:#e0a94c;color:#191c22;font-size:9px;
   line-height:13px;text-align:center;font-weight:600;box-sizing:border-box;}
-.mml-btn.mml-danger{border-color:#7a3a3a;color:#f0a0a0;}
-.mml-btn.mml-danger:hover{background:#3a2020;}
-.mml-presetname{flex:1;min-width:0;background:#12151b;color:#dde2ea;
+.mmlp-btn.mmlp-danger{border-color:#7a3a3a;color:#f0a0a0;}
+.mmlp-btn.mmlp-danger:hover{background:#3a2020;}
+.mmlp-presetname{flex:1;min-width:0;background:#12151b;color:#dde2ea;
   border:1px solid #4a5568;border-radius:6px;padding:3px 7px;font-size:11px;
   font-family:system-ui,sans-serif;}
-.mml-presetname:focus{outline:none;border-color:#6f86b8;}
-.mml-presetwarn{flex:1;min-width:0;font-size:10px;color:#e0a94c;overflow:hidden;
+.mmlp-presetname:focus{outline:none;border-color:#6f86b8;}
+.mmlp-presetwarn{flex:1;min-width:0;font-size:10px;color:#e0a94c;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;}
-.mml-topspace{flex:1;}
-.mml-msg{flex:0 0 auto;font-size:10px;min-height:12px;color:#e0a94c;overflow:hidden;
+.mmlp-topspace{flex:1;}
+.mmlp-msg{flex:0 0 auto;font-size:10px;min-height:12px;color:#e0a94c;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;}
-.mml-msg.err{color:#f07070;}
-.mml-sec{flex:0 0 auto;display:flex;align-items:center;font-size:10px;
+.mmlp-msg.err{color:#f07070;}
+.mmlp-sec{flex:0 0 auto;display:flex;align-items:center;font-size:10px;
   text-transform:uppercase;letter-spacing:.07em;color:#6b7484;}
-.mml-sec span{margin-left:auto;text-transform:none;letter-spacing:0;color:#5c6472;
+.mmlp-sec span{margin-left:auto;text-transform:none;letter-spacing:0;color:#5c6472;
   font-family:ui-monospace,monospace;}
 
-.mml-pics{flex:1;min-height:0;display:grid;
+.mmlp-pics{flex:1;min-height:0;display:grid;
   grid-template-columns:repeat(3,minmax(0,1fr));
   grid-template-rows:repeat(3,minmax(0,1fr));gap:5px;}
-.mml-vids{flex:0 0 auto;display:grid;grid-template-rows:repeat(3,46px);gap:5px;
+.mmlp-vids{flex:0 0 auto;display:grid;grid-template-rows:repeat(3,46px);gap:5px;
   grid-template-columns:minmax(0,1fr);}
-.mml-spacer{flex:1;min-height:0;}
-.mml-auds{flex:0 0 auto;display:grid;grid-template-rows:repeat(3,38px);gap:5px;
+.mmlp-spacer{flex:1;min-height:0;}
+.mmlp-auds{flex:0 0 auto;display:grid;grid-template-rows:repeat(3,38px);gap:5px;
   grid-template-columns:minmax(0,1fr);}
 
-.mml-slot{border:1px dashed #2b313d;border-radius:6px;background:#141820;
+.mmlp-slot{border:1px dashed #2b313d;border-radius:6px;background:#141820;
   display:flex;align-items:center;justify-content:center;gap:5px;color:#4d5563;
   font-size:10px;cursor:pointer;overflow:hidden;min-width:0;min-height:0;}
-.mml-slot:hover{border-color:#59637a;color:#8a93a3;}
-.mml-slot.hot{border-color:#6f86b8;background:#1b2230;color:#9db4dc;}
-.mml-slot.filled{border-style:solid;border-color:#2e3440;background:#12151b;cursor:default;
+.mmlp-slot:hover{border-color:#59637a;color:#8a93a3;}
+.mmlp-slot.hot{border-color:#6f86b8;background:#1b2230;color:#9db4dc;}
+.mmlp-slot.filled{border-style:solid;border-color:#2e3440;background:#12151b;cursor:default;
   display:block;position:relative;min-width:0;min-height:0;overflow:hidden;}
-.mml-slot.filled.pic{border-color:#6d5527;}
-.mml-slot.filled.vid{border-color:#255c6b;}
-.mml-slot.filled.aud{border-color:#4c3d6e;}
-.mml-slot.dragging{opacity:.35;}
-.mml-slot.over{outline:1px solid #6f86b8;outline-offset:1px;}
+.mmlp-slot.filled.pic{border-color:#6d5527;}
+.mmlp-slot.filled.vid{border-color:#255c6b;}
+.mmlp-slot.filled.aud{border-color:#4c3d6e;}
+.mmlp-slot.dragging{opacity:.35;}
+.mmlp-slot.over{outline:1px solid #6f86b8;outline-offset:1px;}
 
 /* Crop rects are relative to the DRAWN image, which object-fit:contain
    letterboxes inside its element — so the overlay needs a box of exactly
    those bounds. CSS can't contain-fit an empty div (aspect-ratio only fills
    in a dimension that isn't already set), so an invisible image of the right
    intrinsic size does the sizing, exactly as the real one does. */
-.mml-cropfit{position:absolute;inset:0;pointer-events:none;}
+.mmlp-cropfit{position:absolute;inset:0;pointer-events:none;}
 /* rotate() doesn't change an element's layout box, so a quarter-turned
    thumbnail would spill past the tile. Give it a square box the size of the
    tile's shorter side: the turned image then fits whichever way it lands. */
-.mml-pic.turned{width:auto;height:auto;max-width:none;max-height:none;
+.mmlp-pic.turned{width:auto;height:auto;max-width:none;max-height:none;
   inset:0;margin:auto;}
-.mml-cropbox{position:absolute;line-height:0;}
-.mml-cropmark{position:absolute;border:1px solid rgba(76,195,224,.9);
+.mmlp-cropbox{position:absolute;line-height:0;}
+.mmlp-cropmark{position:absolute;border:1px solid rgba(76,195,224,.9);
   box-shadow:0 0 0 2000px rgba(6,8,12,.55);pointer-events:none;z-index:1;}
-.mml-dims.cut{color:#9fe3f5;}
-.mml-dims{position:absolute;right:3px;top:3px;padding:1px 4px;border-radius:4px;
+.mmlp-dims.cut{color:#9fe3f5;}
+.mmlp-dims{position:absolute;right:3px;top:3px;padding:1px 4px;border-radius:4px;
   background:rgba(8,10,14,.85);color:#dfe4ec;font-size:8px;line-height:1.2;
   font-family:ui-monospace,monospace;pointer-events:none;letter-spacing:0;
   text-shadow:0 1px 2px rgba(0,0,0,.9);z-index:2;}
-.mml-dims:empty{display:none;}
-.mml-lightdims{font-size:10px;color:#8a93a3;font-family:ui-monospace,monospace;}
-.mml-pic{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
+.mmlp-dims:empty{display:none;}
+.mmlp-lightdims{font-size:10px;color:#8a93a3;font-family:ui-monospace,monospace;}
+.mmlp-pic{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
   display:block;cursor:zoom-in;background:#0d1015;}
-.mml-picbar{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;
+.mmlp-picbar{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;
   gap:3px;padding:1px 4px;background:rgba(10,12,16,.82);min-width:0;overflow:hidden;}
 /* The label gives way first: controls must never be pushed out of the bar. */
-.mml-picbar .mml-tag{flex:1 1 auto;min-width:0;overflow:hidden;
+.mmlp-picbar .mmlp-tag{flex:1 1 auto;min-width:0;overflow:hidden;
   text-overflow:ellipsis;}
-.mml-picbar .mml-power,
-.mml-picbar .mml-trimbtn,
-.mml-picbar .mml-drag,
-.mml-picbar .mml-x{flex:0 0 auto;}
-.mml-picbar .mml-trimbtn{font-size:12px;}
-.mml-tag{font-family:ui-monospace,monospace;font-size:9px;white-space:nowrap;}
-.mml-tag.pic{color:#e0a94c;} .mml-tag.vid{color:#4cc3e0;} .mml-tag.aud{color:#b48ce8;}
-.mml-x{cursor:pointer;color:#7a8393;font-size:11px;line-height:1;}
-.mml-x:hover{color:#e05a5a;}
+.mmlp-picbar .mmlp-power,
+.mmlp-picbar .mmlp-trimbtn,
+.mmlp-picbar .mmlp-drag,
+.mmlp-picbar .mmlp-x{flex:0 0 auto;}
+.mmlp-picbar .mmlp-trimbtn{font-size:12px;}
+.mmlp-tag{font-family:ui-monospace,monospace;font-size:9px;white-space:nowrap;}
+.mmlp-tag.pic{color:#e0a94c;} .mmlp-tag.vid{color:#4cc3e0;} .mmlp-tag.aud{color:#b48ce8;}
+.mmlp-x{cursor:pointer;color:#7a8393;font-size:11px;line-height:1;}
+.mmlp-x:hover{color:#e05a5a;}
 
-.mml-row{display:flex;align-items:center;gap:6px;padding:0 6px;height:100%;
+.mmlp-row{display:flex;align-items:center;gap:6px;padding:0 6px;height:100%;
   box-sizing:border-box;min-width:0;overflow:hidden;}
-.mml-vthumb{width:60px;height:34px;min-width:60px;max-width:60px;border-radius:4px;
+.mmlp-vthumb{width:60px;height:34px;min-width:60px;max-width:60px;border-radius:4px;
   object-fit:contain;background:#0d1015;flex-shrink:0;cursor:zoom-in;}
-.mml-meta{min-width:0;flex:1;}
-.mml-name{font-size:9px;color:#6b7484;overflow:hidden;text-overflow:ellipsis;
+.mmlp-meta{min-width:0;flex:1;}
+.mmlp-name{font-size:9px;color:#6b7484;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;}
-.mml-play{width:20px;height:20px;border-radius:50%;border:1px solid #3a4252;background:#20242d;
+.mmlp-play{width:20px;height:20px;border-radius:50%;border:1px solid #3a4252;background:#20242d;
   color:#c9cfda;font-size:9px;line-height:1;cursor:pointer;flex-shrink:0;
   display:flex;align-items:center;justify-content:center;padding:0;}
-.mml-play:hover{border-color:#59637a;}
-.mml-bar{flex:1;height:3px;background:#2a2f3a;border-radius:2px;min-width:16px;
+.mmlp-play:hover{border-color:#59637a;}
+.mmlp-bar{flex:1;height:3px;background:#2a2f3a;border-radius:2px;min-width:16px;
   cursor:pointer;position:relative;}
-.mml-bar i{position:absolute;left:0;top:0;bottom:0;background:#7d63b8;border-radius:2px;
+.mmlp-bar i{position:absolute;left:0;top:0;bottom:0;background:#7d63b8;border-radius:2px;
   display:block;width:0;}
-.mml-time{font-size:9px;color:#6b7484;font-family:ui-monospace,monospace;flex-shrink:0;}
-.mml-seg{display:inline-flex;border:1px solid #2e3440;border-radius:4px;overflow:hidden;
+.mmlp-time{font-size:9px;color:#6b7484;font-family:ui-monospace,monospace;flex-shrink:0;}
+.mmlp-seg{display:inline-flex;border:1px solid #2e3440;border-radius:4px;overflow:hidden;
   flex-shrink:0;}
-.mml-seg button{background:none;border:0;color:#6b7484;font-size:9px;padding:1px 5px;
+.mmlp-seg button{background:none;border:0;color:#6b7484;font-size:9px;padding:1px 5px;
   cursor:pointer;}
-.mml-seg button.on{background:#3a2f56;color:#e2d6f8;}
-.mml-power{cursor:pointer;color:#4d5563;font-size:11px;line-height:1;flex-shrink:0;
+.mmlp-seg button.on{background:#3a2f56;color:#e2d6f8;}
+.mmlp-power{cursor:pointer;color:#4d5563;font-size:11px;line-height:1;flex-shrink:0;
   user-select:none;}
-.mml-power.on{color:#7ec87e;}
-.mml-power:hover{color:#a8e6a8;}
-.mml-slot.filled.off{opacity:.42;border-style:dashed;}
-.mml-slot.filled.off .mml-power{opacity:1;color:#6b7484;}
-.mml-slot.filled.off:hover{opacity:.7;}
-.mml-segstack{display:flex;flex-direction:column;align-items:center;gap:2px;
+.mmlp-power.on{color:#7ec87e;}
+.mmlp-power:hover{color:#a8e6a8;}
+.mmlp-slot.filled.off{opacity:.42;border-style:dashed;}
+.mmlp-slot.filled.off .mmlp-power{opacity:1;color:#6b7484;}
+.mmlp-slot.filled.off:hover{opacity:.7;}
+.mmlp-segstack{display:flex;flex-direction:column;align-items:center;gap:2px;
   flex-shrink:0;}
-.mml-segtag{font-size:9px;}
-.mml-trimok{border-color:#3e5240;color:#7ec87e;}
-.mml-trimbtn{cursor:pointer;color:#e0a94c;opacity:.65;font-size:15px;line-height:1;
+.mmlp-segtag{font-size:9px;}
+.mmlp-trimok{border-color:#3e5240;color:#7ec87e;}
+.mmlp-trimbtn{cursor:pointer;color:#e0a94c;opacity:.65;font-size:15px;line-height:1;
   flex-shrink:0;user-select:none;}
-.mml-trimbtn:hover{opacity:1;}
-.mml-trimbtn.on{opacity:1;text-shadow:0 0 6px rgba(224,169,76,.55);}
-.mml-tmover{position:fixed;inset:0;background:rgba(8,10,14,.72);z-index:10050;
+.mmlp-trimbtn:hover{opacity:1;}
+.mmlp-trimbtn.on{opacity:1;text-shadow:0 0 6px rgba(224,169,76,.55);}
+.mmlp-tmover{position:fixed;inset:0;background:rgba(8,10,14,.72);z-index:10050;
   display:flex;align-items:center;justify-content:center;}
-.mml-tmmodal{box-sizing:border-box;width:min(1240px,95vw);height:min(1290px,92vh);
+.mmlp-tmmodal{box-sizing:border-box;width:min(1240px,95vw);height:min(1290px,92vh);
   background:#191c22;border:1px solid #303642;
   border-radius:10px;box-shadow:0 24px 64px rgba(0,0,0,.55);display:flex;
   flex-direction:column;overflow:hidden;font-family:system-ui,sans-serif;}
 /* Audio has no frame to show, so it keeps its original compact window
    rather than the full-height one video and stills were given. */
-.mml-tmmodal.audio{width:min(640px,92vw);height:auto;max-height:92vh;}
-.mml-tmmodal.audio .mml-tmstage{flex:0 0 auto;}
-.mml-tmhead{display:flex;align-items:center;gap:8px;padding:8px 12px;
+.mmlp-tmmodal.audio{width:min(640px,92vw);height:auto;max-height:92vh;}
+.mmlp-tmmodal.audio .mmlp-tmstage{flex:0 0 auto;}
+.mmlp-tmhead{display:flex;align-items:center;gap:8px;padding:8px 12px;
   border-bottom:1px solid #2a2f3a;background:#1b1f27;}
-.mml-tmtitle{flex:1;min-width:0;font-size:12px;color:#dde2ea;overflow:hidden;
+.mmlp-tmtitle{flex:1;min-width:0;font-size:12px;color:#dde2ea;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;}
-.mml-tmstage{position:relative;background:#000;line-height:0;flex:1 1 auto;min-height:0;}
-.mml-tmvideo{width:100%;height:100%;max-height:none;object-fit:contain;display:block;}
-.mml-tmcropwrap{position:absolute;inset:0;}
+.mmlp-tmstage{position:relative;background:#000;line-height:0;flex:1 1 auto;min-height:0;}
+.mmlp-tmvideo{width:100%;height:100%;max-height:none;object-fit:contain;display:block;}
+.mmlp-tmcropwrap{position:absolute;inset:0;}
 
-.mml-tmcrop{position:absolute;border:1.5px dashed #4cc3e0;cursor:move;
+.mmlp-tmcrop{position:absolute;border:1.5px dashed #4cc3e0;cursor:move;
   background:
     linear-gradient(rgba(76,195,224,.25),rgba(76,195,224,.25)) 33.33% 0/1px 100% no-repeat,
     linear-gradient(rgba(76,195,224,.25),rgba(76,195,224,.25)) 66.66% 0/1px 100% no-repeat,
     linear-gradient(rgba(76,195,224,.25),rgba(76,195,224,.25)) 0 33.33%/100% 1px no-repeat,
     linear-gradient(rgba(76,195,224,.25),rgba(76,195,224,.25)) 0 66.66%/100% 1px no-repeat;
   box-shadow:0 0 0 4000px rgba(0,0,0,.45);}
-.mml-tmcrop.locked{cursor:default;border-style:solid;
+.mmlp-tmcrop.locked{cursor:default;border-style:solid;
   border-color:rgba(76,195,224,.85);background:none;}
-.mml-tmcrop.locked .mml-tmcorner{display:none;}
-.mml-tmcorner{position:absolute;width:11px;height:11px;background:#4cc3e0;
+.mmlp-tmcrop.locked .mmlp-tmcorner{display:none;}
+.mmlp-tmcorner{position:absolute;width:11px;height:11px;background:#4cc3e0;
   border-radius:2px;}
-.mml-tmcorner.nw{left:-6px;top:-6px;cursor:nwse-resize;}
-.mml-tmcorner.ne{right:-6px;top:-6px;cursor:nesw-resize;}
-.mml-tmcorner.sw{left:-6px;bottom:-6px;cursor:nesw-resize;}
-.mml-tmcorner.se{right:-6px;bottom:-6px;cursor:nwse-resize;}
-.mml-tmcropbar{display:flex;align-items:center;gap:6px;}
-.mml-tmcropinfo{font-size:10px;color:#8a93a3;font-family:ui-monospace,monospace;
+.mmlp-tmcorner.nw{left:-6px;top:-6px;cursor:nwse-resize;}
+.mmlp-tmcorner.ne{right:-6px;top:-6px;cursor:nesw-resize;}
+.mmlp-tmcorner.sw{left:-6px;bottom:-6px;cursor:nesw-resize;}
+.mmlp-tmcorner.se{right:-6px;bottom:-6px;cursor:nwse-resize;}
+.mmlp-tmcropbar{display:flex;align-items:center;gap:6px;}
+.mmlp-tmcropinfo{font-size:10px;color:#8a93a3;font-family:ui-monospace,monospace;
   white-space:nowrap;}
-.mml-tmcropinfo.changed{color:#4cc3e0;}
-.mml-tmaspect{background:#12151b;color:#c9cfda;border:1px solid #2e3440;
+.mmlp-tmcropinfo.changed{color:#4cc3e0;}
+.mmlp-tmaspect{background:#12151b;color:#c9cfda;border:1px solid #2e3440;
   border-radius:6px;padding:2px 5px;font-size:11px;}
-.mml-btn.on{background:#173642;border-color:#4cc3e0;color:#9fe3f5;}
-.mml-tmtimeline{position:relative;padding:8px 14px 4px;}
-.mml-tmwave{display:block;width:100%;height:46px;margin-bottom:2px;}
-.mml-tmruler{position:relative;height:16px;}
-.mml-tmtick{position:absolute;transform:translateX(-50%);font-size:9px;
+.mmlp-btn.on{background:#173642;border-color:#4cc3e0;color:#9fe3f5;}
+.mmlp-tmtimeline{position:relative;padding:8px 14px 4px;}
+.mmlp-tmwave{display:block;width:100%;height:46px;margin-bottom:2px;}
+.mmlp-tmruler{position:relative;height:16px;}
+.mmlp-tmtick{position:absolute;transform:translateX(-50%);font-size:9px;
   color:#6b7484;}
-.mml-tmtick::before{content:"";position:absolute;left:50%;top:-3px;width:1px;
+.mmlp-tmtick::before{content:"";position:absolute;left:50%;top:-3px;width:1px;
   height:3px;background:#3a4252;}
-.mml-tmbar{position:relative;height:20px;background:#12151b;border-radius:5px;
+.mmlp-tmbar{position:relative;height:20px;background:#12151b;border-radius:5px;
   margin:2px 0 6px;cursor:pointer;}
-.mml-tmsel{position:absolute;top:0;bottom:0;background:#1f6f96;border-radius:5px;}
-.mml-tmhandle{position:absolute;top:-3px;bottom:-3px;width:9px;background:#4cc3e0;
+.mmlp-tmsel{position:absolute;top:0;bottom:0;background:#1f6f96;border-radius:5px;}
+.mmlp-tmhandle{position:absolute;top:-3px;bottom:-3px;width:9px;background:#4cc3e0;
   border-radius:3px;transform:translateX(-50%);cursor:ew-resize;z-index:2;}
-.mml-tmhandle:hover{background:#7fd8ee;box-shadow:0 0 6px rgba(76,195,224,.7);}
-.mml-tmplayhead{position:absolute;top:-5px;bottom:-5px;width:2px;
+.mmlp-tmhandle:hover{background:#7fd8ee;box-shadow:0 0 6px rgba(76,195,224,.7);}
+.mmlp-tmplayhead{position:absolute;top:-5px;bottom:-5px;width:2px;
   background:#ffb84d;transform:translateX(-50%);pointer-events:none;z-index:4;
   box-shadow:0 0 0 1px rgba(0,0,0,.65), 0 0 7px rgba(255,184,77,.85);}
-.mml-tmplayhead::before{content:"";position:absolute;left:50%;top:-4px;
+.mmlp-tmplayhead::before{content:"";position:absolute;left:50%;top:-4px;
   width:0;height:0;transform:translateX(-50%);
   border-left:4px solid transparent;border-right:4px solid transparent;
   border-top:5px solid #ffb84d;}
-.mml-tmnow{display:flex;gap:5px;align-items:center;height:14px;
+.mmlp-tmnow{display:flex;gap:5px;align-items:center;height:14px;
   font-size:9px;color:#8a6a33;text-transform:uppercase;letter-spacing:.06em;}
-.mml-tmplaytime{color:#ffb84d;font-family:ui-monospace,monospace;
+.mmlp-tmplaytime{color:#ffb84d;font-family:ui-monospace,monospace;
   text-transform:none;letter-spacing:0;font-size:10px;}
-.mml-tmfoot{display:flex;align-items:center;gap:5px;padding:8px 12px 0;
+.mmlp-tmfoot{display:flex;align-items:center;gap:5px;padding:8px 12px 0;
   flex-wrap:wrap;}
-.mml-tmfoot.act{padding:8px 12px 4px;border-top:1px solid #23272f;margin-top:8px;}
-.mml-tmgap{width:8px;}
-.mml-tmspace{flex:1;}
-.mml-tmnum{width:52px;background:#12151b;color:#dde2ea;border:1px solid #2e3440;
+.mmlp-tmfoot.act{padding:8px 12px 4px;border-top:1px solid #23272f;margin-top:8px;}
+.mmlp-tmgap{width:8px;}
+.mmlp-tmspace{flex:1;}
+.mmlp-tmnum{width:52px;background:#12151b;color:#dde2ea;border:1px solid #2e3440;
   border-radius:6px;padding:3px 6px;font-size:11px;text-align:right;
   font-family:ui-monospace,monospace;}
-.mml-tmnum:focus{outline:none;border-color:#4cc3e0;}
-.mml-tmdash{color:#5c6472;font-size:11px;}
-.mml-tmoutside{font-size:10px;color:#f07070;white-space:nowrap;overflow:hidden;
+.mmlp-tmnum:focus{outline:none;border-color:#4cc3e0;}
+.mmlp-tmdash{color:#5c6472;font-size:11px;}
+.mmlp-tmoutside{font-size:10px;color:#f07070;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis;text-transform:none;letter-spacing:0;}
-.mml-tmplayhead.out{background:#f07070;
+.mmlp-tmplayhead.out{background:#f07070;
   box-shadow:0 0 0 1px rgba(0,0,0,.65), 0 0 7px rgba(240,112,112,.85);}
-.mml-tmplayhead.out::before{border-top-color:#f07070;}
-.mml-tmnote{padding:2px 12px 6px;font-size:10px;color:#8a93a3;line-height:1.4;}
-.mml-tmnote.bad{color:#f07070;}
-.mml-tmnote:empty{display:none;}
-.mml-tmkeys{padding:0 12px 10px;font-size:10px;color:#5c6472;}
-.mml-tmreadout{font-size:11px;color:#8a93a3;font-family:ui-monospace,monospace;}
-.mml-tmreadout.bad{color:#f07070;}
-.mml-btn.primary{background:#1f4f7d;border-color:#3d7fbf;color:#dbeafe;}
-.mml-trimrow{display:flex;align-items:center;flex-wrap:nowrap;gap:3px;
+.mmlp-tmplayhead.out::before{border-top-color:#f07070;}
+.mmlp-tmnote{padding:2px 12px 6px;font-size:10px;color:#8a93a3;line-height:1.4;}
+.mmlp-tmnote.bad{color:#f07070;}
+.mmlp-tmnote:empty{display:none;}
+.mmlp-tmkeys{padding:0 12px 10px;font-size:10px;color:#5c6472;}
+.mmlp-tmreadout{font-size:11px;color:#8a93a3;font-family:ui-monospace,monospace;}
+.mmlp-tmreadout.bad{color:#f07070;}
+.mmlp-btn.primary{background:#1f4f7d;border-color:#3d7fbf;color:#dbeafe;}
+.mmlp-trimrow{display:flex;align-items:center;flex-wrap:nowrap;gap:3px;
   padding:0 5px;height:100%;overflow:hidden;}
-.mml-trimlbl{font-size:9px;text-transform:uppercase;letter-spacing:.07em;
+.mmlp-trimlbl{font-size:9px;text-transform:uppercase;letter-spacing:.07em;
   color:#6b7484;}
-.mml-triminput{width:38px;background:#12151b;color:#dde2ea;
+.mmlp-triminput{width:38px;background:#12151b;color:#dde2ea;
   border:1px solid #2e3440;border-radius:5px;padding:2px 6px;font-size:11px;}
-.mml-triminput:focus{outline:none;border-color:#4a5568;}
-.mml-trimdash{color:#6b7484;}
-.mml-trimof{font-size:10px;color:#6b7484;}
-.mml-trimerr{flex-basis:100%;font-size:10px;color:#f07070;}
-.mml-trimerr:empty{display:none;}
-.mml-drag{cursor:grab;color:#4d5563;font-size:10px;user-select:none;flex-shrink:0;}
+.mmlp-triminput:focus{outline:none;border-color:#4a5568;}
+.mmlp-trimdash{color:#6b7484;}
+.mmlp-trimof{font-size:10px;color:#6b7484;}
+.mmlp-trimerr{flex-basis:100%;font-size:10px;color:#f07070;}
+.mmlp-trimerr:empty{display:none;}
+.mmlp-drag{cursor:grab;color:#4d5563;font-size:10px;user-select:none;flex-shrink:0;}
 
-.mml-order{flex:0 0 auto;background:#1a2230;border:1px solid #2b3a52;border-radius:6px;
+.mmlp-order{flex:0 0 auto;background:#1a2230;border:1px solid #2b3a52;border-radius:6px;
   padding:4px 7px;height:42px;box-sizing:border-box;overflow:hidden;}
-.mml-order b{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.07em;
+.mmlp-order b{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.07em;
   color:#6f86b8;font-weight:500;margin-bottom:1px;}
-.mml-order div{font-family:ui-monospace,monospace;font-size:9px;color:#9db4dc;
+.mmlp-order div{font-family:ui-monospace,monospace;font-size:9px;color:#9db4dc;
   line-height:1.35;overflow:hidden;}
 /* Same tag colours the prompt preview uses, so a tag looks the same wherever
    it appears. The arrows stay dim: they are punctuation, not content. */
-.mml-order .t-pic{color:#e0a94c;} .mml-order .t-vid{color:#4cc3e0;}
-.mml-order .t-aud{color:#b48ce8;} .mml-order .t-subj{color:#7ec87e;}
-.mml-orderarrow{color:#4a5568;margin:0 4px;}
+.mmlp-order .mmlp-t-pic{color:#e0a94c;} .mmlp-order .mmlp-t-vid{color:#4cc3e0;}
+.mmlp-order .mmlp-t-aud{color:#b48ce8;} .mmlp-order .mmlp-t-subj{color:#7ec87e;}
+.mmlp-orderarrow{color:#4a5568;margin:0 4px;}
 
-.mml-light{position:fixed;inset:0;z-index:10050;background:rgba(8,10,14,.75);
+.mmlp-light{position:fixed;inset:0;z-index:10050;background:rgba(8,10,14,.75);
   display:flex;align-items:center;justify-content:center;}
-.mml-lightbox{max-width:95vw;max-height:92vh;background:#1e222a;border:1px solid #3a4252;
+.mmlp-lightbox{max-width:95vw;max-height:92vh;background:#1e222a;border:1px solid #3a4252;
   border-radius:10px;overflow:hidden;padding:8px;}
-.mml-lightbox img,.mml-lightbox video{max-width:93vw;max-height:84vh;display:block;}
-.mml-lightcap{display:flex;align-items:center;gap:8px;padding-top:6px;font-size:11px;
+.mmlp-lightbox img,.mmlp-lightbox video{max-width:93vw;max-height:84vh;display:block;}
+.mmlp-lightcap{display:flex;align-items:center;gap:8px;padding-top:6px;font-size:11px;
   color:#8a93a3;}
-.mml-helpbtn{margin-left:5px;width:13px;height:13px;line-height:1;padding:0;
+.mmlp-helpbtn{margin-left:5px;width:13px;height:13px;line-height:1;padding:0;
   border-radius:50%;border:1px solid #3a4252;background:#20242d;color:#8a93a3;
   font-size:9px;cursor:pointer;font-family:system-ui,sans-serif;}
-.mml-helpbtn:hover{border-color:#6f86b8;color:#c9cfda;}
-.mml-help{position:fixed;z-index:10055;width:370px;max-height:min(560px,88vh);
+.mmlp-helpbtn:hover{border-color:#6f86b8;color:#c9cfda;}
+.mmlp-help{position:fixed;z-index:10055;width:370px;max-height:min(560px,88vh);
   background:#1e222a;border:1px solid #3a4252;border-radius:9px;overflow:hidden;
   display:flex;flex-direction:column;box-shadow:0 14px 36px rgba(0,0,0,.55);
   font-family:system-ui,sans-serif;}
-.mml-helphead{display:flex;align-items:center;padding:7px 10px;background:#232833;
+.mmlp-helphead{display:flex;align-items:center;padding:7px 10px;background:#232833;
   border-bottom:1px solid #2a2f3a;font-size:11px;text-transform:uppercase;
   letter-spacing:.07em;color:#8a93a3;}
-.mml-helphead button{margin-left:auto;background:none;border:0;color:#6b7484;
+.mmlp-helphead button{margin-left:auto;background:none;border:0;color:#6b7484;
   font-size:13px;cursor:pointer;line-height:1;}
-.mml-helphead button:hover{color:#fff;}
-.mml-helpbody{overflow:auto;padding:9px 10px;}
-.mml-helpbody p{margin:0;font-size:11px;line-height:1.55;color:#aab2c0;}
-.mml-helprow{display:flex;gap:8px;margin-bottom:9px;}
-.mml-helpmode{flex:0 0 auto;font-family:ui-monospace,monospace;font-size:10px;
+.mmlp-helphead button:hover{color:#fff;}
+.mmlp-helpbody{overflow:auto;padding:9px 10px;}
+.mmlp-helpbody p{margin:0;font-size:11px;line-height:1.55;color:#aab2c0;}
+.mmlp-helprow{display:flex;gap:8px;margin-bottom:9px;}
+.mmlp-helpmode{flex:0 0 auto;font-family:ui-monospace,monospace;font-size:10px;
   border-radius:9px;padding:1px 7px;height:16px;line-height:14px;
   border:1px solid #363d4a;background:#20242d;color:#8a93a3;}
-.mml-helpmode.paired{border-color:#7d63b8;background:#3a2f56;color:#e2d6f8;}
-.mml-helpmode.alone{border-color:#2c6f81;background:#1d3a44;color:#a5e2f0;}
-.mml-helpsub{font-size:10px;text-transform:uppercase;letter-spacing:.07em;
+.mmlp-helpmode.paired{border-color:#7d63b8;background:#3a2f56;color:#e2d6f8;}
+.mmlp-helpmode.alone{border-color:#2c6f81;background:#1d3a44;color:#a5e2f0;}
+.mmlp-helpsub{font-size:10px;text-transform:uppercase;letter-spacing:.07em;
   color:#6b7484;margin:12px 0 6px;padding-top:8px;border-top:1px solid #2a2f3a;}
-.mml-wirerow{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:6px;}
-.mml-wirerow code{font-family:ui-monospace,monospace;font-size:10px;color:#9db4dc;
+.mmlp-wirerow{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:6px;}
+.mmlp-wirerow code{font-family:ui-monospace,monospace;font-size:10px;color:#9db4dc;
   background:#181c24;border-radius:4px;padding:1px 5px;}
-.mml-arrow{color:#5c6472;font-size:10px;}
-.mml-tags{font-family:ui-monospace,monospace;font-size:9px;color:#6b7484;
+.mmlp-arrow{color:#5c6472;font-size:10px;}
+.mmlp-tags{font-family:ui-monospace,monospace;font-size:9px;color:#6b7484;
   flex-basis:100%;padding-left:2px;}
-.mml-helpnote{margin-top:10px !important;padding-top:9px;
+.mmlp-helpnote{margin-top:10px !important;padding-top:9px;
   border-top:1px solid #2a2f3a;color:#8a93a3 !important;}
-.mml-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:10060;
+.mmlp-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:10060;
   background:#2b3140;color:#fff;border:1px solid #4a5568;border-radius:8px;
   padding:8px 16px;font-size:13px;font-family:system-ui,sans-serif;}
 `;
@@ -727,7 +727,7 @@ export class TrimModal {
   buildMedia() {
     const url = viewURL(this.item.file);
     if (this.isStill) {
-      this.media = el("img", { class: "mml-tmvideo", src: url });
+      this.media = el("img", { class: "mmlp-tmvideo", src: url });
       this.media.addEventListener("load", () => {
         if (!this.item.width) {
           this.item.width = this.media.naturalWidth;
@@ -738,7 +738,7 @@ export class TrimModal {
       return;
     }
     if (this.item.kind === "video") {
-      this.media = el("video", { class: "mml-tmvideo", src: url,
+      this.media = el("video", { class: "mmlp-tmvideo", src: url,
         muted: false, volume: 0.9,
         playsInline: true, loop: false, preload: "auto" });
     } else {
@@ -753,10 +753,10 @@ export class TrimModal {
       }
       this.updatePlayhead();
     });
-    this.muteBtn = el("button", { class: "mml-btn mml-sm",
+    this.muteBtn = el("button", { class: "mmlp-btn mmlp-sm",
       title: "Mute the preview (M)",
       onclick: () => this.toggleMute() }, "\u{1F50A}");
-    this.playBtn = el("button", { class: "mml-btn mml-sm",
+    this.playBtn = el("button", { class: "mmlp-btn mmlp-sm",
       onclick: () => {
         if (this.media.paused) {
           if (this.media.currentTime < this.start ||
@@ -814,33 +814,33 @@ export class TrimModal {
   /* ---- timeline ---------------------------------------------------- */
 
   buildTimeline() {
-    this.ruler = el("div", { class: "mml-tmruler" });
+    this.ruler = el("div", { class: "mmlp-tmruler" });
     const ticks = 8;
     for (let i = 0; i <= ticks; i++) {
-      this.ruler.append(el("span", { class: "mml-tmtick",
+      this.ruler.append(el("span", { class: "mmlp-tmtick",
         style: { left: `${(i / ticks) * 100}%` } },
         fmt(this.dur * (i / ticks))));
     }
-    this.selEl = el("div", { class: "mml-tmsel" });
-    this.hStart = el("div", { class: "mml-tmhandle s",
+    this.selEl = el("div", { class: "mmlp-tmsel" });
+    this.hStart = el("div", { class: "mmlp-tmhandle s",
       title: "Drag to move the start of the kept range",
       onmousedown: (e) => this.handleDown(e, "s") });
-    this.hEnd = el("div", { class: "mml-tmhandle e",
+    this.hEnd = el("div", { class: "mmlp-tmhandle e",
       title: "Drag to move the end of the kept range",
       onmousedown: (e) => this.handleDown(e, "e") });
-    this.playhead = el("div", { class: "mml-tmplayhead" });
-    this.playTime = el("span", { class: "mml-tmplaytime" });
-    this.outside = el("span", { class: "mml-tmoutside" });
-    this.note = el("div", { class: "mml-tmnote" });
-    this.bar = el("div", { class: "mml-tmbar",
+    this.playhead = el("div", { class: "mmlp-tmplayhead" });
+    this.playTime = el("span", { class: "mmlp-tmplaytime" });
+    this.outside = el("span", { class: "mmlp-tmoutside" });
+    this.note = el("div", { class: "mmlp-tmnote" });
+    this.bar = el("div", { class: "mmlp-tmbar",
       onmousedown: (e) => this.barDown(e) },
       this.selEl, this.hStart, this.hEnd, this.playhead);
     if (this.item.kind === "audio") {
-      this.wave = el("canvas", { class: "mml-tmwave", width: 560, height: 46 });
+      this.wave = el("canvas", { class: "mmlp-tmwave", width: 560, height: 46 });
       this.drawWave(this.wave);
     }
     const num = (label, get, set) => {
-      const input = el("input", { class: "mml-tmnum", type: "text",
+      const input = el("input", { class: "mmlp-tmnum", type: "text",
         inputmode: "decimal", title: `${label} time in seconds` });
       input.addEventListener("focus", () => { this.typing = input; input.select(); });
       input.addEventListener("blur", () => {
@@ -866,13 +866,13 @@ export class TrimModal {
       (v) => { this.start = Math.min(v, this.end - 0.1); });
     this.numEnd = num("End", () => this.end,
       (v) => { this.end = Math.max(v, this.start + 0.1); });
-    this.readout = el("span", { class: "mml-tmreadout" });
+    this.readout = el("span", { class: "mmlp-tmreadout" });
     this.layoutTimeline();
-    return el("div", { class: "mml-tmtimeline" },
+    return el("div", { class: "mmlp-tmtimeline" },
       this.wave || null, this.ruler, this.bar,
-      el("div", { class: "mml-tmnow" },
+      el("div", { class: "mmlp-tmnow" },
         this.outside,
-        el("span", { class: "mml-tmspace" }),
+        el("span", { class: "mmlp-tmspace" }),
         el("span", {}, "playhead"), this.playTime));
   }
 
@@ -981,19 +981,19 @@ export class TrimModal {
 
   buildCrop() {
     if (this.item.kind !== "video" && !this.isStill) return null;
-    this.cropRect = el("div", { class: "mml-tmcrop",
+    this.cropRect = el("div", { class: "mmlp-tmcrop",
       onmousedown: (e) => this.cropDown(e, "move") },
       ...["nw", "ne", "sw", "se"].map((c) =>
-        el("div", { class: `mml-tmcorner ${c}`,
+        el("div", { class: `mmlp-tmcorner ${c}`,
           onmousedown: (e) => { e.stopPropagation(); this.cropDown(e, c); } })));
-    this.cropBox = el("div", { class: "mml-cropbox" }, this.cropRect);
-    this.cropWrap = el("div", { class: "mml-tmcropwrap" }, this.cropBox);
+    this.cropBox = el("div", { class: "mmlp-cropbox" }, this.cropRect);
+    this.cropWrap = el("div", { class: "mmlp-tmcropwrap" }, this.cropBox);
     requestAnimationFrame(() => {
       this.stopFit = fitToMedia(this.media, this.cropBox,
                                 this.item.width, this.item.height);
     });
-    this.cropInfo = el("span", { class: "mml-tmcropinfo" });
-    this.rotBtn = el("button", { class: "mml-btn mml-sm",
+    this.cropInfo = el("span", { class: "mmlp-tmcropinfo" });
+    this.rotBtn = el("button", { class: "mmlp-btn mmlp-sm",
       title: "Rotate 90\u00b0 clockwise (shift-click for anticlockwise)",
       onclick: (e) => {
         this.rotate = (this.rotate + (e.shiftKey ? 270 : 90)) % 360;
@@ -1011,13 +1011,13 @@ export class TrimModal {
         this.syncRotate();
         this.syncCrop();
       } }, "\u21bb");
-    this.mirrorBtn = el("button", { class: "mml-btn mml-sm",
+    this.mirrorBtn = el("button", { class: "mmlp-btn mmlp-sm",
       title: "Flip the clip left-to-right before it's sent",
       onclick: () => {
         this.mirror = !this.mirror;
         this.syncMirror();
       } }, "\u21c4 Mirror");
-    this.cropBtn = el("button", { class: "mml-btn mml-sm",
+    this.cropBtn = el("button", { class: "mmlp-btn mmlp-sm",
       title: "Crop the frame",
       onclick: () => {
         this.cropMode = !this.cropMode;
@@ -1028,7 +1028,7 @@ export class TrimModal {
         if (!this.cropMode) this.seek(this.media?.currentTime || 0, false);
         this.syncCrop();
       } }, "\u25a3 Crop");
-    this.aspectEl = el("select", { class: "mml-tmaspect",
+    this.aspectEl = el("select", { class: "mmlp-tmaspect",
       onchange: (e) => { this.aspect = e.target.value; this.forceAspect(); } },
       [["free", "freeform"], ["1", "1:1"],
        [String(16 / 9), "16:9"], [String(9 / 16), "9:16"],
@@ -1039,7 +1039,7 @@ export class TrimModal {
     // Pictures get a size cap: a 4K reference is decoded and rescaled on
     // every run, and the model downsizes it to the generation area anyway.
     this.sizeEl = (this.isStill || this.item.kind === "video")
-      ? el("select", { class: "mml-tmaspect",
+      ? el("select", { class: "mmlp-tmaspect",
           title: "Cap the long edge of what's sent. The model rescales " +
                  "references anyway, so this mostly saves decode time and RAM " +
                  "\u2014 and on video it saves both per frame. Keep a keyframe " +
@@ -1054,7 +1054,7 @@ export class TrimModal {
             .map(([v, label]) => el("option",
               { value: String(v), selected: this.resize === v }, label)))
       : null;
-    return el("span", { class: "mml-tmcropbar" },
+    return el("span", { class: "mmlp-tmcropbar" },
       this.rotBtn, this.mirrorBtn, this.cropBtn, this.aspectEl,
       this.sizeEl, this.cropInfo);
   }
@@ -1326,74 +1326,74 @@ export class TrimModal {
     const isStill = this.isStill;
     // Pictures need the stage too — it holds the image and the crop overlay.
     const stage = (isVid || isStill)
-      ? el("div", { class: "mml-tmstage" }, this.media,
+      ? el("div", { class: "mmlp-tmstage" }, this.media,
           (this.cropUI = this.buildCrop(), this.cropWrap))
       : null;
 
     const chips = [2, 3].map((secs) =>
-      this.dur > secs ? el("button", { class: "mml-btn mml-sm",
+      this.dur > secs ? el("button", { class: "mmlp-btn mmlp-sm",
         title: `Use only the final ${secs} seconds`,
         onclick: () => { this.start = this.dur - secs; this.end = this.dur;
           this.seek(this.start); this.layoutTimeline(); } },
         `last ${secs}s`) : null);
 
     const still = this.isStill;
-    this.overlay = el("div", { class: "mml-tmover",
+    this.overlay = el("div", { class: "mmlp-tmover",
       onmousedown: (e) => { if (e.target === this.overlay) this.close(); } },
-      el("div", { class: "mml-tmmodal" + (isVid || still ? "" : " audio") },
-        el("div", { class: "mml-tmhead" },
-          el("span", { class: "mml-tmtitle" },
+      el("div", { class: "mmlp-tmmodal" + (isVid || still ? "" : " audio") },
+        el("div", { class: "mmlp-tmhead" },
+          el("span", { class: "mmlp-tmtitle" },
             `${still ? "\u25a3" : "\u2702"} ${this.item.name}`),
           (isVid || still) ? this.cropUI : null,
-          el("button", { class: "mml-x", onclick: () => this.close() }, "\u2715")),
+          el("button", { class: "mmlp-x", onclick: () => this.close() }, "\u2715")),
         stage,
         still ? null : this.buildTimeline(),
-        still ? null : el("div", { class: "mml-tmfoot" },
-          el("button", { class: "mml-btn mml-sm", title: "Previous frame (\u2190)",
+        still ? null : el("div", { class: "mmlp-tmfoot" },
+          el("button", { class: "mmlp-btn mmlp-sm", title: "Previous frame (\u2190)",
             onclick: () => this.seek((this.media?.currentTime || 0) -
               1 / (this.item.fps || TRIM_FPS)) }, "\u25c0|"),
           this.playBtn,
           this.muteBtn,
-          el("button", { class: "mml-btn mml-sm", title: "Next frame (\u2192)",
+          el("button", { class: "mmlp-btn mmlp-sm", title: "Next frame (\u2192)",
             onclick: () => this.seek((this.media?.currentTime || 0) +
               1 / (this.item.fps || TRIM_FPS)) }, "|\u25b6"),
-          el("span", { class: "mml-tmgap" }),
-          el("button", { class: "mml-btn mml-sm",
+          el("span", { class: "mmlp-tmgap" }),
+          el("button", { class: "mmlp-btn mmlp-sm",
             title: "Set start to the playhead  ( [ )",
             onclick: () => { this.start =
               Math.min(this.media?.currentTime || 0, this.end - 0.1);
               this.layoutTimeline(); } }, "\u21e4 start"),
-          this.numStart, el("span", { class: "mml-tmdash" }, "\u2013"),
+          this.numStart, el("span", { class: "mmlp-tmdash" }, "\u2013"),
           this.numEnd,
-          el("button", { class: "mml-btn mml-sm",
+          el("button", { class: "mmlp-btn mmlp-sm",
             title: "Set end to the playhead  ( ] )",
             onclick: () => { this.end =
               Math.max(this.media?.currentTime || 0, this.start + 0.1);
               this.layoutTimeline(); } }, "end \u21e5"),
           this.readout,
-          el("span", { class: "mml-tmspace" }),
-          el("button", { class: "mml-btn mml-sm",
+          el("span", { class: "mmlp-tmspace" }),
+          el("button", { class: "mmlp-btn mmlp-sm",
             title: "Jump the playhead to the clip's first frame",
             onclick: () => this.seek(0) }, "\u23ee First"),
-          el("button", { class: "mml-btn mml-sm",
+          el("button", { class: "mmlp-btn mmlp-sm",
             title: "Jump the playhead to the clip's last frame \u2014 " +
                    "then \u{1F4F7} to capture it",
             onclick: () => this.seek(Math.max(0,
               this.dur - 1 / (this.item.fps || TRIM_FPS))) },
             "Last \u23ed")),
-        el("div", { class: "mml-tmfoot act" },
+        el("div", { class: "mmlp-tmfoot act" },
           ...(still ? [] : chips),
-          (isVid && !still) ? el("button", { class: "mml-btn mml-sm",
+          (isVid && !still) ? el("button", { class: "mmlp-btn mmlp-sm",
             title: "Add the frame shown above as a picture reference  ( C )",
             onclick: () => this.captureFrame() }, "\u{1F4F7} Use frame") : null,
           (!still && (this.item.kind === "audio" || this.item.has_audio))
-            ? el("button", { class: "mml-btn mml-sm",
+            ? el("button", { class: "mmlp-btn mmlp-sm",
                 title: "Save the kept range as its own audio reference  ( A )",
                 onclick: () => this.useAudio() }, "\u{1F3B5} Use audio")
             : null,
-          el("span", { class: "mml-tmspace" }),
+          el("span", { class: "mmlp-tmspace" }),
           (this.item.trim || this.item.crop)
-            ? el("button", { class: "mml-btn mml-sm",
+            ? el("button", { class: "mmlp-btn mmlp-sm",
                 title: "Whole clip, no crop",
                 onclick: () => { this.start = 0; this.end = this.dur;
                   this.crop = null; this.cropMode = false; this.mirror = false;
@@ -1403,14 +1403,14 @@ export class TrimModal {
                   this.layoutTimeline(); } },
                 "\u21ba Reset")
             : null,
-          el("button", { class: "mml-btn mml-sm primary",
+          el("button", { class: "mmlp-btn mmlp-sm primary",
             onclick: () => this.apply() }, "Apply"),
-          el("button", { class: "mml-btn mml-sm",
+          el("button", { class: "mmlp-btn mmlp-sm",
             onclick: () => this.close() }, "Cancel")),
         this.note,
-        still ? el("div", { class: "mml-tmkeys" },
+        still ? el("div", { class: "mmlp-tmkeys" },
           "Drag a box to crop \u00b7 \u25a3 toggles editing \u00b7 esc closes")
-        : el("div", { class: "mml-tmkeys" },
+        : el("div", { class: "mmlp-tmkeys" },
           "\u2190 \u2192 step a frame (shift = 10) \u00b7 space play \u00b7 " +
           "[ ] set start/end here \u00b7 home/end jump \u00b7 M mute \u00b7 A use audio" +
           (isVid ? " \u00b7 C capture frame" : ""))));
@@ -1438,19 +1438,19 @@ function lightbox(item, tag) {
         const h = media.naturalHeight || media.videoHeight;
         if (!w) return;
         item.width = w; item.height = h;
-        const cap = overlay.querySelector(".mml-lightdims");
+        const cap = overlay.querySelector(".mmlp-lightdims");
         if (cap) cap.textContent = dimsLabel(w, h);
       });
   }
-  const overlay = el("div", { class: "mml-light",
+  const overlay = el("div", { class: "mmlp-light",
     onclick: (e) => { if (e.target === overlay) overlay.remove(); } },
-    el("div", { class: "mml-lightbox" }, media,
-      el("div", { class: "mml-lightcap" },
-        el("span", { class: `mml-tag ${tag.startsWith("<Video") ? "vid" : "pic"}` }, tag),
+    el("div", { class: "mmlp-lightbox" }, media,
+      el("div", { class: "mmlp-lightcap" },
+        el("span", { class: `mmlp-tag ${tag.startsWith("<Video") ? "vid" : "pic"}` }, tag),
         el("span", {}, item.name),
-        el("span", { class: "mml-lightdims" },
+        el("span", { class: "mmlp-lightdims" },
           dimsLabel(item.width, item.height)),
-        el("button", { class: "mml-btn", style: { marginLeft: "auto" },
+        el("button", { class: "mmlp-btn", style: { marginLeft: "auto" },
           onclick: () => overlay.remove() }, "Close"))));
   const esc = (e) => {
     if (e.key === "Escape") { overlay.remove(); window.removeEventListener("keydown", esc); }
@@ -1582,9 +1582,9 @@ function dimsTitle(name, w, h) {
 
 function miniPlayer(url) {
   const fill = el("i");
-  const bar = el("div", { class: "mml-bar" }, fill);
-  const time = el("span", { class: "mml-time" }, "0:00");
-  const btn = el("button", { class: "mml-play", title: "Play" }, "\u25b6");
+  const bar = el("div", { class: "mmlp-bar" }, fill);
+  const time = el("span", { class: "mmlp-time" }, "0:00");
+  const btn = el("button", { class: "mmlp-play", title: "Play" }, "\u25b6");
   let audio = null;
 
   const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
@@ -1666,7 +1666,7 @@ export class LoaderPanel {
     this.players = [];
     injectCSS();
 
-    this.root = el("div", { class: "mml-panel" });
+    this.root = el("div", { class: "mmlp-panel" });
     this.picker = el("input", {
       type: "file", multiple: true, style: { display: "none" },
       accept: "image/*,video/*,audio/*",
@@ -1861,7 +1861,7 @@ export class LoaderPanel {
     if (item.mirror) what.push("mirrored");
     if (item.trim && (item.trim.start || item.trim.end)) what.push(fmtSpan(item));
     return el("span", {
-      class: "mml-trimbtn" + (active ? " on" : ""),
+      class: "mmlp-trimbtn" + (active ? " on" : ""),
       title: active ? `${what.join(", ")} \u2014 click to edit`
         : (still ? "Crop or mirror this picture"
                  : "Use only part of this clip"),
@@ -1890,7 +1890,7 @@ export class LoaderPanel {
   powerBtn(item) {
     const on = isOn(item);
     return el("span", {
-      class: "mml-power" + (on ? " on" : ""),
+      class: "mmlp-power" + (on ? " on" : ""),
       title: on ? "Switch off — kept here but not sent to the model"
         : "Switch on",
       onclick: (e) => { e.stopPropagation(); this.toggle(item); },
@@ -1915,12 +1915,12 @@ export class LoaderPanel {
   picCell(it, tags) {
       const tag = (tags.get(it) || "").slice(1, -1);
       return (this.reorderable(el("div",
-        { class: "mml-slot filled pic" + (isOn(it) ? "" : " off") },
+        { class: "mmlp-slot filled pic" + (isOn(it) ? "" : " off") },
         (() => {
-          // Badge and img are SIBLINGS in the slot: .mml-pic is absolutely
+          // Badge and img are SIBLINGS in the slot: .mmlp-pic is absolutely
           // positioned against the slot, so wrapping it breaks its sizing.
           const [ow, oh] = outSize(it);
-          const badge = el("span", { class: "mml-dims" + (it.crop ? " cut" : "") },
+          const badge = el("span", { class: "mmlp-dims" + (it.crop ? " cut" : "") },
             dimsLabel(ow, oh));
           // Declared before the crop block below, which reads both. As const
           // they sit in the temporal dead zone until this point, so leaving
@@ -1932,14 +1932,14 @@ export class LoaderPanel {
           // dropped, not just what's left.
           let marquee = null;
           if (it.crop) {
-            const box = el("div", { class: "mml-cropbox" },
-              el("div", { class: "mml-cropmark", style: {
+            const box = el("div", { class: "mmlp-cropbox" },
+              el("div", { class: "mmlp-cropmark", style: {
                 left: `${(it.crop.x ?? 0) * 100}%`,
                 top: `${(it.crop.y ?? 0) * 100}%`,
                 width: `${(it.crop.w ?? 1) * 100}%`,
                 height: `${(it.crop.h ?? 1) * 100}%`,
               } }));
-            marquee = el("div", { class: "mml-cropfit",
+            marquee = el("div", { class: "mmlp-cropfit",
               style: (it.mirror || turn)
                 ? { transform: `${it.mirror ? "scaleX(-1) " : ""}rotate(${turn}deg)` }
                 : {} }, box);
@@ -1951,7 +1951,7 @@ export class LoaderPanel {
               quarter ? it.width : it.height));
             if (quarter) requestAnimationFrame(() => fitTurned(img));
           }
-          const img = el("img", { class: "mml-pic" + (quarter ? " turned" : ""),
+          const img = el("img", { class: "mmlp-pic" + (quarter ? " turned" : ""),
             src: viewURL(it.file),
             style: (it.mirror || turn)
               ? { transform: `${it.mirror ? "scaleX(-1) " : ""}rotate(${turn}deg)` }
@@ -1974,12 +1974,12 @@ export class LoaderPanel {
             onclick: () => lightbox(it, tags.get(it) || "") });
           return [img, marquee, badge];
         })(),
-        el("div", { class: "mml-picbar" },
+        el("div", { class: "mmlp-picbar" },
           this.powerBtn(it),
-          el("span", { class: "mml-tag pic" }, isOn(it) ? tag : "off"),
+          el("span", { class: "mmlp-tag pic" }, isOn(it) ? tag : "off"),
           this.trimBtn(it),
-          el("span", { class: "mml-drag", title: "Drag to reorder" }, "\u2630"),
-          el("span", { class: "mml-x", title: "Remove",
+          el("span", { class: "mmlp-drag", title: "Drag to reorder" }, "\u2630"),
+          el("span", { class: "mmlp-x", title: "Remove",
             onclick: () => this.remove(it) }, "\u2715"))), it));
   }
 
@@ -1992,7 +1992,7 @@ export class LoaderPanel {
     const m = this.mode();
     if (m && m !== "REF") {
       out.push(el("button", {
-        class: "mml-btn mml-sm" + (this.compact ? " mml-on" : ""),
+        class: "mmlp-btn mmlp-sm" + (this.compact ? " mmlp-on" : ""),
         title: this.compact
           ? `Showing only what ${m} uses \u2014 click for every slot`
           : `Show only the slots ${m} uses`,
@@ -2007,13 +2007,13 @@ export class LoaderPanel {
     }
     const hidden = this.hiddenCount();
     out.push(el("button", {
-      class: "mml-btn mml-sm mml-winbtn" + (hidden ? " mml-hasHidden" : ""),
+      class: "mmlp-btn mmlp-sm mmlp-winbtn" + (hidden ? " mmlp-hasHidden" : ""),
       title: hidden
         ? `${hidden} item(s) loaded but not shown in this layout \u2014 open the `
           + `full window to reach them`
         : "Open the media loader in a window",
       onclick: () => openLoaderModal(this.node, "MiniMax H3 \u2014 media"),
-    }, "\u2750", hidden ? el("span", { class: "mml-badge" }, String(hidden)) : null));
+    }, "\u2750", hidden ? el("span", { class: "mmlp-badge" }, String(hidden)) : null));
     return out;
   }
 
@@ -2130,9 +2130,9 @@ export class LoaderPanel {
       }]);
     }
 
-    const menu = el("div", { class: "mml-slotmenu" },
+    const menu = el("div", { class: "mmlp-slotmenu" },
       ...rows.map(([label, run]) => el("div", {
-        class: "mml-slotitem" + (/^Remove$/.test(label) ? " danger" : ""),
+        class: "mmlp-slotitem" + (/^Remove$/.test(label) ? " danger" : ""),
         onmousedown: (ev) => ev.stopPropagation(),
         onclick: (ev) => { ev.stopPropagation(); closeSlotMenu(); run(); },
       }, label)));
@@ -2199,7 +2199,7 @@ export class LoaderPanel {
 
   /** An always-present empty slot: click to browse, drop to fill. */
   emptySlot(kind, index) {
-    const slot = el("div", { class: "mml-slot",
+    const slot = el("div", { class: "mmlp-slot",
       title: `Empty ${kind} slot ${index} \u2014 click to browse, drop a file, ` +
         `or right-click to paste`,
       onclick: () => this.picker.click() },
@@ -2232,7 +2232,7 @@ export class LoaderPanel {
     const auds = this.items.filter((i) => i.kind === "audio");
     const kids = [this.picker];
 
-    const select = el("select", { class: "mml-preset",
+    const select = el("select", { class: "mmlp-preset",
       title: "Load a saved reference set",
       onchange: (e) => { const v = e.target.value; if (v) this.loadPreset(v); } },
       el("option", { value: "" }, this.presets.length
@@ -2243,36 +2243,36 @@ export class LoaderPanel {
     // Preset controls live in the top row, in place of the old drop hint. While
     // a save/delete confirmation is open its own row takes over below, so the
     // two aren't on screen at once.
-    const presetGroup = this.presetPrompt ? null : el("div", { class: "mml-presetgrp" },
-      el("span", { class: "mml-presetlbl" }, "preset"),
+    const presetGroup = this.presetPrompt ? null : el("div", { class: "mmlp-presetgrp" },
+      el("span", { class: "mmlp-presetlbl" }, "preset"),
       select,
-      el("button", { class: "mml-btn mml-sm", title: "Save the current set",
+      el("button", { class: "mmlp-btn mmlp-sm", title: "Save the current set",
         onclick: () => { this.presetPrompt = "save"; this.render(); } }, "Save"),
-      el("button", { class: "mml-btn mml-sm", title: "Delete the selected preset",
+      el("button", { class: "mmlp-btn mmlp-sm", title: "Delete the selected preset",
         onclick: () => {
           if (!this.presetName) { this.say("Pick a preset first.", true); }
           else this.presetPrompt = "delete";
           this.render();
         } }, "Delete"));
 
-    kids.push(el("div", { class: "mml-top" },
-      el("button", { class: "mml-btn", onclick: () => this.picker.click(),
+    kids.push(el("div", { class: "mmlp-top" },
+      el("button", { class: "mmlp-btn", onclick: () => this.picker.click(),
         title: `Load reference files. You can also drop them on any slot, or ` +
           `paste with Ctrl+V.\n${total}/${MAX.total} files, ` +
           `${audioCount(this.items)}/${MAX.audio} audio in play.` },
         this.busy ? `uploading ${this.busy}\u2026` : "Load files\u2026"),
       this.items.length
-        ? el("button", { class: "mml-btn mml-sm",
+        ? el("button", { class: "mmlp-btn mmlp-sm",
             title: "Remove every loaded reference from this node",
             onclick: () => { this.unloadPrompt = true; this.render(); } },
             "Unload media")
         : null,
-      el("button", { class: "mml-btn mml-sm",
+      el("button", { class: "mmlp-btn mmlp-sm",
         title: "Node size \u2014 click to step through L, XL and XXL",
         onclick: () => this.cycleSize() },
         `size ${currentPreset(this.node)}`),
       presetGroup,
-      el("span", { class: "mml-topspace" }),
+      el("span", { class: "mmlp-topspace" }),
       ...this.topRight()));
     // The x/12 and audio counters used to sit here. Every state they warned
     // about is already spelled out in the problem line below, in words and in
@@ -2280,19 +2280,19 @@ export class LoaderPanel {
     // totals moved to the Load files button's tooltip.
 
     if (this.unloadPrompt) {
-      kids.push(el("div", { class: "mml-presetrow" },
-        el("span", { class: "mml-presetwarn" },
+      kids.push(el("div", { class: "mmlp-presetrow" },
+        el("span", { class: "mmlp-presetwarn" },
           `Remove all ${this.items.length} item(s) from this node? ` +
           "The files stay in your ComfyUI input folder."),
-        el("button", { class: "mml-btn mml-sm mml-danger",
+        el("button", { class: "mmlp-btn mmlp-sm mmlp-danger",
           onclick: () => this.unloadAll() }, "Unload"),
-        el("button", { class: "mml-btn mml-sm",
+        el("button", { class: "mmlp-btn mmlp-sm",
           onclick: () => { this.unloadPrompt = false; this.render(); } },
           "Cancel")));
     }
 
     if (this.presetPrompt === "save") {
-      const input = el("input", { type: "text", class: "mml-presetname",
+      const input = el("input", { type: "text", class: "mmlp-presetname",
         placeholder: "Preset name",
         value: this.presetName ||
           `refs ${new Date().toISOString().slice(0, 10)}` });
@@ -2302,18 +2302,18 @@ export class LoaderPanel {
         if (e.key === "Escape") { this.presetPrompt = null; this.render(); }
       });
       setTimeout(() => { input.focus(); input.select(); }, 0);
-      kids.push(el("div", { class: "mml-presetrow" },
-        el("span", { class: "mml-presetlbl" }, "save as"), input,
-        el("button", { class: "mml-btn mml-sm", onclick: go }, "Save"),
-        el("button", { class: "mml-btn mml-sm",
+      kids.push(el("div", { class: "mmlp-presetrow" },
+        el("span", { class: "mmlp-presetlbl" }, "save as"), input,
+        el("button", { class: "mmlp-btn mmlp-sm", onclick: go }, "Save"),
+        el("button", { class: "mmlp-btn mmlp-sm",
           onclick: () => { this.presetPrompt = null; this.render(); } }, "Cancel")));
     } else if (this.presetPrompt === "delete") {
-      kids.push(el("div", { class: "mml-presetrow" },
-        el("span", { class: "mml-presetwarn" },
+      kids.push(el("div", { class: "mmlp-presetrow" },
+        el("span", { class: "mmlp-presetwarn" },
           `Delete "${this.presetName}"? Your media files are not removed.`),
-        el("button", { class: "mml-btn mml-sm mml-danger",
+        el("button", { class: "mmlp-btn mmlp-sm mmlp-danger",
           onclick: () => this.deletePreset() }, "Delete"),
-        el("button", { class: "mml-btn mml-sm",
+        el("button", { class: "mmlp-btn mmlp-sm",
           onclick: () => { this.presetPrompt = null; this.render(); } }, "Cancel")));
     }
     // No trailing else: the idle preset controls are in the top row now.
@@ -2343,7 +2343,7 @@ export class LoaderPanel {
         i.kind === "video")) && audio)
       problems.push("Audio can't be sent alone — add an image or video.");
 
-    kids.push(el("div", { class: "mml-msg" + (this.msgErr || problems.length ? " err" : "") },
+    kids.push(el("div", { class: "mmlp-msg" + (this.msgErr || problems.length ? " err" : "") },
       problems.length ? problems[0] : this.msg));
 
     // Mode-shaped layout: only the slots this mode can use. Everything else
@@ -2357,37 +2357,37 @@ export class LoaderPanel {
         cells.push(this.emptySlot("picture", i + 1));
       if (sh.pictures) {
         kids.push(el("div", {
-          class: "mml-shape" + (sh.pictures === 1 ? " one" : " two"),
+          class: "mmlp-shape" + (sh.pictures === 1 ? " one" : " two"),
         }, ...cells));
       } else {
         // T2VA carries no reference media at all, so the panel steps back and
         // says why rather than showing slots nothing can go in.
-        kids.push(el("div", { class: "mml-shapenone" },
+        kids.push(el("div", { class: "mmlp-shapenone" },
           `${sh.mode} sends the prompt only — no reference media.`,
           this.items.length
             ? el("span", {}, ` ${this.items.length} item(s) stay loaded.`)
             : null));
       }
       this.root.replaceChildren(...kids.filter(Boolean));
-      this.root.classList.toggle("mml-min", !sh.pictures);
+      this.root.classList.toggle("mmlp-min", !sh.pictures);
       return;
     }
-    this.root.classList.remove("mml-min");
+    this.root.classList.remove("mmlp-min");
 
-    const left = el("div", { class: "mml-col" });
-    const right = el("div", { class: "mml-col" });
-    kids.push(el("div", { class: "mml-cols" }, left, right));
+    const left = el("div", { class: "mmlp-col" });
+    const right = el("div", { class: "mmlp-col" });
+    kids.push(el("div", { class: "mmlp-cols" }, left, right));
 
-    left.append(el("div", { class: "mml-sec" }, "pictures",
+    left.append(el("div", { class: "mmlp-sec" }, "pictures",
       el("span", {}, `${pics.length}/${MAX.picture}`)));
     const picCells = [];
     pics.forEach((it) => picCells.push(this.picCell(it, tags)));
     for (let i = pics.length; i < MAX.picture; i++)
       picCells.push(this.emptySlot("picture", i + 1));
-    left.append(el("div", { class: "mml-pics" }, picCells));
+    left.append(el("div", { class: "mmlp-pics" }, picCells));
 
-    right.append(el("div", { class: "mml-sec" }, "videos",
-      el("button", { class: "mml-helpbtn",
+    right.append(el("div", { class: "mmlp-sec" }, "videos",
+      el("button", { class: "mmlp-helpbtn",
         title: "What do off / paired / alone do?",
         onclick: (e) => { e.stopPropagation(); splitHelp(e.currentTarget); } }, "?"),
       el("span", {}, `${vids.length}/${MAX.video}`)));
@@ -2395,9 +2395,9 @@ export class LoaderPanel {
     vids.forEach((it) => {
       const mode = it.audio_mode || "off";
       const splitTag = extra.get(it);
-      const row = el("div", { class: "mml-row" },
+      const row = el("div", { class: "mmlp-row" },
         this.powerBtn(it),
-        el("video", { class: "mml-vthumb",
+        el("video", { class: "mmlp-vthumb",
           style: it.mirror ? { transform: "scaleX(-1)" } : {},
           onloadedmetadata: (e) => {
             const t = it.trim;
@@ -2407,15 +2407,15 @@ export class LoaderPanel {
           onmouseenter: (e) => e.target.play().catch(() => {}),
           onmouseleave: (e) => e.target.pause(),
           onclick: () => lightbox(it, tags.get(it) || "") }),
-        el("div", { class: "mml-meta" },
-          el("div", { class: "mml-tag vid" },
+        el("div", { class: "mmlp-meta" },
+          el("div", { class: "mmlp-tag vid" },
             isOn(it) ? (tags.get(it) || "").slice(1, -1) : "off"),
-          el("div", { class: "mml-name", title: it.name }, it.name)));
+          el("div", { class: "mmlp-name", title: it.name }, it.name)));
       if (it.has_audio && isOn(it)) {
-        row.append(el("div", { class: "mml-segstack" },
-          el("span", { class: "mml-tag aud mml-segtag" },
+        row.append(el("div", { class: "mmlp-segstack" },
+          el("span", { class: "mmlp-tag aud mmlp-segtag" },
             mode === "off" ? "\u2014" : (splitTag || "").slice(1, -1)),
-          el("span", { class: "mml-seg" },
+          el("span", { class: "mmlp-seg" },
             ["off", "paired", "alone"].map((label) => {
               const m = label === "alone" ? "standalone" : label;
               const turningOn = m !== "off" && mode === "off";
@@ -2439,44 +2439,44 @@ export class LoaderPanel {
       }
       row.append(
         this.trimBtn(it),
-        el("span", { class: "mml-drag", title: "Drag to reorder" }, "\u2630"),
-        el("span", { class: "mml-x", title: "Remove",
+        el("span", { class: "mmlp-drag", title: "Drag to reorder" }, "\u2630"),
+        el("span", { class: "mmlp-x", title: "Remove",
           onclick: () => this.remove(it) }, "\u2715"));
-      const vcell = el("div", { class: "mml-slot filled vid" + (isOn(it) ? "" : " off") },
+      const vcell = el("div", { class: "mmlp-slot filled vid" + (isOn(it) ? "" : " off") },
         row);
       vidCells.push(this.reorderable(vcell, it));
     });
     for (let i = vids.length; i < MAX.video; i++)
       vidCells.push(this.emptySlot("video", i + 1));
-    right.append(el("div", { class: "mml-vids" }, vidCells));
+    right.append(el("div", { class: "mmlp-vids" }, vidCells));
 
-    right.append(el("div", { class: "mml-sec" }, "standalone audio",
+    right.append(el("div", { class: "mmlp-sec" }, "standalone audio",
       el("span", {}, `${auds.length}/${MAX.audio}`)));
     const audCells = [];
     auds.forEach((it) => {
       const player = miniPlayer(viewURL(it.file));
       this.players.push(player);
-      const arow = el("div", { class: "mml-row" },
+      const arow = el("div", { class: "mmlp-row" },
           this.powerBtn(it),
           player.btn,
-          el("div", { class: "mml-meta", style: { flex: "0 0 auto", maxWidth: "38%" } },
-            el("div", { class: "mml-tag aud" },
+          el("div", { class: "mmlp-meta", style: { flex: "0 0 auto", maxWidth: "38%" } },
+            el("div", { class: "mmlp-tag aud" },
               isOn(it) ? (tags.get(it) || "").slice(1, -1) : "off"),
-            el("div", { class: "mml-name", title: it.name }, it.name)),
+            el("div", { class: "mmlp-name", title: it.name }, it.name)),
           player.bar, player.time,
           this.trimBtn(it),
-          el("span", { class: "mml-drag", title: "Drag to reorder" }, "\u2630"),
-          el("span", { class: "mml-x", title: "Remove",
+          el("span", { class: "mmlp-drag", title: "Drag to reorder" }, "\u2630"),
+          el("span", { class: "mmlp-x", title: "Remove",
             onclick: () => this.remove(it) }, "\u2715"));
       const acell = el("div",
-        { class: "mml-slot filled aud" + (isOn(it) ? "" : " off") },
+        { class: "mmlp-slot filled aud" + (isOn(it) ? "" : " off") },
         arow);
       audCells.push(this.reorderable(acell, it));
     });
     for (let i = auds.length; i < MAX.audio; i++)
       audCells.push(this.emptySlot("audio", i + 1));
-    right.append(el("div", { class: "mml-auds" }, audCells),
-      el("div", { class: "mml-spacer" }));
+    right.append(el("div", { class: "mmlp-auds" }, audCells),
+      el("div", { class: "mmlp-spacer" }));
 
     const order = [];
     pics.filter(isOn).forEach((i) => order.push((tags.get(i) || "").slice(1, -1)));
@@ -2494,16 +2494,16 @@ export class LoaderPanel {
     // tag in the palette the editor already gives it, so a tag reads the same
     // colour in both places. Square brackets mark a soundtrack split off its
     // video, so they keep the audio colour.
-    const tagClass = (t) => (/^\[?Picture/.test(t) ? "t-pic"
-      : /^\[?Video/.test(t) ? "t-vid"
-      : /^\[?Audio/.test(t) ? "t-aud"
-      : /^\[?Subject/.test(t) ? "t-subj" : "");
+    const tagClass = (t) => (/^\[?Picture/.test(t) ? "mmlp-t-pic"
+      : /^\[?Video/.test(t) ? "mmlp-t-vid"
+      : /^\[?Audio/.test(t) ? "mmlp-t-aud"
+      : /^\[?Subject/.test(t) ? "mmlp-t-subj" : "");
     const seq = [];
     order.forEach((t, i) => {
-      if (i) seq.push(el("span", { class: "mml-orderarrow" }, "\u2192"));
+      if (i) seq.push(el("span", { class: "mmlp-orderarrow" }, "\u2192"));
       seq.push(el("span", { class: tagClass(t) }, t));
     });
-    kids.push(el("div", { class: "mml-order" },
+    kids.push(el("div", { class: "mmlp-order" },
       el("b", {}, "tag order sent to the model"),
       el("div", {}, seq.length ? seq : "nothing loaded yet")));
 
@@ -2536,25 +2536,25 @@ const SPLIT_WIRING = [
 
 function splitHelp(anchor) {
   const rows = SPLIT_HELP.map(([mode, body]) =>
-    el("div", { class: "mml-helprow" },
-      el("span", { class: `mml-helpmode ${mode}` }, mode),
+    el("div", { class: "mmlp-helprow" },
+      el("span", { class: `mmlp-helpmode ${mode}` }, mode),
       el("p", {}, body)));
 
   const wiring = SPLIT_WIRING.map(([mode, out, native, tags]) =>
-    el("div", { class: "mml-wirerow" },
-      el("span", { class: `mml-helpmode ${mode}` }, mode),
-      el("code", {}, out), el("span", { class: "mml-arrow" }, "\u2192"),
+    el("div", { class: "mmlp-wirerow" },
+      el("span", { class: `mmlp-helpmode ${mode}` }, mode),
+      el("code", {}, out), el("span", { class: "mmlp-arrow" }, "\u2192"),
       el("code", {}, native),
-      el("span", { class: "mml-tags" }, tags)));
+      el("span", { class: "mmlp-tags" }, tags)));
 
-  const box = el("div", { class: "mml-help" },
-    el("div", { class: "mml-helphead" }, "split audio",
+  const box = el("div", { class: "mmlp-help" },
+    el("div", { class: "mmlp-helphead" }, "split audio",
       el("button", { title: "Close", onclick: () => close() }, "\u2715")),
-    el("div", { class: "mml-helpbody" },
+    el("div", { class: "mmlp-helpbody" },
       rows,
-      el("div", { class: "mml-helpsub" }, "where the track comes out"),
+      el("div", { class: "mmlp-helpsub" }, "where the track comes out"),
       wiring,
-      el("p", { class: "mml-helpnote" },
+      el("p", { class: "mmlp-helpnote" },
         "The extracted track always gets its own AUDIO output \u2014 ComfyUI has " +
         "no combined video-with-sound type, so the split is a wiring " +
         "requirement. The mode decides which group it joins, which sets the " +
@@ -2589,12 +2589,12 @@ export function openLoaderModal(node, title = "MiniMax H3 Media Loader") {
     node._mmlPanel?.render();
   };
   const esc = (e) => { if (e.key === "Escape") close(); };
-  const overlay = el("div", { class: "mml-overlay",
+  const overlay = el("div", { class: "mmlp-overlay",
     onmousedown: (e) => { if (e.target === overlay) close(); } },
-    el("div", { class: "mml-modal" },
-      el("div", { class: "mml-modalhead" }, title,
+    el("div", { class: "mmlp-modal" },
+      el("div", { class: "mmlp-modalhead" }, title,
         el("button", { title: "Close", onclick: close }, "\u2715")),
-      el("div", { class: "mml-modalbody" }, panel.root)));
+      el("div", { class: "mmlp-modalbody" }, panel.root)));
   window.addEventListener("keydown", esc);
   document.body.append(overlay);
   return panel;

@@ -12,7 +12,7 @@ import { LOADER_NAME, computeTags, viewURL as loaderViewURL,
 
 // Private drag type: marks a drag as "reorder the rail" so a drop on another
 // card moves media, while a drop on a textarea still inserts the tag.
-const RAIL_MIME = "application/x-mmh3-rail";
+const RAIL_MIME = "application/x-mmh3p-rail";
 
 /* ------------------------------------------------------------------ */
 /* Reference data straight from the guides                             */
@@ -928,83 +928,83 @@ function validate(state, slots) {
 /* ------------------------------------------------------------------ */
 
 const CSS = `
-.mmh3-overlay{position:fixed;inset:0;z-index:10000;background:rgba(8,10,14,.62);
+.mmh3p-overlay{position:fixed;inset:0;z-index:10000;background:rgba(8,10,14,.62);
   display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;
   /* The modal's size lives here so the floating pin pane can derive its own
-     margin from it. --mmh3-gap is the strip of overlay above and below the
+     margin from it. --mmh3p-gap is the strip of overlay above and below the
      centred modal; the pane uses the same figure on the left, so all three
      edges sit the same distance from the screen. */
-  --mmh3-mw:min(1240px,95vw);
-  --mmh3-mh:min(1290px,92vh);
-  --mmh3-gap:calc((100vh - var(--mmh3-mh)) / 2);}
+  --mmh3p-mw:min(1240px,95vw);
+  --mmh3p-mh:min(1290px,92vh);
+  --mmh3p-gap:calc((100vh - var(--mmh3p-mh)) / 2);}
 /* The pixel cap, not the viewport one, is what usually decides this modal's
    height — 92vh only bites on a short screen. Raising the cap by half is what
    makes the editor use more of a tall screen. */
-/* border-box so the rendered height really is --mmh3-mh. As content-box the
+/* border-box so the rendered height really is --mmh3p-mh. As content-box the
    1px border made the modal 2px taller, which centred it 1px higher than the
    gap the pin pane derives from the same variable. */
-.mmh3-modal{box-sizing:border-box;width:var(--mmh3-mw);height:var(--mmh3-mh);
+.mmh3p-modal{box-sizing:border-box;width:var(--mmh3p-mw);height:var(--mmh3p-mh);
   display:flex;flex-direction:column;
   background:#191c22;color:#d7dbe2;border:1px solid #303642;border-radius:10px;
   box-shadow:0 24px 64px rgba(0,0,0,.55);overflow:hidden;}
-.mmh3-head{display:flex;align-items:center;gap:14px;padding:10px 16px;
+.mmh3p-head{display:flex;align-items:center;gap:14px;padding:10px 16px;
   border-bottom:1px solid #2a2f3a;background:#1e222a;}
-.mmh3-title{font-weight:600;font-size:14px;letter-spacing:.02em;}
-.mmh3-title small{color:#8a93a3;font-weight:400;margin-left:8px;}
-.mmh3-modesends{padding:4px 14px;font-size:10px;color:#7d8698;
+.mmh3p-title{font-weight:600;font-size:14px;letter-spacing:.02em;}
+.mmh3p-title small{color:#8a93a3;font-weight:400;margin-left:8px;}
+.mmh3p-modesends{padding:4px 14px;font-size:10px;color:#7d8698;
   background:#171a20;border-bottom:1px solid #23272f;}
-.mmh3-modesends.gated{color:#e0a94c;}
-.mmh3-modes{display:flex;gap:2px;background:#12151b;border:1px solid #2a2f3a;
+.mmh3p-modesends.gated{color:#e0a94c;}
+.mmh3p-modes{display:flex;gap:2px;background:#12151b;border:1px solid #2a2f3a;
   border-radius:7px;padding:2px;margin-left:auto;}
-.mmh3-modes button{background:none;border:0;color:#9aa3b2;padding:5px 12px;border-radius:5px;
+.mmh3p-modes button{background:none;border:0;color:#9aa3b2;padding:5px 12px;border-radius:5px;
   cursor:pointer;font-size:12px;}
-.mmh3-modes button.on{background:#2f3947;color:#fff;}
-.mmh3-x{background:none;border:0;color:#8a93a3;font-size:18px;cursor:pointer;padding:2px 8px;}
+.mmh3p-modes button.on{background:#2f3947;color:#fff;}
+.mmh3p-x{background:none;border:0;color:#8a93a3;font-size:18px;cursor:pointer;padding:2px 8px;}
 /* Close always sits at the far right, as every other window does. */
-.mmh3-head .mmh3-x{margin-left:auto;}
-.mmh3-x:hover{color:#fff;}
-.mmh3-body{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 0 440px;min-height:0;
+.mmh3p-head .mmh3p-x{margin-left:auto;}
+.mmh3p-x:hover{color:#fff;}
+.mmh3p-body{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 0 440px;min-height:0;
   transition:grid-template-columns .16s ease;}
-.mmh3-body.haspins{grid-template-columns:minmax(0,1fr) 176px 400px;}
-/* Sidebar view: a media column at the left edge. .mmh3-rail is always in the
+.mmh3p-body.haspins{grid-template-columns:minmax(0,1fr) 176px 400px;}
+/* Sidebar view: a media column at the left edge. .mmh3p-rail is always in the
    DOM so the grid's track count only changes with the class, never with what
    happens to be rendered. */
-.mmh3-rail{display:none;}
-.mmh3-body.sidebar{grid-template-columns:186px minmax(0,1fr) 0 440px;}
-.mmh3-body.sidebar.haspins{grid-template-columns:186px minmax(0,1fr) 176px 400px;}
-.mmh3-body.sidebar .mmh3-rail{display:flex;flex-direction:column;gap:6px;
+.mmh3p-rail{display:none;}
+.mmh3p-body.sidebar{grid-template-columns:186px minmax(0,1fr) 0 440px;}
+.mmh3p-body.sidebar.haspins{grid-template-columns:186px minmax(0,1fr) 176px 400px;}
+.mmh3p-body.sidebar .mmh3p-rail{display:flex;flex-direction:column;gap:6px;
   min-height:0;overflow-y:auto;padding:10px 8px;background:#15181e;
   border-right:1px solid #2a2f3a;}
-.mmh3-railhead{flex:0 0 auto;font-size:10px;text-transform:uppercase;
+.mmh3p-railhead{flex:0 0 auto;font-size:10px;text-transform:uppercase;
   letter-spacing:.08em;color:#8a93a3;}
 /* One column: the same cards, stacked. A joined video+audio pair meets
    top-to-bottom here, so the squared corners move to the horizontal edges. */
-.mmh3-body.sidebar .mmh3-rail .mmh3-chips{flex-direction:column;flex-wrap:nowrap;
+.mmh3p-body.sidebar .mmh3p-rail .mmh3p-chips{flex-direction:column;flex-wrap:nowrap;
   max-height:none;overflow:visible;align-items:stretch;}
-.mmh3-body.sidebar .mmh3-rail .mmh3-card{width:auto;}
-.mmh3-body.sidebar .mmh3-rail .mmh3-card.joinR{margin-right:0;margin-bottom:-6px;
+.mmh3p-body.sidebar .mmh3p-rail .mmh3p-card{width:auto;}
+.mmh3p-body.sidebar .mmh3p-rail .mmh3p-card.joinR{margin-right:0;margin-bottom:-6px;
   border-radius:7px 7px 0 0;}
-.mmh3-body.sidebar .mmh3-rail .mmh3-card.joinL{border-left-width:1px;
+.mmh3p-body.sidebar .mmh3p-rail .mmh3p-card.joinL{border-left-width:1px;
   border-top-width:0;border-radius:0 0 7px 7px;}
-@media (max-width:980px){.mmh3-body,.mmh3-body.haspins{grid-template-columns:1fr;}}
-.mmh3-pins{overflow:hidden auto;background:#15181e;border-left:1px solid #2a2f3a;
+@media (max-width:980px){.mmh3p-body,.mmh3p-body.haspins{grid-template-columns:1fr;}}
+.mmh3p-pins{overflow:hidden auto;background:#15181e;border-left:1px solid #2a2f3a;
   padding:0;display:flex;flex-direction:column;gap:6px;}
-.mmh3-body.haspins .mmh3-pins{padding:10px 8px;}
-.mmh3-pinhead{flex:0 0 auto;font-size:10px;text-transform:uppercase;
+.mmh3p-body.haspins .mmh3p-pins{padding:10px 8px;}
+.mmh3p-pinhead{flex:0 0 auto;font-size:10px;text-transform:uppercase;
   letter-spacing:.08em;color:#8a93a3;}
 /* Cards share the pane's height evenly and the picture takes whatever the tag
    bar and any audio control don't, so a pin is as large as the space allows.
    min-height:0 is what lets a flex item shrink below its content. */
-.mmh3-pincard{flex:1 1 0;min-height:0;display:flex;flex-direction:column;
+.mmh3p-pincard{flex:1 1 0;min-height:0;display:flex;flex-direction:column;
   border:1px solid #363d4a;border-radius:7px;overflow:hidden;background:#12151b;}
-.mmh3-pincard .mmh3-thumb{flex:1 1 auto;min-height:0;width:100%;height:auto;
+.mmh3p-pincard .mmh3p-thumb{flex:1 1 auto;min-height:0;width:100%;height:auto;
   object-fit:contain;display:block;background:#0d1015;}
-.mmh3-pinbar{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:3px 6px;}
-.mmh3-pincard audio{flex:0 0 auto;}
+.mmh3p-pinbar{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:3px 6px;}
+.mmh3p-pincard audio{flex:0 0 auto;}
 
 /* Wide screens: lift the pane out of the modal and stand it in the empty
    overlay to the left, where a pin can be far bigger than a 176px column
-   allows. Its left/top/bottom insets are all --mmh3-gap, so it clears the
+   allows. Its left/top/bottom insets are all --mmh3p-gap, so it clears the
    screen edge by exactly what the modal clears the top and bottom by.
    Below this width the overlay margin is too narrow to be worth it and the
    pane stays in its in-modal column. */
@@ -1013,481 +1013,481 @@ const CSS = `
      display:none when empty, out of flow when floating — so a third track
      would leave the side panel sitting in the empty middle one, collapsed to
      nothing with the footer buttons spilling out of it. */
-  .mmh3-body,.mmh3-body.haspins{grid-template-columns:minmax(0,1fr) 400px;}
+  .mmh3p-body,.mmh3p-body.haspins{grid-template-columns:minmax(0,1fr) 400px;}
   /* Sidebar keeps its rail track, but still drops the pin one for the same
      reason — three in-flow items, three tracks. */
-  .mmh3-body.sidebar,.mmh3-body.sidebar.haspins{
+  .mmh3p-body.sidebar,.mmh3p-body.sidebar.haspins{
     grid-template-columns:186px minmax(0,1fr) 400px;}
-  .mmh3-body.haspins .mmh3-pins{
+  .mmh3p-body.haspins .mmh3p-pins{
     /* border-box, or the 10px padding and 1px border widen the pane past the
        calc and it runs under the modal. */
     box-sizing:border-box;
-    position:fixed;top:var(--mmh3-gap);bottom:var(--mmh3-gap);left:var(--mmh3-gap);
-    width:calc((100vw - var(--mmh3-mw)) / 2 - var(--mmh3-gap) - 14px);
+    position:fixed;top:var(--mmh3p-gap);bottom:var(--mmh3p-gap);left:var(--mmh3p-gap);
+    width:calc((100vw - var(--mmh3p-mw)) / 2 - var(--mmh3p-gap) - 14px);
     border:1px solid #303642;border-left:1px solid #303642;border-radius:10px;
     box-shadow:0 24px 64px rgba(0,0,0,.55);padding:10px;overflow:hidden;}
-  .mmh3-body:not(.haspins) .mmh3-pins{display:none;}
+  .mmh3p-body:not(.haspins) .mmh3p-pins{display:none;}
 }
-.mmh3-auto{font-size:9px;color:#6f86b8;border:1px solid #2b3a52;border-radius:7px;
+.mmh3p-auto{font-size:9px;color:#6f86b8;border:1px solid #2b3a52;border-radius:7px;
   padding:0 5px;margin-left:auto;}
-.mmh3-pinbar .mmh3-x{margin-left:auto;cursor:pointer;color:#6b7484;font-size:11px;}
-.mmh3-pinbar .mmh3-x:hover{color:#e05a5a;}
-.mmh3-pinempty{border:1px dashed #2e3440;border-radius:7px;padding:8px 6px;text-align:center;
+.mmh3p-pinbar .mmh3p-x{margin-left:auto;cursor:pointer;color:#6b7484;font-size:11px;}
+.mmh3p-pinbar .mmh3p-x:hover{color:#e05a5a;}
+.mmh3p-pinempty{border:1px dashed #2e3440;border-radius:7px;padding:8px 6px;text-align:center;
   font-size:10px;color:#5c6472;line-height:1.4;}
-.mmh3-card{width:128px;flex:0 0 auto;border:1px solid #2e3440;border-radius:7px;
+.mmh3p-card{width:128px;flex:0 0 auto;border:1px solid #2e3440;border-radius:7px;
   overflow:hidden;background:#12151b;cursor:pointer;user-select:none;}
-.mmh3-card:hover{border-color:#59637a;}
-.mmh3-card.pic{border-color:#6d5527;} .mmh3-card.vid{border-color:#255c6b;}
-.mmh3-card.aud{border-color:#4c3d6e;}
-.mmh3-card .mmh3-thumb{width:100%;height:80px;object-fit:cover;display:block;
+.mmh3p-card:hover{border-color:#59637a;}
+.mmh3p-card.pic{border-color:#6d5527;} .mmh3p-card.vid{border-color:#255c6b;}
+.mmh3p-card.aud{border-color:#4c3d6e;}
+.mmh3p-card .mmh3p-thumb{width:100%;height:80px;object-fit:cover;display:block;
   background:#0d1015;}
-.mmh3-wave{background:#0d1015;}
-.mmh3-cardbar{display:flex;align-items:center;gap:3px;padding:2px 4px;}
-.mmh3-tagname{font-family:ui-monospace,monospace;font-size:9px;}
-.mmh3-tagname.pic{color:#e0a94c;} .mmh3-tagname.vid{color:#4cc3e0;}
-.mmh3-tagname.aud{color:#b48ce8;} .mmh3-tagname.subj{color:#7ec87e;}
-.mmh3-cite{margin-left:auto;font-size:9px;color:#7a8393;font-family:ui-monospace,monospace;}
-.mmh3-cite.zero{color:#e0a94c;}
-.mmh3-cite.off{color:#5c6472;}
-.mmh3-card.unusable{opacity:.34;cursor:not-allowed;border-color:#2a2f3a !important;}
-.mmh3-card.unusable:hover{opacity:.5;border-color:#3a4252 !important;}
-.mmh3-card.unusable .mmh3-tagname{color:#6b7484 !important;}
-.mmh3-cardnote{display:block;font-size:8px;color:#8a7ab0;padding:0 4px 3px;}
+.mmh3p-wave{background:#0d1015;}
+.mmh3p-cardbar{display:flex;align-items:center;gap:3px;padding:2px 4px;}
+.mmh3p-tagname{font-family:ui-monospace,monospace;font-size:9px;}
+.mmh3p-tagname.pic{color:#e0a94c;} .mmh3p-tagname.vid{color:#4cc3e0;}
+.mmh3p-tagname.aud{color:#b48ce8;} .mmh3p-tagname.subj{color:#7ec87e;}
+.mmh3p-cite{margin-left:auto;font-size:9px;color:#7a8393;font-family:ui-monospace,monospace;}
+.mmh3p-cite.zero{color:#e0a94c;}
+.mmh3p-cite.off{color:#5c6472;}
+.mmh3p-card.unusable{opacity:.34;cursor:not-allowed;border-color:#2a2f3a !important;}
+.mmh3p-card.unusable:hover{opacity:.5;border-color:#3a4252 !important;}
+.mmh3p-card.unusable .mmh3p-tagname{color:#6b7484 !important;}
+.mmh3p-cardnote{display:block;font-size:8px;color:#8a7ab0;padding:0 4px 3px;}
 /* max-content so the frame takes the picture's rendered width: a portrait
    shot capped by max-height makes a narrow box, a landscape one a wide box,
    instead of every image letterboxing inside one fixed width. */
-.mmh3-peek{position:fixed;z-index:10002;box-sizing:border-box;width:max-content;
+.mmh3p-peek{position:fixed;z-index:10002;box-sizing:border-box;width:max-content;
   min-width:240px;max-width:540px;background:#1e222a;
   border:1px solid #3a4252;border-radius:9px;overflow:hidden;
   box-shadow:0 12px 32px rgba(0,0,0,.5);}
 /* auto on both axes with a cap on each: the image keeps its own proportions
    and the box above shrinks to whatever width that leaves. */
-.mmh3-peekmedia{display:block;margin:0 auto;width:auto;height:auto;
+.mmh3p-peekmedia{display:block;margin:0 auto;width:auto;height:auto;
   max-width:540px;max-height:70vh;background:#0d1015;}
-.mmh3-peekmeta{padding:6px 8px;}
-.mmh3-peekrow{display:flex;align-items:center;gap:6px;}
-.mmh3-peekcite{margin-left:auto;font-size:9px;color:#7a8393;}
-.mmh3-peekcite.zero{color:#e0a94c;}
-.mmh3-peeksrc{font-size:9px;color:#6b7484;margin:2px 0 6px;max-width:520px;overflow:hidden;
+.mmh3p-peekmeta{padding:6px 8px;}
+.mmh3p-peekrow{display:flex;align-items:center;gap:6px;}
+.mmh3p-peekcite{margin-left:auto;font-size:9px;color:#7a8393;}
+.mmh3p-peekcite.zero{color:#e0a94c;}
+.mmh3p-peeksrc{font-size:9px;color:#6b7484;margin:2px 0 6px;max-width:520px;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;}
 /* No top padding: the sticky media bar owns that space, so it can pin flush
    to the top of the scroll area with nothing able to scroll past it. */
-.mmh3-form{overflow-y:auto;padding:0 16px 24px;min-width:0;
+.mmh3p-form{overflow-y:auto;padding:0 16px 24px;min-width:0;
   display:flex;flex-direction:column;}
 /* Sections keep their natural height; the one marked grow takes the slack, so
    the audio sections after it sit at the bottom of the form instead of
    floating under a short description box. When the content is genuinely
    taller than the form, min-height stops the growing box collapsing and the
    form scrolls as before. */
-.mmh3-form>*{flex:0 0 auto;}
-.mmh3-sec.mmh3-grow{flex:1 1 auto;display:flex;flex-direction:column;
+.mmh3p-form>*{flex:0 0 auto;}
+.mmh3p-sec.mmh3p-grow{flex:1 1 auto;display:flex;flex-direction:column;
   min-height:220px;}
-.mmh3-sec.mmh3-grow textarea{flex:1 1 auto;min-height:140px;}
-.mmh3-side{border-left:1px solid #2a2f3a;display:flex;flex-direction:column;min-height:0;background:#15181e;}
-.mmh3-sec{margin-bottom:16px;}
-.mmh3-rowpow{cursor:pointer;font-size:11px;color:#3f4855;user-select:none;
+.mmh3p-sec.mmh3p-grow textarea{flex:1 1 auto;min-height:140px;}
+.mmh3p-side{border-left:1px solid #2a2f3a;display:flex;flex-direction:column;min-height:0;background:#15181e;}
+.mmh3p-sec{margin-bottom:16px;}
+.mmh3p-rowpow{cursor:pointer;font-size:11px;color:#3f4855;user-select:none;
   flex-shrink:0;line-height:1;text-align:center;}
-.mmh3-defrow .mmh3-rowpow{align-self:flex-start;margin-top:11px;}
-.mmh3-rowpow.on{color:#6fbf73;}
-.mmh3-rowpow:hover{filter:brightness(1.35);}
-.mmh3-defrow.off textarea, .mmh3-retrow.off select, .mmh3-retrow.off input{
+.mmh3p-defrow .mmh3p-rowpow{align-self:flex-start;margin-top:11px;}
+.mmh3p-rowpow.on{color:#6fbf73;}
+.mmh3p-rowpow:hover{filter:brightness(1.35);}
+.mmh3p-defrow.off textarea, .mmh3p-retrow.off select, .mmh3p-retrow.off input{
   opacity:.4;text-decoration:line-through;}
-.mmh3-secpow{cursor:pointer;font-size:11px;margin-right:6px;color:#3f4855;
+.mmh3p-secpow{cursor:pointer;font-size:11px;margin-right:6px;color:#3f4855;
   user-select:none;vertical-align:baseline;}
-.mmh3-secpow.on{color:#6fbf73;}
-.mmh3-secpow:hover{filter:brightness(1.35);}
-.mmh3-sec>label.off{opacity:.45;text-decoration:line-through;}
-.mmh3-sec>label.off ~ *{opacity:.45;}
-.mmh3-sec>label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.08em;
+.mmh3p-secpow.on{color:#6fbf73;}
+.mmh3p-secpow:hover{filter:brightness(1.35);}
+.mmh3p-sec>label.off{opacity:.45;text-decoration:line-through;}
+.mmh3p-sec>label.off ~ *{opacity:.45;}
+.mmh3p-sec>label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.08em;
   color:#8a93a3;margin-bottom:5px;}
-.mmh3-sec .hint{font-size:11px;color:#6b7484;margin-top:4px;line-height:1.4;}
-.mmh3-form textarea,.mmh3-form input[type=text],.mmh3-form input[type=number],.mmh3-form select{
+.mmh3p-sec .hint{font-size:11px;color:#6b7484;margin-top:4px;line-height:1.4;}
+.mmh3p-form textarea,.mmh3p-form input[type=text],.mmh3p-form input[type=number],.mmh3p-form select{
   width:100%;box-sizing:border-box;background:#12151b;color:#dde2ea;border:1px solid #2e3440;
   border-radius:6px;padding:7px 9px;font-size:13px;font-family:inherit;}
-.mmh3-form textarea{resize:vertical;line-height:1.5;}
-.mmh3-form textarea:focus,.mmh3-form input:focus,.mmh3-form select:focus{
+.mmh3p-form textarea{resize:vertical;line-height:1.5;}
+.mmh3p-form textarea:focus,.mmh3p-form input:focus,.mmh3p-form select:focus{
   outline:none;border-color:#4a5568;}
-.mmh3-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
-.mmh3-clearbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+.mmh3p-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.mmh3p-clearbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
   background:#2b2320;border:1px solid #7a4a3a;border-radius:7px;padding:8px 10px;
   margin-bottom:10px;font-size:12px;color:#e8c4b4;}
-.mmh3-clearnote{font-size:11px;color:#a08878;}
+.mmh3p-clearnote{font-size:11px;color:#a08878;}
 /* The buttons live in their own nowrap group pinned right, so a narrow
    window wraps the MESSAGE instead of stranding one button on a new line
    at the far left. */
-.mmh3-clearactions{display:flex;gap:8px;flex-wrap:nowrap;margin-left:auto;
+.mmh3p-clearactions{display:flex;gap:8px;flex-wrap:nowrap;margin-left:auto;
   flex-shrink:0;}
-.mmh3-clearmsg{flex:1 1 220px;min-width:0;}
-.mmh3-prefwrap{position:relative;display:inline-block;}
-.mmh3-x.on{color:#dde2ea;}
-.mmh3-prefmenu{position:absolute;right:0;top:100%;margin-top:6px;z-index:20;
+.mmh3p-clearmsg{flex:1 1 220px;min-width:0;}
+.mmh3p-prefwrap{position:relative;display:inline-block;}
+.mmh3p-x.on{color:#dde2ea;}
+.mmh3p-prefmenu{position:absolute;right:0;top:100%;margin-top:6px;z-index:20;
   display:none;width:270px;background:#1e222a;border:1px solid #3a4252;
   border-radius:9px;padding:8px;box-shadow:0 16px 40px rgba(0,0,0,.55);}
-.mmh3-prefmenu.on{display:block;}
-.mmh3-prefitem{display:flex;gap:8px;align-items:flex-start;padding:6px;
+.mmh3p-prefmenu.on{display:block;}
+.mmh3p-prefitem{display:flex;gap:8px;align-items:flex-start;padding:6px;
   border-radius:6px;cursor:pointer;}
-.mmh3-prefitem:hover{background:#242a34;}
-.mmh3-prefitem input{margin-top:2px;flex-shrink:0;}
-.mmh3-preflabel{display:block;font-size:12px;color:#d7dbe2;}
-.mmh3-prefhint{display:block;font-size:10px;color:#6b7484;line-height:1.35;
+.mmh3p-prefitem:hover{background:#242a34;}
+.mmh3p-prefitem input{margin-top:2px;flex-shrink:0;}
+.mmh3p-preflabel{display:block;font-size:12px;color:#d7dbe2;}
+.mmh3p-prefhint{display:block;font-size:10px;color:#6b7484;line-height:1.35;
   margin-top:2px;}
-.mmh3-btn.mmh3-danger{border-color:#5c3a3a;color:#e08585;}
-.mmh3-btn.mmh3-danger:hover{background:#3a2626;color:#f0a0a0;}
+.mmh3p-btn.mmh3p-danger{border-color:#5c3a3a;color:#e08585;}
+.mmh3p-btn.mmh3p-danger:hover{background:#3a2626;color:#f0a0a0;}
 /* Full-bleed: negative side margins cancel the form's padding, so the bar's
    background covers the gutters too. Text used to scroll visibly through
    them and through the strip above the bar. */
-.mmh3-dialogrow{margin-top:6px;}
+.mmh3p-dialogrow{margin-top:6px;}
 /* nowrap matters: with wrapping allowed, flexbox breaks the line before it
    shrinks anything, so a long phrase name pushed the buttons onto a second
    row instead of narrowing the picker. */
-/* Compound selector so this beats .mmh3-tools, which sets flex-wrap:wrap
+/* Compound selector so this beats .mmh3p-tools, which sets flex-wrap:wrap
    later in the sheet at the same specificity. */
-.mmh3-tools.mmh3-phraserow{margin-top:6px;flex-wrap:nowrap;}
-.mmh3-phrasewarn{font-size:12px;color:#e8b46a;}
-.mmh3-phrasepeek{position:fixed;z-index:10005;max-width:420px;
+.mmh3p-tools.mmh3p-phraserow{margin-top:6px;flex-wrap:nowrap;}
+.mmh3p-phrasewarn{font-size:12px;color:#e8b46a;}
+.mmh3p-phrasepeek{position:fixed;z-index:10005;max-width:420px;
   box-sizing:border-box;background:#1e222a;
   border:1px solid #3a4252;border-radius:9px;padding:8px 10px;
   box-shadow:0 16px 40px rgba(0,0,0,.55);pointer-events:none;}
-.mmh3-phrasepeekhead{display:flex;gap:8px;align-items:baseline;
+.mmh3p-phrasepeekhead{display:flex;gap:8px;align-items:baseline;
   margin-bottom:5px;}
-.mmh3-phrasepeekhead span:first-child{font-size:11px;color:#d7dbe2;
+.mmh3p-phrasepeekhead span:first-child{font-size:11px;color:#d7dbe2;
   font-weight:600;}
-.mmh3-phrasepeekcat{font-size:9px;color:#6b7484;text-transform:uppercase;
+.mmh3p-phrasepeekcat{font-size:9px;color:#6b7484;text-transform:uppercase;
   letter-spacing:.06em;}
-.mmh3-phrasepeektext{font-size:12px;color:#a9b2c2;line-height:1.5;
+.mmh3p-phrasepeektext{font-size:12px;color:#a9b2c2;line-height:1.5;
   white-space:pre-wrap;max-height:220px;overflow:hidden;}
-.mmh3-ctxmenu{position:fixed;z-index:10006;min-width:190px;background:#1e222a;
+.mmh3p-ctxmenu{position:fixed;z-index:10006;min-width:190px;background:#1e222a;
   border:1px solid #3a4252;border-radius:8px;padding:4px;
   box-shadow:0 16px 40px rgba(0,0,0,.55);}
-.mmh3-ctxitem{padding:7px 10px;border-radius:6px;font-size:12px;color:#d7dbe2;
+.mmh3p-ctxitem{padding:7px 10px;border-radius:6px;font-size:12px;color:#d7dbe2;
   cursor:pointer;white-space:nowrap;}
-.mmh3-ctxitem:hover{background:#2a313d;}
-.mmh3-phraseover{z-index:10004;display:flex;align-items:center;
+.mmh3p-ctxitem:hover{background:#2a313d;}
+.mmh3p-phraseover{z-index:10004;display:flex;align-items:center;
   justify-content:center;}
-.mmh3-phrasemodal{width:min(520px,92vw);background:#191c22;
+.mmh3p-phrasemodal{width:min(520px,92vw);background:#191c22;
   border:1px solid #303642;border-radius:10px;overflow:hidden;
   box-shadow:0 24px 64px rgba(0,0,0,.55);}
-.mmh3-phrasebody{padding:12px 14px;display:flex;flex-direction:column;gap:6px;}
-.mmh3-phrasebody label{font-size:11px;text-transform:uppercase;
+.mmh3p-phrasebody{padding:12px 14px;display:flex;flex-direction:column;gap:6px;}
+.mmh3p-phrasebody label{font-size:11px;text-transform:uppercase;
   letter-spacing:.08em;color:#8a93a3;}
-.mmh3-phrasetext{width:100%;box-sizing:border-box;background:#12151b;
+.mmh3p-phrasetext{width:100%;box-sizing:border-box;background:#12151b;
   color:#dde2ea;border:1px solid #2e3440;border-radius:6px;padding:7px 9px;
   font-size:13px;font-family:inherit;line-height:1.6;resize:vertical;}
-.mmh3-phrasetext:focus{outline:none;border-color:#4a5568;}
-.mmh3-phrasefoot{display:flex;align-items:center;gap:8px;padding:10px 14px;
+.mmh3p-phrasetext:focus{outline:none;border-color:#4a5568;}
+.mmh3p-phrasefoot{display:flex;align-items:center;gap:8px;padding:10px 14px;
   border-top:1px solid #2a2f3a;background:#1b1f27;}
-.mmh3-phrasecat{flex:0 1 150px;min-width:70px;}
+.mmh3p-phrasecat{flex:0 1 150px;min-width:70px;}
 /* The phrase names are the long ones, so this picker absorbs whatever room
    is left rather than truncating at a fixed width. */
-.mmh3-phrasesel{flex:1 1 120px;min-width:0;max-width:none;}
-.mmh3-toolspace{flex:0 0 8px;}
-.mmh3-toolgrow{flex:1 1 auto;}
-.mmh3-phraserow .mmh3-btn,.mmh3-phraserow .mmh3-toollabel{flex:0 0 auto;
+.mmh3p-phrasesel{flex:1 1 120px;min-width:0;max-width:none;}
+.mmh3p-toolspace{flex:0 0 8px;}
+.mmh3p-toolgrow{flex:1 1 auto;}
+.mmh3p-phraserow .mmh3p-btn,.mmh3p-phraserow .mmh3p-toollabel{flex:0 0 auto;
   white-space:nowrap;}
-.mmh3-toollabel{font-size:10px;text-transform:uppercase;letter-spacing:.07em;
+.mmh3p-toollabel{font-size:10px;text-transform:uppercase;letter-spacing:.07em;
   color:#7d8698;align-self:center;}
-.mmh3-toolsep{width:1px;height:18px;background:#2e3440;align-self:center;}
-.mmh3-btn.ghost{opacity:.7;border-style:dashed;}
-.mmh3-chipbar{position:sticky;top:0;z-index:5;background:#191c22;
+.mmh3p-toolsep{width:1px;height:18px;background:#2e3440;align-self:center;}
+.mmh3p-btn.ghost{opacity:.7;border-style:dashed;}
+.mmh3p-chipbar{position:sticky;top:0;z-index:5;background:#191c22;
   padding:12px 16px 10px;margin:0 -16px 14px;
   border-bottom:1px solid #242a34;}
 /* Wraps instead of scrolling sideways: a second row is easier to scan than a
    strip you have to drag through, and every reference stays reachable for a
    drag. Caps at roughly three rows before scrolling vertically. */
-.mmh3-chips{display:flex;flex-wrap:wrap;gap:6px;padding-bottom:3px;
+.mmh3p-chips{display:flex;flex-wrap:wrap;gap:6px;padding-bottom:3px;
   align-items:flex-start;align-content:flex-start;
   max-height:min(46vh,380px);overflow-y:auto;overflow-x:hidden;}
-.mmh3-chips::-webkit-scrollbar{width:6px;height:6px;}
-.mmh3-chips::-webkit-scrollbar-thumb{background:#2e3440;border-radius:3px;}
-.mmh3-card.mmh3-dropinto{outline:2px solid #6f86b8;outline-offset:1px;}
+.mmh3p-chips::-webkit-scrollbar{width:6px;height:6px;}
+.mmh3p-chips::-webkit-scrollbar-thumb{background:#2e3440;border-radius:3px;}
+.mmh3p-card.mmh3p-dropinto{outline:2px solid #6f86b8;outline-offset:1px;}
 /* A video and its split soundtrack read as one unit: the pair closes the 6px
    rail gap with a negative margin and squares only the two corners that meet,
    so the teal border sits flush against the purple one. */
-.mmh3-card.joinR{border-top-right-radius:0;border-bottom-right-radius:0;
+.mmh3p-card.joinR{border-top-right-radius:0;border-bottom-right-radius:0;
   margin-right:-6px;}
-.mmh3-card.joinL{border-top-left-radius:0;border-bottom-left-radius:0;
+.mmh3p-card.joinL{border-top-left-radius:0;border-bottom-left-radius:0;
   border-left-width:0;}
-.mmh3-card.mmh3-drop{display:flex;flex-direction:column;align-items:center;
+.mmh3p-card.mmh3p-drop{display:flex;flex-direction:column;align-items:center;
   justify-content:center;gap:3px;align-self:stretch;min-height:97px;
   border-style:dashed;
   border-color:#2b313d;background:#141820;color:#5c6472;cursor:pointer;}
-.mmh3-card.mmh3-drop:hover{border-color:#59637a;color:#8a93a3;}
-.mmh3-card.mmh3-drop.hot{border-color:#6f86b8;background:#1b2230;color:#9db4dc;}
-.mmh3-dropplus{font-size:18px;line-height:1;}
-.mmh3-dropkinds{font-size:9px;text-transform:uppercase;letter-spacing:.06em;}
+.mmh3p-card.mmh3p-drop:hover{border-color:#59637a;color:#8a93a3;}
+.mmh3p-card.mmh3p-drop.hot{border-color:#6f86b8;background:#1b2230;color:#9db4dc;}
+.mmh3p-dropplus{font-size:18px;line-height:1;}
+.mmh3p-dropkinds{font-size:9px;text-transform:uppercase;letter-spacing:.06em;}
 /* Sits at the right-hand end of the card's bottom bar, matching where the
    node's tiles put the same control. */
-.mmh3-cardtools{display:flex;align-items:center;gap:6px;margin-left:5px;
+.mmh3p-cardtools{display:flex;align-items:center;gap:6px;margin-left:5px;
   flex:0 0 auto;}
-.mmh3-cardtool{cursor:pointer;font-size:11px;line-height:1;color:#5a6373;
+.mmh3p-cardtool{cursor:pointer;font-size:11px;line-height:1;color:#5a6373;
   user-select:none;}
-.mmh3-cardtool:hover{color:#c9cfda;}
-.mmh3-cardtool.on{color:#e0a94c;}
-.mmh3-pintool{filter:grayscale(1) opacity(.5);}
-.mmh3-pintool:hover{filter:grayscale(.4) opacity(.85);}
-.mmh3-pintool.pinned{filter:none;color:#e05a5a;text-shadow:0 0 6px rgba(224,90,90,.5);}
-.mmh3-rmtool:hover{color:#e05a5a;}
+.mmh3p-cardtool:hover{color:#c9cfda;}
+.mmh3p-cardtool.on{color:#e0a94c;}
+.mmh3p-pintool{filter:grayscale(1) opacity(.5);}
+.mmh3p-pintool:hover{filter:grayscale(.4) opacity(.85);}
+.mmh3p-pintool.pinned{filter:none;color:#e05a5a;text-shadow:0 0 6px rgba(224,90,90,.5);}
+.mmh3p-rmtool:hover{color:#e05a5a;}
 /* The two audio sections sit side by side at the foot of the form. */
-.mmh3-audiopair{display:flex;gap:14px;align-items:flex-start;}
-.mmh3-audiopair>.mmh3-sec{flex:1 1 0;min-width:0;margin-bottom:16px;}
-@media (max-width:900px){.mmh3-audiopair{flex-direction:column;gap:0;}}
-.mmh3-chip{display:inline-flex;align-items:center;gap:6px;border-radius:14px;cursor:pointer;
+.mmh3p-audiopair{display:flex;gap:14px;align-items:flex-start;}
+.mmh3p-audiopair>.mmh3p-sec{flex:1 1 0;min-width:0;margin-bottom:16px;}
+@media (max-width:900px){.mmh3p-audiopair{flex-direction:column;gap:0;}}
+.mmh3p-chip{display:inline-flex;align-items:center;gap:6px;border-radius:14px;cursor:pointer;
   border:1px solid #363d4a;background:#20242d;color:#c9cfda;font-size:12px;
   padding:3px 10px;user-select:none;}
-.mmh3-chip:hover{border-color:#59637a;background:#262c38;}
-.mmh3-chip img,.mmh3-chip video{width:22px;height:22px;object-fit:cover;border-radius:4px;}
-.mmh3-chip.pic{border-color:#8a6a2c;} .mmh3-chip.pic b{color:#e0a94c;}
-.mmh3-chip.vid{border-color:#2c6f81;} .mmh3-chip.vid b{color:#4cc3e0;}
-.mmh3-chip.aud{border-color:#5d4a86;} .mmh3-chip.aud b{color:#b48ce8;}
-.mmh3-chip.subj{border-color:#3e6b3e;} .mmh3-chip.subj b{color:#7ec87e;}
-.mmh3-chip b{font-weight:600;}
-.mmh3-chipnote{font-size:9px;font-style:normal;opacity:.75;letter-spacing:.02em;
+.mmh3p-chip:hover{border-color:#59637a;background:#262c38;}
+.mmh3p-chip img,.mmh3p-chip video{width:22px;height:22px;object-fit:cover;border-radius:4px;}
+.mmh3p-chip.pic{border-color:#8a6a2c;} .mmh3p-chip.pic b{color:#e0a94c;}
+.mmh3p-chip.vid{border-color:#2c6f81;} .mmh3p-chip.vid b{color:#4cc3e0;}
+.mmh3p-chip.aud{border-color:#5d4a86;} .mmh3p-chip.aud b{color:#b48ce8;}
+.mmh3p-chip.subj{border-color:#3e6b3e;} .mmh3p-chip.subj b{color:#7ec87e;}
+.mmh3p-chip b{font-weight:600;}
+.mmh3p-chipnote{font-size:9px;font-style:normal;opacity:.75;letter-spacing:.02em;
   border-left:1px solid #4a4260;padding-left:5px;margin-left:1px;}
-.mmh3-subjrow{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;}
-.mmh3-tools{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center;}
-.mmh3-tools select{width:auto;background:#12151b;color:#c9cfda;border:1px solid #2e3440;
+.mmh3p-subjrow{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;}
+.mmh3p-tools{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center;}
+.mmh3p-tools select{width:auto;background:#12151b;color:#c9cfda;border:1px solid #2e3440;
   border-radius:6px;padding:4px 6px;font-size:12px;}
-.mmh3-tools input[type=number]{width:84px;background:#12151b;color:#c9cfda;
+.mmh3p-tools input[type=number]{width:84px;background:#12151b;color:#c9cfda;
   border:1px solid #2e3440;border-radius:6px;padding:4px 6px;font-size:12px;}
-.mmh3-tools input[type=number]:focus{outline:none;border-color:#4a5568;}
-.mmh3-btn{background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
+.mmh3p-tools input[type=number]:focus{outline:none;border-color:#4a5568;}
+.mmh3p-btn{background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
   padding:5px 12px;font-size:12px;cursor:pointer;}
-.mmh3-btn:hover{background:#333b4d;}
-.mmh3-btn.primary{background:#3f5a86;border-color:#4d6ea6;color:#fff;}
-.mmh3-btn.primary:hover{background:#48679a;}
-.mmh3-btn.ghost{background:none;border-color:transparent;color:#8a93a3;}
-.mmh3-btn.ghost:hover{color:#e05a5a;}
-.mmh3-defrow{display:flex;gap:6px;margin-bottom:6px;align-items:flex-start;}
-.mmh3-defrow textarea{flex:1;min-height:38px;}
-.mmh3-minitags{display:flex;gap:4px;flex-wrap:wrap;margin:-2px 0 8px 2px;min-height:14px;}
-.mmh3-minitag{font-size:10px;border-radius:8px;padding:1px 7px;background:#20242d;border:1px solid #363d4a;}
-.mmh3-minitag.pic{color:#e0a94c;border-color:#8a6a2c;}
-.mmh3-minitag.vid{color:#4cc3e0;border-color:#2c6f81;}
-.mmh3-minitag.aud{color:#b48ce8;border-color:#5d4a86;}
-.mmh3-minitag.subj{color:#7ec87e;border-color:#3e6b3e;}
-.mmh3-roles{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:-4px 0 10px 2px;}
-.mmh3-rolelabel{font-size:10px;text-transform:uppercase;letter-spacing:.07em;
+.mmh3p-btn:hover{background:#333b4d;}
+.mmh3p-btn.primary{background:#3f5a86;border-color:#4d6ea6;color:#fff;}
+.mmh3p-btn.primary:hover{background:#48679a;}
+.mmh3p-btn.ghost{background:none;border-color:transparent;color:#8a93a3;}
+.mmh3p-btn.ghost:hover{color:#e05a5a;}
+.mmh3p-defrow{display:flex;gap:6px;margin-bottom:6px;align-items:flex-start;}
+.mmh3p-defrow textarea{flex:1;min-height:38px;}
+.mmh3p-minitags{display:flex;gap:4px;flex-wrap:wrap;margin:-2px 0 8px 2px;min-height:14px;}
+.mmh3p-minitag{font-size:10px;border-radius:8px;padding:1px 7px;background:#20242d;border:1px solid #363d4a;}
+.mmh3p-minitag.pic{color:#e0a94c;border-color:#8a6a2c;}
+.mmh3p-minitag.vid{color:#4cc3e0;border-color:#2c6f81;}
+.mmh3p-minitag.aud{color:#b48ce8;border-color:#5d4a86;}
+.mmh3p-minitag.subj{color:#7ec87e;border-color:#3e6b3e;}
+.mmh3p-roles{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:-4px 0 10px 2px;}
+.mmh3p-rolelabel{font-size:10px;text-transform:uppercase;letter-spacing:.07em;
   color:#6b7484;margin-right:2px;}
-.mmh3-rolechip{font-size:11px;border-radius:10px;padding:2px 9px;cursor:pointer;
+.mmh3p-rolechip{font-size:11px;border-radius:10px;padding:2px 9px;cursor:pointer;
   background:#1d2029;border:1px solid #3a3050;color:#a99ac4;user-select:none;}
-.mmh3-rolechip:hover{border-color:#5d4a86;color:#c9b9e6;background:#241f33;}
-.mmh3-rolechip.on{background:#3a2f56;border-color:#7d63b8;color:#e2d6f8;}
-.mmh3-ttypes{display:flex;flex-wrap:wrap;gap:4px 12px;margin-bottom:6px;}
-.mmh3-ttypes label{display:flex;gap:5px;align-items:center;font-size:12px;color:#c9cfda;
+.mmh3p-rolechip:hover{border-color:#5d4a86;color:#c9b9e6;background:#241f33;}
+.mmh3p-rolechip.on{background:#3a2f56;border-color:#7d63b8;color:#e2d6f8;}
+.mmh3p-ttypes{display:flex;flex-wrap:wrap;gap:4px 12px;margin-bottom:6px;}
+.mmh3p-ttypes label{display:flex;gap:5px;align-items:center;font-size:12px;color:#c9cfda;
   text-transform:none;letter-spacing:0;cursor:pointer;}
-.mmh3-retrow{display:grid;grid-template-columns:14px 150px 1fr 160px 26px;gap:6px;
+.mmh3p-retrow{display:grid;grid-template-columns:14px 150px 1fr 160px 26px;gap:6px;
   margin-bottom:6px;align-items:center;}
-.mmh3-retrow input,.mmh3-retrow select{font-size:12px;}
-.mmh3-retnote{grid-column:1/-1;margin-top:-2px;}
-.mmh3-preview{flex:1;overflow:auto;margin:0;padding:12px 14px;font:12px/1.55 ui-monospace,
+.mmh3p-retrow input,.mmh3p-retrow select{font-size:12px;}
+.mmh3p-retnote{grid-column:1/-1;margin-top:-2px;}
+.mmh3p-preview{flex:1;overflow:auto;margin:0;padding:12px 14px;font:12px/1.55 ui-monospace,
   SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word;color:#c4cad5;}
-.mmh3-preview .t-pic{color:#e0a94c;} .mmh3-preview .t-vid{color:#4cc3e0;}
-.mmh3-preview .t-aud{color:#b48ce8;} .mmh3-preview .t-subj{color:#7ec87e;}
-.mmh3-preview .t-shot{color:#7ea7d8;font-weight:600;}
-.mmh3-preview .t-d{color:#d8c07e;}
+.mmh3p-preview .mmh3p-t-pic{color:#e0a94c;} .mmh3p-preview .mmh3p-t-vid{color:#4cc3e0;}
+.mmh3p-preview .mmh3p-t-aud{color:#b48ce8;} .mmh3p-preview .mmh3p-t-subj{color:#7ec87e;}
+.mmh3p-preview .mmh3p-t-shot{color:#7ea7d8;font-weight:600;}
+.mmh3p-preview .mmh3p-t-d{color:#d8c07e;}
 /* Hues picked from what the tag palette wasn't already using: coral for the
    language bracket, pink for a speaker, and grey for N/A — which marks a
    section as deliberately empty, so it should read as absent, not as content. */
-.mmh3-preview .t-lang{color:#e8846a;}
-.mmh3-preview .t-spk{color:#e58fbf;font-weight:600;}
-.mmh3-preview .t-na{color:#6b7484;font-style:italic;}
-.mmh3-issues{max-height:180px;overflow:auto;border-top:1px solid #2a2f3a;padding:8px 14px;font-size:12px;}
-.mmh3-issues .error{color:#f07070;margin:3px 0;font-weight:500;}
-.mmh3-issues .warn{color:#e0a94c;margin:3px 0;}
-.mmh3-issues .info{color:#8a93a3;margin:3px 0;}
-.mmh3-issues .ok{color:#7ec87e;}
-.mmh3-foot{display:flex;gap:8px;align-items:center;padding:10px 14px;border-top:1px solid #2a2f3a;}
-.mmh3-foot .stats{font-size:11px;color:#6b7484;margin-right:auto;}
-.mmh3-summary{width:100%;box-sizing:border-box;background:#181b21;border:1px solid #2b303b;
+.mmh3p-preview .mmh3p-t-lang{color:#e8846a;}
+.mmh3p-preview .mmh3p-t-spk{color:#e58fbf;font-weight:600;}
+.mmh3p-preview .mmh3p-t-na{color:#6b7484;font-style:italic;}
+.mmh3p-issues{max-height:180px;overflow:auto;border-top:1px solid #2a2f3a;padding:8px 14px;font-size:12px;}
+.mmh3p-issues .error{color:#f07070;margin:3px 0;font-weight:500;}
+.mmh3p-issues .warn{color:#e0a94c;margin:3px 0;}
+.mmh3p-issues .info{color:#8a93a3;margin:3px 0;}
+.mmh3p-issues .ok{color:#7ec87e;}
+.mmh3p-foot{display:flex;gap:8px;align-items:center;padding:10px 14px;border-top:1px solid #2a2f3a;}
+.mmh3p-foot .stats{font-size:11px;color:#6b7484;margin-right:auto;}
+.mmh3p-summary{width:100%;box-sizing:border-box;background:#181b21;border:1px solid #2b303b;
   border-radius:6px;padding:6px 9px;font-size:11px;line-height:1.5;color:#9aa3b2;
   overflow:hidden;cursor:default;display:flex;align-items:center;gap:9px;}
-.mmh3-summary b{color:#d7dbe2;}
+.mmh3p-summary b{color:#d7dbe2;}
 /* Two lines of the prompt, clamped. pre-line keeps the prompt's own breaks, so
    a short opening line spends line two on the next one instead of padding. */
-.mmh3-sumtext{flex:1 1 auto;min-width:0;white-space:pre-line;overflow-wrap:anywhere;
+.mmh3p-sumtext{flex:1 1 auto;min-width:0;white-space:pre-line;overflow-wrap:anywhere;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
   max-height:calc(2 * 1.5em);}
-.mmh3-sumtext.empty{font-style:italic;color:#6b7484;}
-.mmh3-sumicon{flex:0 0 auto;align-self:center;font-size:15px;line-height:1;
+.mmh3p-sumtext.empty{font-style:italic;color:#6b7484;}
+.mmh3p-sumicon{flex:0 0 auto;align-self:center;font-size:15px;line-height:1;
   cursor:pointer;opacity:.75;user-select:none;}
-.mmh3-sumicon:hover{opacity:1;}
-.mmh3-summark{flex:0 0 auto;align-self:center;font-size:12px;line-height:1;
+.mmh3p-sumicon:hover{opacity:1;}
+.mmh3p-summark{flex:0 0 auto;align-self:center;font-size:12px;line-height:1;
   opacity:.85;user-select:none;}
 /* Quick edit: smaller than the full builder, same chrome. */
-.mmh3-quickmodal{box-sizing:border-box;width:min(900px,92vw);height:min(780px,88vh);
+.mmh3p-quickmodal{box-sizing:border-box;width:min(900px,92vw);height:min(780px,88vh);
   display:flex;flex-direction:column;background:#191c22;color:#d7dbe2;
   border:1px solid #303642;border-radius:10px;overflow:hidden;
   box-shadow:0 24px 64px rgba(0,0,0,.55);}
-.mmh3-quickbody{flex:1;min-height:0;overflow-y:auto;padding:14px 16px 18px;}
-.mmh3-quick{display:flex;flex-direction:column;min-height:100%;}
-.mmh3-quick>*{flex:0 0 auto;}
-.mmh3-quick .mmh3-sec.mmh3-grow{flex:1 1 auto;display:flex;flex-direction:column;
+.mmh3p-quickbody{flex:1;min-height:0;overflow-y:auto;padding:14px 16px 18px;}
+.mmh3p-quick{display:flex;flex-direction:column;min-height:100%;}
+.mmh3p-quick>*{flex:0 0 auto;}
+.mmh3p-quick .mmh3p-sec.mmh3p-grow{flex:1 1 auto;display:flex;flex-direction:column;
   min-height:200px;}
-.mmh3-quick .mmh3-sec.mmh3-grow textarea{flex:1 1 auto;min-height:120px;}
-.mmh3-quick textarea{width:100%;box-sizing:border-box;background:#12151b;
+.mmh3p-quick .mmh3p-sec.mmh3p-grow textarea{flex:1 1 auto;min-height:120px;}
+.mmh3p-quick textarea{width:100%;box-sizing:border-box;background:#12151b;
   color:#dde2ea;border:1px solid #2e3440;border-radius:6px;padding:7px 9px;
   font-size:13px;font-family:inherit;resize:vertical;line-height:1.5;}
-.mmh3-quick textarea:focus{outline:none;border-color:#4a5568;}
-.mmh3-quick label{display:block;font-size:11px;text-transform:uppercase;
+.mmh3p-quick textarea:focus{outline:none;border-color:#4a5568;}
+.mmh3p-quick label{display:block;font-size:11px;text-transform:uppercase;
   letter-spacing:.08em;color:#8a93a3;margin-bottom:5px;}
 /* The node's bar expanded into those fields: it stops being a one-line summary
    and becomes a small scrolling editor. */
-.mmh3-summary.mmh3-summary-open{display:block;overflow-y:auto;padding:8px 10px;
+.mmh3p-summary.mmh3p-summary-open{display:block;overflow-y:auto;padding:8px 10px;
   cursor:default;}
-.mmh3-summary.mmh3-summary-open label{margin:6px 0 3px;}
-.mmh3-modebtn{flex:0 0 auto;align-self:center;display:inline-flex;align-items:center;gap:5px;
+.mmh3p-summary.mmh3p-summary-open label{margin:6px 0 3px;}
+.mmh3p-modebtn{flex:0 0 auto;align-self:center;display:inline-flex;align-items:center;gap:5px;
   background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
   padding:4px 9px;font-size:11px;font-family:inherit;cursor:pointer;white-space:nowrap;}
-.mmh3-modebtn:hover{background:#333b4d;border-color:#59637a;}
-.mmh3-modebtn.warn{border-color:#7a3a3a;color:#f0a0a0;}
-.mmh3-modebtn.warn b{color:#f0a0a0;}
-.mmh3-modecaret{font-size:9px;color:#8a93a3;}
-.mmh3-modemenu{position:fixed;z-index:10050;background:#1e222a;border:1px solid #3a4252;
+.mmh3p-modebtn:hover{background:#333b4d;border-color:#59637a;}
+.mmh3p-modebtn.warn{border-color:#7a3a3a;color:#f0a0a0;}
+.mmh3p-modebtn.warn b{color:#f0a0a0;}
+.mmh3p-modecaret{font-size:9px;color:#8a93a3;}
+.mmh3p-modemenu{position:fixed;z-index:10050;background:#1e222a;border:1px solid #3a4252;
   border-radius:8px;padding:4px;min-width:200px;box-shadow:0 12px 32px rgba(0,0,0,.5);
   font-family:system-ui,sans-serif;}
-.mmh3-modeitem{display:flex;align-items:baseline;gap:7px;padding:6px 8px;border-radius:6px;
+.mmh3p-modeitem{display:flex;align-items:baseline;gap:7px;padding:6px 8px;border-radius:6px;
   cursor:pointer;font-size:11px;color:#c9cfda;}
-.mmh3-modeitem:hover{background:#2a3140;}
-.mmh3-modeitem.on{background:#28313f;}
-.mmh3-modeitem.on b{color:#8fb3ff;}
-.mmh3-modehint{color:#6b7484;font-size:10px;}
-.mmh3-libmodal{box-sizing:border-box;width:min(1240px,95vw);height:min(1290px,92vh);display:flex;
+.mmh3p-modeitem:hover{background:#2a3140;}
+.mmh3p-modeitem.on{background:#28313f;}
+.mmh3p-modeitem.on b{color:#8fb3ff;}
+.mmh3p-modehint{color:#6b7484;font-size:10px;}
+.mmh3p-libmodal{box-sizing:border-box;width:min(1240px,95vw);height:min(1290px,92vh);display:flex;
   flex-direction:column;background:#191c22;color:#d7dbe2;border:1px solid #303642;
   border-radius:10px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.55);}
-.mmh3-libbar{display:flex;gap:6px;align-items:center;padding:8px 12px;
+.mmh3p-libbar{display:flex;gap:6px;align-items:center;padding:8px 12px;
   border-bottom:1px solid #2a2f3a;background:#1b1f27;}
-.mmh3-libbar input{flex:1;min-width:0;background:#12151b;color:#dde2ea;
+.mmh3p-libbar input{flex:1;min-width:0;background:#12151b;color:#dde2ea;
   border:1px solid #2e3440;border-radius:6px;padding:5px 9px;font-size:12px;}
-.mmh3-libbar select{background:#12151b;color:#c9cfda;border:1px solid #2e3440;
+.mmh3p-libbar select{background:#12151b;color:#c9cfda;border:1px solid #2e3440;
   border-radius:6px;padding:5px 7px;font-size:12px;}
-.mmh3-libbar input:focus,.mmh3-libbar select:focus{outline:none;border-color:#4a5568;}
-.mmh3-btn.on{background:#3a2f56;border-color:#7d63b8;color:#e2d6f8;}
-.mmh3-liblist{flex:1;overflow:auto;padding:6px 8px;}
-.mmh3-saveform{background:#1d222b;border:1px solid #3a4252;border-radius:8px;
+.mmh3p-libbar input:focus,.mmh3p-libbar select:focus{outline:none;border-color:#4a5568;}
+.mmh3p-btn.on{background:#3a2f56;border-color:#7d63b8;color:#e2d6f8;}
+.mmh3p-liblist{flex:1;overflow:auto;padding:6px 8px;}
+.mmh3p-saveform{background:#1d222b;border:1px solid #3a4252;border-radius:8px;
   padding:8px;margin-bottom:8px;}
-.mmh3-saverow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
-.mmh3-savecat{background:#12151b;color:#d7dbe2;border:1px solid #2e3440;
+.mmh3p-saverow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+.mmh3p-savecat{background:#12151b;color:#d7dbe2;border:1px solid #2e3440;
   border-radius:7px;padding:6px 8px;font-size:12px;max-width:190px;}
-.mmh3-savecat:focus{outline:none;border-color:#4a5568;}
-.mmh3-saverow input[type=text]{flex:1;min-width:130px;background:#12151b;
+.mmh3p-savecat:focus{outline:none;border-color:#4a5568;}
+.mmh3p-saverow input[type=text]{flex:1;min-width:130px;background:#12151b;
   color:#dde2ea;border:1px solid #2e3440;border-radius:6px;padding:5px 9px;
   font-size:12px;}
-.mmh3-saverow input[type=text]:focus{outline:none;border-color:#4a5568;}
-.mmh3-savefav{display:flex;align-items:center;gap:4px;font-size:11px;
+.mmh3p-saverow input[type=text]:focus{outline:none;border-color:#4a5568;}
+.mmh3p-savefav{display:flex;align-items:center;gap:4px;font-size:11px;
   color:#8a93a3;white-space:nowrap;cursor:pointer;}
-.mmh3-saveerr{display:block;font-size:11px;color:#f07070;margin-top:5px;}
-.mmh3-saveerr:empty{display:none;}
-.mmh3-librow.confirm{background:#241f2b;border-left:2px solid #7d63b8;}
-.mmh3-librow{display:flex;align-items:center;gap:8px;padding:7px 8px;
+.mmh3p-saveerr{display:block;font-size:11px;color:#f07070;margin-top:5px;}
+.mmh3p-saveerr:empty{display:none;}
+.mmh3p-librow.confirm{background:#241f2b;border-left:2px solid #7d63b8;}
+.mmh3p-librow{display:flex;align-items:center;gap:8px;padding:7px 8px;
   border-bottom:1px solid #23272f;}
-.mmh3-librow:hover{background:#1d222b;}
-.mmh3-star{background:none;border:0;color:#5c6472;font-size:15px;cursor:pointer;
+.mmh3p-librow:hover{background:#1d222b;}
+.mmh3p-star{background:none;border:0;color:#5c6472;font-size:15px;cursor:pointer;
   padding:0 2px;line-height:1;}
-.mmh3-star.on{color:#e0a94c;}
-.mmh3-star:hover{color:#e0a94c;}
-.mmh3-libmain{flex:1;min-width:0;}
-.mmh3-libtop{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
-.mmh3-libname{font-size:13px;color:#dde2ea;}
-.mmh3-libmode{font-size:9px;text-transform:uppercase;letter-spacing:.06em;
+.mmh3p-star.on{color:#e0a94c;}
+.mmh3p-star:hover{color:#e0a94c;}
+.mmh3p-libmain{flex:1;min-width:0;}
+.mmh3p-libtop{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.mmh3p-libname{font-size:13px;color:#dde2ea;}
+.mmh3p-libmode{font-size:9px;text-transform:uppercase;letter-spacing:.06em;
   border:1px solid #2b3a52;color:#7ea7d8;border-radius:8px;padding:0 6px;}
-.mmh3-libcat{font-size:9px;border:1px solid #3e5240;color:#7ec87e;border-radius:8px;
+.mmh3p-libcat{font-size:9px;border:1px solid #3e5240;color:#7ec87e;border-radius:8px;
   padding:0 6px;cursor:pointer;}
-.mmh3-libcat:hover{border-color:#7ec87e;background:#1e2a1e;}
-.mmh3-libcat.none{border-color:#333a45;color:#5c6472;}
-.mmh3-libcat.none:hover{border-color:#59637a;color:#8a93a3;background:none;}
-.mmh3-catlbl{font-size:11px;color:#8a93a3;white-space:nowrap;}
-.mmh3-libage{margin-left:auto;font-size:10px;color:#5c6472;}
-.mmh3-libprev{font-size:11px;color:#6b7484;overflow:hidden;text-overflow:ellipsis;
+.mmh3p-libcat:hover{border-color:#7ec87e;background:#1e2a1e;}
+.mmh3p-libcat.none{border-color:#333a45;color:#5c6472;}
+.mmh3p-libcat.none:hover{border-color:#59637a;color:#8a93a3;background:none;}
+.mmh3p-catlbl{font-size:11px;color:#8a93a3;white-space:nowrap;}
+.mmh3p-libage{margin-left:auto;font-size:10px;color:#5c6472;}
+.mmh3p-libprev{font-size:11px;color:#6b7484;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;margin-top:2px;font-family:ui-monospace,monospace;}
-.mmh3-libacts{display:flex;gap:5px;flex-shrink:0;}
-.mmh3-libempty{padding:26px 12px;text-align:center;color:#6b7484;font-size:12px;}
-.mmh3-toast.bad{background:#3a2020;border-color:#7a3a3a;color:#f0c0c0;
+.mmh3p-libacts{display:flex;gap:5px;flex-shrink:0;}
+.mmh3p-libempty{padding:26px 12px;text-align:center;color:#6b7484;font-size:12px;}
+.mmh3p-toast.bad{background:#3a2020;border-color:#7a3a3a;color:#f0c0c0;
   max-width:min(560px,90vw);}
-.mmh3-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:10001;
+.mmh3p-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:10001;
   background:#2b3140;color:#fff;border:1px solid #4a5568;border-radius:8px;
   padding:8px 16px;font-size:13px;}
 
 /* Reference chips. The mirror div sits under a textarea whose own text is
    transparent, so the browser keeps selection/undo/IME while the tags get
-   styled. Every metric below is copied from .mmh3-form textarea — any
+   styled. Every metric below is copied from .mmh3p-form textarea — any
    difference and the chips drift off the words as lines wrap. This block is
-   last, and uses .mmh3-chiptext, so it wins over the generic form rules. */
+   last, and uses .mmh3p-chiptext, so it wins over the generic form rules. */
 /* The wrapper carries the field's frame; the textarea inside is invisible
    except for its caret and selection. */
-.mmh3-chipwrap{position:relative;display:block;background:#12151b;
+.mmh3p-chipwrap{position:relative;display:block;background:#12151b;
   border:1px solid #2e3440;border-radius:6px;}
-.mmh3-chipwrap:focus-within{border-color:#4a5568;}
+.mmh3p-chipwrap:focus-within{border-color:#4a5568;}
 /* Those two sections put the field in a flex row beside an N/A button; the
    wrapper has to claim the space the bare textarea used to. */
-.mmh3-row .mmh3-chipwrap{flex:1;min-width:0;}
-.mmh3-chipmirror,
-.mmh3-chipwrap textarea.mmh3-chiptext{
+.mmh3p-row .mmh3p-chipwrap{flex:1;min-width:0;}
+.mmh3p-chipmirror,
+.mmh3p-chipwrap textarea.mmh3p-chiptext{
   width:100%;box-sizing:border-box;border:1px solid transparent;
   border-radius:6px;padding:7px 9px;font-size:13px;font-family:inherit;
   line-height:1.7;letter-spacing:normal;white-space:pre-wrap;
   overflow-wrap:break-word;word-break:normal;tab-size:4;}
-.mmh3-chipmirror{position:absolute;inset:0;overflow:hidden;pointer-events:none;
+.mmh3p-chipmirror{position:absolute;inset:0;overflow:hidden;pointer-events:none;
   color:#dde2ea;background:transparent;z-index:1;}
-.mmh3-chipwrap textarea.mmh3-chiptext{position:relative;display:block;
+.mmh3p-chipwrap textarea.mmh3p-chiptext{position:relative;display:block;
   background:transparent;color:transparent;caret-color:#dde2ea;
   resize:vertical;z-index:0;}
-.mmh3-chipwrap textarea.mmh3-chiptext:focus{outline:none;}
-.mmh3-chipwrap textarea.mmh3-chiptext::selection{
+.mmh3p-chipwrap textarea.mmh3p-chiptext:focus{outline:none;}
+.mmh3p-chipwrap textarea.mmh3p-chiptext::selection{
   background:rgba(96,140,210,.38);color:transparent;}
-.mmh3-chipwrap textarea.mmh3-chiptext::placeholder{color:#5c6472;}
+.mmh3p-chipwrap textarea.mmh3p-chiptext::placeholder{color:#5c6472;}
 /* Layout-neutral by construction. The mirror only lines up with the textarea
    if a chip advances the text exactly as its bare glyphs would, so there is
    no padding, no margin and no border here — the breathing room is an OUTER
    box-shadow spread, which paints beyond the box without occupying space.
    Anything that changes the advance shifts wrap points, and the error
    compounds line after line. */
-.mmh3-reftag{border-radius:3px;background:rgba(224,169,76,.18);color:#e0a94c;
+.mmh3p-reftag{border-radius:3px;background:rgba(224,169,76,.18);color:#e0a94c;
   box-shadow:0 0 0 2px rgba(224,169,76,.18), inset 0 0 0 1px rgba(224,169,76,.45);
   -webkit-box-decoration-break:clone;box-decoration-break:clone;}
-.mmh3-reftag.vid{background:rgba(76,195,224,.18);color:#4cc3e0;
+.mmh3p-reftag.vid{background:rgba(76,195,224,.18);color:#4cc3e0;
   box-shadow:0 0 0 2px rgba(76,195,224,.18), inset 0 0 0 1px rgba(76,195,224,.45);}
-.mmh3-reftag.aud{background:rgba(180,140,232,.18);color:#b48ce8;
+.mmh3p-reftag.aud{background:rgba(180,140,232,.18);color:#b48ce8;
   box-shadow:0 0 0 2px rgba(180,140,232,.18), inset 0 0 0 1px rgba(180,140,232,.45);}
-.mmh3-reftag.subj{background:rgba(111,191,115,.18);color:#6fbf73;
+.mmh3p-reftag.subj{background:rgba(111,191,115,.18);color:#6fbf73;
   box-shadow:0 0 0 2px rgba(111,191,115,.18), inset 0 0 0 1px rgba(111,191,115,.45);}
-.mmh3-reftag.unknown{background:rgba(240,112,112,.16);color:#f07070;
+.mmh3p-reftag.unknown{background:rgba(240,112,112,.16);color:#f07070;
   box-shadow:0 0 0 2px rgba(240,112,112,.16), inset 0 0 0 1px rgba(240,112,112,.5);}
-.mmh3-reftag.spk{background:rgba(126,167,216,.16);color:#7ea7d8;
+.mmh3p-reftag.spk{background:rgba(126,167,216,.16);color:#7ea7d8;
   box-shadow:0 0 0 2px rgba(126,167,216,.16), inset 0 0 0 1px rgba(126,167,216,.4);}
 /* Cut markers are the loudest thing in a prompt, so they're the only SOLID
    chip: every other tag is a translucent tint. The weight does the work, which
    also means the hue doesn't have to compete with audio's violet or the red
    that means "undefined tag". */
-.mmh3-reftag.shot{background:#a34b7d;color:#ffe9f4;font-weight:700;
+.mmh3p-reftag.shot{background:#a34b7d;color:#ffe9f4;font-weight:700;
   box-shadow:0 0 0 2px #a34b7d, inset 0 0 0 1px rgba(255,255,255,.18);}
 /* Spoken lines. The band shows how much of a paragraph is actually speech;
    the markers dim because they're syntax, not words the model will say.
    box-decoration-break keeps the band intact when a line wraps. */
-.mmh3-dblock{background:rgba(126,167,216,.10);border-radius:3px;
+.mmh3p-dblock{background:rgba(126,167,216,.10);border-radius:3px;
   box-shadow:0 0 0 2px rgba(126,167,216,.10),
              inset 0 0 0 1px rgba(126,167,216,.28);
   -webkit-box-decoration-break:clone;box-decoration-break:clone;}
-.mmh3-dmark{color:#5f7899;}
-.mmh3-dlang{color:#9dc0e4;background:rgba(126,167,216,.16);border-radius:3px;
+.mmh3p-dmark{color:#5f7899;}
+.mmh3p-dlang{color:#9dc0e4;background:rgba(126,167,216,.16);border-radius:3px;
   box-shadow:0 0 0 1px rgba(126,167,216,.16);}
-.mmh3-dtext{color:#e8eef6;}
-.mmh3-chippeek{position:fixed;z-index:10003;width:220px;background:#1e222a;
+.mmh3p-dtext{color:#e8eef6;}
+.mmh3p-chippeek{position:fixed;z-index:10003;width:220px;background:#1e222a;
   border:1px solid #3a4252;border-radius:9px;overflow:hidden;
   box-shadow:0 16px 40px rgba(0,0,0,.55);pointer-events:none;}
-.mmh3-chippeekmedia{width:100%;max-height:150px;object-fit:contain;display:block;
+.mmh3p-chippeekmedia{width:100%;max-height:150px;object-fit:contain;display:block;
   background:#000;}
-.mmh3-chippeekcap{display:flex;align-items:center;gap:6px;padding:5px 8px;
+.mmh3p-chippeekcap{display:flex;align-items:center;gap:6px;padding:5px 8px;
   font-size:9px;color:#6b7484;}
-.mmh3-chippeekcap span:last-child{overflow:hidden;text-overflow:ellipsis;
+.mmh3p-chippeekcap span:last-child{overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;}
-.mmh3-chippeekcap.col{flex-direction:column;align-items:flex-start;gap:4px;}
-.mmh3-chippeekcap.col span:last-child{overflow:visible;white-space:normal;}
-.mmh3-chiprow{display:flex;align-items:baseline;gap:5px;flex-wrap:wrap;}
-.mmh3-chiplabel{font-size:9px;color:#6b7484;min-width:26px;}
-.mmh3-chipspk{font-size:9px;color:#7ea7d8;font-family:ui-monospace,monospace;}
-.mmh3-chiptags{display:flex;flex-wrap:wrap;gap:3px;}
-.mmh3-chiptags .mmh3-tagname{font-size:9px;}
-.mmh3-chipnone{color:#6b7484;font-style:italic;}
+.mmh3p-chippeekcap.col{flex-direction:column;align-items:flex-start;gap:4px;}
+.mmh3p-chippeekcap.col span:last-child{overflow:visible;white-space:normal;}
+.mmh3p-chiprow{display:flex;align-items:baseline;gap:5px;flex-wrap:wrap;}
+.mmh3p-chiplabel{font-size:9px;color:#6b7484;min-width:26px;}
+.mmh3p-chipspk{font-size:9px;color:#7ea7d8;font-family:ui-monospace,monospace;}
+.mmh3p-chiptags{display:flex;flex-wrap:wrap;gap:3px;}
+.mmh3p-chiptags .mmh3p-tagname{font-size:9px;}
+.mmh3p-chipnone{color:#6b7484;font-style:italic;}
 `;
 
 let cssInjected = false;
@@ -1498,7 +1498,7 @@ export function injectCSS() {
 }
 
 function toast(msg, ms = 1800) {
-  const t = el("div", { class: "mmh3-toast" }, msg);
+  const t = el("div", { class: "mmh3p-toast" }, msg);
   if (ms > 4000) t.classList.add("bad");
   document.body.append(t);
   setTimeout(() => t.remove(), ms);
@@ -1550,7 +1550,7 @@ class Library {
   }
 
   build() {
-    this.listEl = el("div", { class: "mmh3-liblist" });
+    this.listEl = el("div", { class: "mmh3p-liblist" });
     this.searchEl = el("input", {
       type: "text", placeholder: "Search prompts",
       oninput: (e) => { this.query = e.target.value.toLowerCase(); this.paint(); },
@@ -1558,12 +1558,12 @@ class Library {
     this.catEl = el("select", {
       onchange: (e) => { this.category = e.target.value; this.paint(); },
     });
-    this.favEl = el("button", { class: "mmh3-btn",
+    this.favEl = el("button", { class: "mmh3p-btn",
       title: "Show favourites only",
       onclick: () => { this.favesOnly = !this.favesOnly; this.paint(); } },
       "\u2605 Favourites");
 
-    this.catBtn = el("button", { class: "mmh3-btn",
+    this.catBtn = el("button", { class: "mmh3p-btn",
       title: "Rename or clear the selected category",
       onclick: () => {
         if (!this.category) { toast("Pick a category to manage first"); return; }
@@ -1573,15 +1573,15 @@ class Library {
 
     // Same reasoning as the editor: a stray click shouldn't discard a
     // half-filled save form. Use \u2715, Cancel or Escape.
-    this.overlay = el("div", { class: "mmh3-overlay mmh3-libover" },
-      el("div", { class: "mmh3-libmodal" },
-        el("div", { class: "mmh3-head" },
-          el("div", { class: "mmh3-title" }, "Prompt library"),
-          el("button", { class: "mmh3-btn",
+    this.overlay = el("div", { class: "mmh3p-overlay mmh3p-libover" },
+      el("div", { class: "mmh3p-libmodal" },
+        el("div", { class: "mmh3p-head" },
+          el("div", { class: "mmh3p-title" }, "Prompt library"),
+          el("button", { class: "mmh3p-btn",
             onclick: () => { this.saveOpen = !this.saveOpen; this.paint(); } },
             "Save current prompt"),
-          el("button", { class: "mmh3-x", onclick: () => this.close() }, "\u2715")),
-        el("div", { class: "mmh3-libbar" },
+          el("button", { class: "mmh3p-x", onclick: () => this.close() }, "\u2715")),
+        el("div", { class: "mmh3p-libbar" },
           this.searchEl, this.catEl, this.catBtn, this.favEl),
         this.listEl));
 
@@ -1602,7 +1602,7 @@ class Library {
     } catch (err) {
       this.entries = [];
       this.listEl.replaceChildren(
-        el("div", { class: "mmh3-libempty" },
+        el("div", { class: "mmh3p-libempty" },
           `Library unavailable: ${err.message}. Restart ComfyUI if you just updated.`));
       return;
     }
@@ -1634,7 +1634,7 @@ class Library {
     if (current && !known.includes(current)) known.unshift(current);
     const catNew = el("input", { type: "text", placeholder: "New category name",
       style: { display: "none" } });
-    const category = el("select", { class: "mmh3-savecat",
+    const category = el("select", { class: "mmh3p-savecat",
       onchange: () => {
         const isNew = category.value === "\u0000new";
         catNew.style.display = isNew ? "" : "none";
@@ -1647,7 +1647,7 @@ class Library {
     const categoryValue = () =>
       (category.value === "\u0000new" ? catNew.value : category.value).trim();
     const fav = el("input", { type: "checkbox" });
-    const err = el("span", { class: "mmh3-saveerr" });
+    const err = el("span", { class: "mmh3p-saveerr" });
 
     const commit = async () => {
       const value = name.value.trim();
@@ -1675,34 +1675,34 @@ class Library {
     catNew.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); });
     setTimeout(() => { name.focus(); name.select(); }, 0);
 
-    return el("div", { class: "mmh3-saveform" },
-      el("div", { class: "mmh3-saverow" },
+    return el("div", { class: "mmh3p-saveform" },
+      el("div", { class: "mmh3p-saverow" },
         name, category, catNew,
-        el("label", { class: "mmh3-savefav" }, fav, "favourite"),
-        el("button", { class: "mmh3-btn primary", onclick: commit }, "Save"),
-        el("button", { class: "mmh3-btn",
+        el("label", { class: "mmh3p-savefav" }, fav, "favourite"),
+        el("button", { class: "mmh3p-btn primary", onclick: commit }, "Save"),
+        el("button", { class: "mmh3p-btn",
           onclick: () => { this.saveOpen = false; this.paint(); } }, "Cancel")),
       err);
   }
 
   confirmRow(entry, action) {
     const isDelete = action === "delete";
-    return el("div", { class: "mmh3-librow confirm" },
-      el("div", { class: "mmh3-libmain" },
-        el("div", { class: "mmh3-libtop" },
-          el("span", { class: "mmh3-libname" },
+    return el("div", { class: "mmh3p-librow confirm" },
+      el("div", { class: "mmh3p-libmain" },
+        el("div", { class: "mmh3p-libtop" },
+          el("span", { class: "mmh3p-libname" },
             isDelete
               ? `Delete "${entry.name}"?`
               : `Replace the editor with "${entry.name}"?`)),
-        el("div", { class: "mmh3-libprev" },
+        el("div", { class: "mmh3p-libprev" },
           isDelete
             ? "This removes the saved prompt. It cannot be undone."
             : "Your unsaved changes in the editor will be lost.")),
-      el("div", { class: "mmh3-libacts" },
-        el("button", { class: "mmh3-btn primary",
+      el("div", { class: "mmh3p-libacts" },
+        el("button", { class: "mmh3p-btn primary",
           onclick: () => isDelete ? this.remove(entry) : this.load(entry) },
           isDelete ? "Delete" : "Load"),
-        el("button", { class: "mmh3-btn",
+        el("button", { class: "mmh3p-btn",
           onclick: () => { this.pending = null; this.paint(); } }, "Cancel")));
   }
 
@@ -1710,7 +1710,7 @@ class Library {
     const input = el("input", { type: "text", value: this.category,
       placeholder: "New category name" });
     const count = this.entries.filter((e) => e.category === this.category).length;
-    const err = el("span", { class: "mmh3-saveerr" });
+    const err = el("span", { class: "mmh3p-saveerr" });
 
     const apply = async (target) => {
       try {
@@ -1728,17 +1728,17 @@ class Library {
     });
     setTimeout(() => { input.focus(); input.select(); }, 0);
 
-    return el("div", { class: "mmh3-saveform" },
-      el("div", { class: "mmh3-saverow" },
-        el("span", { class: "mmh3-catlbl" },
+    return el("div", { class: "mmh3p-saveform" },
+      el("div", { class: "mmh3p-saverow" },
+        el("span", { class: "mmh3p-catlbl" },
           `"${this.category}" \u2014 ${count} prompt${count === 1 ? "" : "s"}`),
         input,
-        el("button", { class: "mmh3-btn primary",
+        el("button", { class: "mmh3p-btn primary",
           onclick: () => apply(input.value.trim()) }, "Rename"),
-        el("button", { class: "mmh3-btn ghost",
+        el("button", { class: "mmh3p-btn ghost",
           title: "Remove this category from its prompts (they are kept)",
           onclick: () => apply("") }, "Clear"),
-        el("button", { class: "mmh3-btn",
+        el("button", { class: "mmh3p-btn",
           onclick: () => { this.catEdit = false; this.paint(); } }, "Cancel")),
       err);
   }
@@ -1757,17 +1757,17 @@ class Library {
     };
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") apply(); });
     setTimeout(() => { input.focus(); input.select(); }, 0);
-    return el("div", { class: "mmh3-librow confirm" },
-      el("div", { class: "mmh3-libmain" },
-        el("div", { class: "mmh3-libtop" },
-          el("span", { class: "mmh3-libname" }, entry.name)),
-        el("div", { class: "mmh3-saverow", style: { marginTop: "4px" } },
+    return el("div", { class: "mmh3p-librow confirm" },
+      el("div", { class: "mmh3p-libmain" },
+        el("div", { class: "mmh3p-libtop" },
+          el("span", { class: "mmh3p-libname" }, entry.name)),
+        el("div", { class: "mmh3p-saverow", style: { marginTop: "4px" } },
           input,
           el("datalist", { id: this.formId },
             this.categories.map((c) => el("option", { value: c }))))),
-      el("div", { class: "mmh3-libacts" },
-        el("button", { class: "mmh3-btn primary", onclick: apply }, "Set"),
-        el("button", { class: "mmh3-btn",
+      el("div", { class: "mmh3p-libacts" },
+        el("button", { class: "mmh3p-btn primary", onclick: apply }, "Set"),
+        el("button", { class: "mmh3p-btn",
           onclick: () => { this.rowCat = null; this.paint(); } }, "Cancel")));
   }
 
@@ -1778,7 +1778,7 @@ class Library {
     if (this.saveOpen) kids.push(this.saveForm());
     if (this.catEdit && this.category) kids.push(this.categoryForm());
     if (!rows.length) {
-      kids.push(el("div", { class: "mmh3-libempty" },
+      kids.push(el("div", { class: "mmh3p-libempty" },
         this.entries.length
           ? "Nothing matches those filters."
           : "No saved prompts yet \u2014 use 'Save current prompt'."));
@@ -1789,9 +1789,9 @@ class Library {
       ? this.rowCategoryForm(e)
       : this.pending?.id === e.id
       ? this.confirmRow(e, this.pending.action)
-      : el("div", { class: "mmh3-librow" },
+      : el("div", { class: "mmh3p-librow" },
       el("button", {
-        class: "mmh3-star" + (e.favorite ? " on" : ""),
+        class: "mmh3p-star" + (e.favorite ? " on" : ""),
         title: e.favorite ? "Remove from favourites" : "Add to favourites",
         onclick: async () => {
           try {
@@ -1800,21 +1800,21 @@ class Library {
             this.paint();
           } catch (err) { toast(err.message); }
         } }, e.favorite ? "\u2605" : "\u2606"),
-      el("div", { class: "mmh3-libmain" },
-        el("div", { class: "mmh3-libtop" },
-          el("span", { class: "mmh3-libname" }, e.name),
-          e.mode ? el("span", { class: "mmh3-libmode" },
+      el("div", { class: "mmh3p-libmain" },
+        el("div", { class: "mmh3p-libtop" },
+          el("span", { class: "mmh3p-libname" }, e.name),
+          e.mode ? el("span", { class: "mmh3p-libmode" },
             e.mode === "REF" ? "reference" : e.mode) : null,
-          el("span", { class: "mmh3-libcat" + (e.category ? "" : " none"),
+          el("span", { class: "mmh3p-libcat" + (e.category ? "" : " none"),
           title: "Change this prompt's category",
           onclick: () => { this.rowCat = e.id; this.paint(); } },
           e.category || "+ category"),
-          el("span", { class: "mmh3-libage" }, ago(e.updated))),
-        el("div", { class: "mmh3-libprev" }, e.preview || "(empty)")),
-      el("div", { class: "mmh3-libacts" },
-        el("button", { class: "mmh3-btn primary",
+          el("span", { class: "mmh3p-libage" }, ago(e.updated))),
+        el("div", { class: "mmh3p-libprev" }, e.preview || "(empty)")),
+      el("div", { class: "mmh3p-libacts" },
+        el("button", { class: "mmh3p-btn primary",
           onclick: () => this.askLoad(e) }, "Load"),
-        el("button", { class: "mmh3-btn ghost", title: "Delete",
+        el("button", { class: "mmh3p-btn ghost", title: "Delete",
           onclick: () => { this.pending = { id: e.id, action: "delete" };
             this.paint(); } }, "\u2715")))));
     this.listEl.replaceChildren(...kids);
@@ -1915,23 +1915,23 @@ class Editor {
 
   /* ---------- skeleton ---------- */
   build() {
-    this.formEl = el("div", { class: "mmh3-form" });
+    this.formEl = el("div", { class: "mmh3p-form" });
     // Left-edge column for the sidebar view. Always present so the grid's
     // column count is stable; empty and hidden unless the view is on.
-    this.railEl = el("div", { class: "mmh3-rail" });
-    this.pinsEl = el("div", { class: "mmh3-pins" });
-    this.previewEl = el("pre", { class: "mmh3-preview" });
-    this.issuesEl = el("div", { class: "mmh3-issues" });
+    this.railEl = el("div", { class: "mmh3p-rail" });
+    this.pinsEl = el("div", { class: "mmh3p-pins" });
+    this.previewEl = el("pre", { class: "mmh3p-preview" });
+    this.issuesEl = el("div", { class: "mmh3p-issues" });
     this.statsEl = el("span", { class: "stats" });
 
-    this.modeBar = el("div", { class: "mmh3-modes" },
+    this.modeBar = el("div", { class: "mmh3p-modes" },
       MODES.map((m) => el("button", {
         title: m.hint,
         onclick: () => { this.state.mode = m.id; this.render(); },
       }, m.label)));
-    this.modeSends = el("div", { class: "mmh3-modesends" });
+    this.modeSends = el("div", { class: "mmh3p-modesends" });
 
-    const copyBtn = el("button", { class: "mmh3-btn", onclick: async () => {
+    const copyBtn = el("button", { class: "mmh3p-btn", onclick: async () => {
       // Always the live editor state — saving to the node is not a
       // prerequisite for copying what you've written.
       const text = generate(this.state);
@@ -1942,18 +1942,18 @@ class Editor {
       else toast("Couldn't reach the clipboard \u2014 select the preview on " +
                  "the right and copy manually", 6000);
     }}, "Copy prompt");
-    const cancelBtn = el("button", { class: "mmh3-btn",
+    const cancelBtn = el("button", { class: "mmh3p-btn",
       onclick: () => this.requestClose() }, "Cancel");
-    const saveBtn = el("button", { class: "mmh3-btn primary", onclick: () => this.save() },
+    const saveBtn = el("button", { class: "mmh3p-btn primary", onclick: () => this.save() },
       "Save to node");
 
-    const guideBtn = el("button", { class: "mmh3-btn",
+    const guideBtn = el("button", { class: "mmh3p-btn",
       title: "Open the bundled MiniMax H3 Video Prompt Writing Guide (PDF)",
       onclick: () => window.open(
         new URL("./Video_Prompt_Writing_Guide.pdf", import.meta.url).href,
         "_blank") }, "\ud83d\udcd6 Guide");
 
-    this.overlay = el("div", { class: "mmh3-overlay",
+    this.overlay = el("div", { class: "mmh3p-overlay",
       onmousedown: (e) => {
         if (e.target !== this.overlay) return;
         if (this.prefsOpen) { this.togglePrefs(false); return; }
@@ -1961,24 +1961,24 @@ class Editor {
         // the unsaved-changes check rather than closing outright.
         if (this.prefs.closeOnBackdrop) this.requestClose();
       } },
-      el("div", { class: "mmh3-modal" },
-        el("div", { class: "mmh3-head" },
-          el("div", { class: "mmh3-title" }, "Fantastic H3 Prompt Builder",
+      el("div", { class: "mmh3p-modal" },
+        el("div", { class: "mmh3p-head" },
+          el("div", { class: "mmh3p-title" }, "Fantastic H3 Prompt Builder",
             el("small", {}, "guide-conformant output")),
           guideBtn,
-          el("button", { class: "mmh3-btn",
+          el("button", { class: "mmh3p-btn",
             title: "Browse saved prompts",
             onclick: () => new Library(this) }, "\u2630 Library"),
-          el("button", { class: "mmh3-btn",
+          el("button", { class: "mmh3p-btn",
             title: "Clear every field and start over",
             onclick: () => { this.clearPending = !this.clearPending; this.render(); } },
             "Clear"),
-          el("button", { class: "mmh3-btn" + (this.sidebar ? " primary" : ""),
+          el("button", { class: "mmh3p-btn" + (this.sidebar ? " primary" : ""),
             title: "Show reference media as a column down the left edge",
             onclick: () => {
               this.sidebar = !this.sidebar;
               try { this.node._mmh3Sidebar = this.sidebar; } catch (e) { /* not fatal */ }
-              this.overlay.querySelector(".mmh3-body")
+              this.overlay.querySelector(".mmh3p-body")
                 .classList.toggle("sidebar", this.sidebar);
               this.railEl.replaceChildren();
               this.closePeek();
@@ -1986,17 +1986,17 @@ class Editor {
             } }, "\u25e7 Sidebar"),
           this.modeBar,
           this.prefsButton(),
-          el("button", { class: "mmh3-x",
+          el("button", { class: "mmh3p-x",
             onclick: () => this.requestClose() }, "\u2715"),
         ),
         this.modeSends,
-        el("div", { class: "mmh3-body" },
+        el("div", { class: "mmh3p-body" },
           this.railEl,
           this.formEl,
           this.pinsEl,
-          el("div", { class: "mmh3-side" },
+          el("div", { class: "mmh3p-side" },
             this.previewEl, this.issuesEl,
-            el("div", { class: "mmh3-foot" }, this.statsEl, copyBtn, cancelBtn, saveBtn),
+            el("div", { class: "mmh3p-foot" }, this.statsEl, copyBtn, cancelBtn, saveBtn),
           ),
         ),
       ),
@@ -2007,10 +2007,10 @@ class Editor {
           !e.target.dataset.noinsert) this.lastFocus = e.target;
     });
     this.overlay.addEventListener("mousedown", (e) => {
-      if (this.prefsOpen && !e.target.closest(".mmh3-prefwrap")) {
+      if (this.prefsOpen && !e.target.closest(".mmh3p-prefwrap")) {
         this.togglePrefs(false);
       }
-      if (this._ctxMenu && !e.target.closest(".mmh3-ctxmenu")) this.closeCtx();
+      if (this._ctxMenu && !e.target.closest(".mmh3p-ctxmenu")) this.closeCtx();
     });
 
     // Right-click on a selection offers to save it. The browser's own menu
@@ -2063,15 +2063,15 @@ class Editor {
   }
 
   clearStrip() {
-    return el("div", { class: "mmh3-clearbar" },
-      el("span", { class: "mmh3-clearmsg" },
+    return el("div", { class: "mmh3p-clearbar" },
+      el("span", { class: "mmh3p-clearmsg" },
         `Clear every field and start a new ${this.state.mode} prompt?`),
-      el("span", { class: "mmh3-clearnote" },
+      el("span", { class: "mmh3p-clearnote" },
         "The node keeps its current prompt until you save."),
-      el("div", { class: "mmh3-clearactions" },
-        el("button", { class: "mmh3-btn primary",
+      el("div", { class: "mmh3p-clearactions" },
+        el("button", { class: "mmh3p-btn primary",
           onclick: () => this.clearAll() }, "Clear"),
-        el("button", { class: "mmh3-btn",
+        el("button", { class: "mmh3p-btn",
           onclick: () => { this.clearPending = false; this.render(); } },
           "Cancel")));
   }
@@ -2096,19 +2096,19 @@ class Editor {
           this.prefs[key] = e.target.checked;
           savePrefs(this.prefs);
         } });
-      return el("label", { class: "mmh3-prefitem" }, box,
-        el("span", {}, el("span", { class: "mmh3-preflabel" }, label),
-          el("span", { class: "mmh3-prefhint" }, hint)));
+      return el("label", { class: "mmh3p-prefitem" }, box,
+        el("span", {}, el("span", { class: "mmh3p-preflabel" }, label),
+          el("span", { class: "mmh3p-prefhint" }, hint)));
     };
-    const menu = el("div", { class: "mmh3-prefmenu" },
+    const menu = el("div", { class: "mmh3p-prefmenu" },
       item("closeOnBackdrop", "Click outside to close",
            "Off means only \u2715, Cancel and Escape close the window."),
       item("warnUnsaved", "Warn about unsaved changes",
            "Off means \u2715, Cancel and Escape discard your edits silently."));
     this.prefsMenu = menu;
-    this.prefsCog = el("button", { class: "mmh3-x", title: "Editor settings",
+    this.prefsCog = el("button", { class: "mmh3p-x", title: "Editor settings",
       onclick: (e) => { e.stopPropagation(); this.togglePrefs(); } }, "\u2699");
-    return el("span", { class: "mmh3-prefwrap" }, this.prefsCog, menu);
+    return el("span", { class: "mmh3p-prefwrap" }, this.prefsCog, menu);
   }
 
   togglePrefs(force) {
@@ -2118,18 +2118,18 @@ class Editor {
   }
 
   closeStrip() {
-    return el("div", { class: "mmh3-clearbar" },
-      el("span", { class: "mmh3-clearmsg" },
+    return el("div", { class: "mmh3p-clearbar" },
+      el("span", { class: "mmh3p-clearmsg" },
         "You have changes the node hasn't been given."),
-      el("span", { class: "mmh3-clearnote" },
+      el("span", { class: "mmh3p-clearnote" },
         "Discarding keeps the node's last saved prompt."),
-      el("div", { class: "mmh3-clearactions" },
-        el("button", { class: "mmh3-btn primary",
+      el("div", { class: "mmh3p-clearactions" },
+        el("button", { class: "mmh3p-btn primary",
           onclick: () => this.save() }, "Save to node"),
-        el("button", { class: "mmh3-btn mmh3-danger",
+        el("button", { class: "mmh3p-btn mmh3p-danger",
           onclick: () => { this.state = JSON.parse(this.openedWith);
             this.closePending = false; this.close(); } }, "Discard"),
-        el("button", { class: "mmh3-btn",
+        el("button", { class: "mmh3p-btn",
           onclick: () => { this.closePending = false; this.render(); } },
           "Keep editing")));
   }
@@ -2186,13 +2186,13 @@ class Editor {
    *  exactly as the browser implements them — a contenteditable rewrite
    *  would put all of that on us. */
   chipField(box) {
-    const mirror = el("div", { class: "mmh3-chipmirror", "aria-hidden": "true" });
+    const mirror = el("div", { class: "mmh3p-chipmirror", "aria-hidden": "true" });
     // Order matters: the mirror is painted ON TOP of the textarea so the
     // selection band (drawn by the textarea) sits behind the glyphs instead
     // of covering them. It's click-through, so the textarea still gets every
     // pointer event.
-    const wrap = el("div", { class: "mmh3-chipwrap" }, box, mirror);
-    box.classList.add("mmh3-chiptext");
+    const wrap = el("div", { class: "mmh3p-chipwrap" }, box, mirror);
+    box.classList.add("mmh3p-chiptext");
 
     const paint = () => {
       const text = box.value || "";
@@ -2233,19 +2233,19 @@ class Editor {
   paintToken(tok) {
     if (tok.startsWith("<d>")) {
       const inner = tok.slice(3, -4);
-      const kids = [el("span", { class: "mmh3-dmark" }, "<d>")];
+      const kids = [el("span", { class: "mmh3p-dmark" }, "<d>")];
       const lang = inner.match(LANG_RE);
       const body = lang ? inner.slice(lang[0].length) : inner;
-      if (lang) kids.push(el("span", { class: "mmh3-dlang" }, lang[1]));
-      kids.push(el("span", { class: "mmh3-dtext" }, body));
-      kids.push(el("span", { class: "mmh3-dmark" }, "</d>"));
-      return [el("span", { class: "mmh3-dblock" }, ...kids)];
+      if (lang) kids.push(el("span", { class: "mmh3p-dlang" }, lang[1]));
+      kids.push(el("span", { class: "mmh3p-dtext" }, body));
+      kids.push(el("span", { class: "mmh3p-dmark" }, "</d>"));
+      return [el("span", { class: "mmh3p-dblock" }, ...kids)];
     }
     if (tok.startsWith("[Shot")) {
-      return [el("span", { class: "mmh3-reftag shot" }, tok)];
+      return [el("span", { class: "mmh3p-reftag shot" }, tok)];
     }
     if (tok.startsWith("(")) {
-      return [el("span", { class: "mmh3-reftag spk", dataset: { tag: tok } }, tok)];
+      return [el("span", { class: "mmh3p-reftag spk", dataset: { tag: tok } }, tok)];
     }
     let cls;
     if (tok.startsWith("<Subject")) {
@@ -2254,7 +2254,7 @@ class Editor {
       const slot = this.slotFor(tok);
       cls = slot ? (slot.cls || "pic") : "unknown";
     }
-    return [el("span", { class: "mmh3-reftag " + cls, dataset: { tag: tok } }, tok)];
+    return [el("span", { class: "mmh3p-reftag " + cls, dataset: { tag: tok } }, tok)];
   }
 
   /** What a <Subject N> chip should show: the first picture its definition
@@ -2300,7 +2300,7 @@ class Editor {
 
   chipHover(e, mirror) {
     let hit = null;
-    for (const chip of mirror.querySelectorAll(".mmh3-reftag")) {
+    for (const chip of mirror.querySelectorAll(".mmh3p-reftag")) {
       const r = chip.getBoundingClientRect();
       if (e.clientX >= r.left && e.clientX <= r.right &&
           e.clientY >= r.top && e.clientY <= r.bottom) { hit = chip; break; }
@@ -2335,37 +2335,37 @@ class Editor {
     const media = !slot ? null
       : slot.preview.type === "video"
       ? el("video", { src: slot.preview.url, muted: true, loop: true,
-          autoplay: true, class: "mmh3-chippeekmedia" })
+          autoplay: true, class: "mmh3p-chippeekmedia" })
       : slot.preview.type === "audio"
         ? this.mediaThumb(slot, true)
-        : el("img", { src: slot.preview.url, class: "mmh3-chippeekmedia" });
+        : el("img", { src: slot.preview.url, class: "mmh3p-chippeekmedia" });
     const tagRow = (label, list) => list.length
-      ? el("span", { class: "mmh3-chiprow" },
-          el("span", { class: "mmh3-chiplabel" }, label),
-          el("span", { class: "mmh3-chiptags" },
+      ? el("span", { class: "mmh3p-chiprow" },
+          el("span", { class: "mmh3p-chiplabel" }, label),
+          el("span", { class: "mmh3p-chiptags" },
             list.map((t) => {
               const sl = this.slotFor(t);
               return el("span", {
-                class: `mmh3-tagname ${sl ? (sl.cls || "pic") : "unknown"}`,
+                class: `mmh3p-tagname ${sl ? (sl.cls || "pic") : "unknown"}`,
               }, t);
             })))
       : null;
     const caption = subject
-      ? el("div", { class: "mmh3-chippeekcap col" },
-          el("span", { class: "mmh3-chiprow" },
-            el("span", { class: "mmh3-tagname subj" }, tag),
+      ? el("div", { class: "mmh3p-chippeekcap col" },
+          el("span", { class: "mmh3p-chiprow" },
+            el("span", { class: "mmh3p-tagname subj" }, tag),
             subject.speakers.length
-              ? el("span", { class: "mmh3-chipspk" }, subject.speakers.join(" "))
+              ? el("span", { class: "mmh3p-chipspk" }, subject.speakers.join(" "))
               : null),
           tagRow("cites", subject.tags),
           tagRow("voice", subject.voices),
           (!subject.tags.length && !subject.voices.length)
-            ? el("span", { class: "mmh3-chipnone" }, "no media attached")
+            ? el("span", { class: "mmh3p-chipnone" }, "no media attached")
             : null)
-      : el("div", { class: "mmh3-chippeekcap" },
-          el("span", { class: `mmh3-tagname ${slot.cls}` }, slot.tag),
+      : el("div", { class: "mmh3p-chippeekcap" },
+          el("span", { class: `mmh3p-tagname ${slot.cls}` }, slot.tag),
           el("span", {}, slot.source || ""));
-    const box = el("div", { class: "mmh3-chippeek" }, media, caption);
+    const box = el("div", { class: "mmh3p-chippeek" }, media, caption);
     const r = chip.getBoundingClientRect();
     box.style.left = `${Math.min(r.left, window.innerWidth - 240)}px`;
     box.style.top = `${r.bottom + 6}px`;
@@ -2444,16 +2444,16 @@ class Editor {
 
   mediaThumb(s, big) {
     if (s.preview?.type === "img")
-      return el("img", { class: "mmh3-thumb", src: s.preview.url });
+      return el("img", { class: "mmh3p-thumb", src: s.preview.url });
     if (s.preview?.type === "video")
-      return el("video", { class: "mmh3-thumb", src: s.preview.url, muted: true,
+      return el("video", { class: "mmh3p-thumb", src: s.preview.url, muted: true,
         loop: true, preload: "metadata",
         onmouseenter: (e) => e.target.play().catch(() => {}),
         onmouseleave: (e) => e.target.pause() });
-    // Drawing-buffer size, kept in step with .mmh3-card / .mmh3-peek in the
+    // Drawing-buffer size, kept in step with .mmh3p-card / .mmh3p-peek in the
     // stylesheet so the waveform isn't drawn at the wrong resolution and
     // stretched by the browser.
-    const cv = el("canvas", { class: "mmh3-thumb mmh3-wave",
+    const cv = el("canvas", { class: "mmh3p-thumb mmh3p-wave",
       width: big ? 495 : 124, height: big ? 135 : 80 });
     if (s.preview?.url) setTimeout(() => this.drawWave(cv, s.preview.url), 0);
     return cv;
@@ -2465,28 +2465,28 @@ class Editor {
     let timer = null;
     const open = () => {
       this.closePeek();
-      const box = el("div", { class: "mmh3-peek" });
+      const box = el("div", { class: "mmh3p-peek" });
       const media = s.preview?.type === "video"
         ? el("video", { src: s.preview.url, controls: true, autoplay: true,
-            muted: true, loop: true, class: "mmh3-peekmedia" })
+            muted: true, loop: true, class: "mmh3p-peekmedia" })
         : s.preview?.type === "audio"
           ? el("div", {}, this.mediaThumb(s, true),
               el("audio", { src: s.preview.url, controls: true,
                 style: { width: "100%", height: "28px" } }))
-          : el("img", { src: s.preview?.url, class: "mmh3-peekmedia" });
+          : el("img", { src: s.preview?.url, class: "mmh3p-peekmedia" });
       const cites = this.citationCount(s.tag);
       box.append(media,
-        el("div", { class: "mmh3-peekmeta" },
-          el("div", { class: "mmh3-peekrow" },
-            el("span", { class: `mmh3-tagname ${s.cls}` }, s.tag),
-            el("span", { class: "mmh3-peekcite" + (cites ? "" : " zero") },
+        el("div", { class: "mmh3p-peekmeta" },
+          el("div", { class: "mmh3p-peekrow" },
+            el("span", { class: `mmh3p-tagname ${s.cls}` }, s.tag),
+            el("span", { class: "mmh3p-peekcite" + (cites ? "" : " zero") },
               cites ? `cited ${cites}\u00d7` : "not cited")),
-          el("div", { class: "mmh3-peeksrc" },
+          el("div", { class: "mmh3p-peeksrc" },
             s.source + (s.note ? ` \u2022 ${s.note.replace(/[<>]/g, "")}` : ""))));
 
       const r = card.getBoundingClientRect();
       // Beside the thumbnail in the sidebar view, below it otherwise. Both
-      // clamp to the viewport: .mmh3-peek is up to 540px wide.
+      // clamp to the viewport: .mmh3p-peek is up to 540px wide.
       if (this.sidebar) {
         box.style.left = `${Math.max(0, Math.min(r.right + 8, window.innerWidth - 550))}px`;
         box.style.top = `${Math.max(4, Math.min(r.top,
@@ -2558,27 +2558,27 @@ class Editor {
     const list = shown.slice(0, 3)
       .map((tag) => this.slots.find((s) => s.tag === tag)).filter(Boolean);
 
-    this.overlay.querySelector(".mmh3-body")
+    this.overlay.querySelector(".mmh3p-body")
       .classList.toggle("haspins", list.length > 0);
-    this.overlay.querySelector(".mmh3-body")
+    this.overlay.querySelector(".mmh3p-body")
       .classList.toggle("sidebar", !!this.sidebar);
 
     this.pinsEl.replaceChildren(
-      el("div", { class: "mmh3-pinhead" }, "pinned"),
-      ...list.map((s) => el("div", { class: "mmh3-pincard" },
+      el("div", { class: "mmh3p-pinhead" }, "pinned"),
+      ...list.map((s) => el("div", { class: "mmh3p-pincard" },
         this.mediaThumb(s, true),
-        el("div", { class: "mmh3-pinbar" },
-          el("span", { class: `mmh3-tagname ${s.cls}` }, s.tag),
+        el("div", { class: "mmh3p-pinbar" },
+          el("span", { class: `mmh3p-tagname ${s.cls}` }, s.tag),
           s.tag === this.autoPin && !this.pins.includes(s.tag)
-            ? el("span", { class: "mmh3-auto", title: "Pinned by the caret" }, "auto")
-            : el("span", { class: "mmh3-x", title: "Unpin",
+            ? el("span", { class: "mmh3p-auto", title: "Pinned by the caret" }, "auto")
+            : el("span", { class: "mmh3p-x", title: "Unpin",
                 onclick: () => this.togglePin(s.tag) }, "\u2715")),
         s.preview?.type === "audio"
           ? el("audio", { src: s.preview.url, controls: true,
               style: { width: "100%", height: "26px" } })
           : null)),
       list.length < 3
-        ? el("div", { class: "mmh3-pinempty" },
+        ? el("div", { class: "mmh3p-pinempty" },
             list.length ? "pin up to " + (3 - list.length) + " more"
               : "hover a reference and pin it, or put the caret in a tag")
         : null);
@@ -2627,13 +2627,13 @@ class Editor {
 
     const after = () => { this.slots = getRefSlots(this.node); this.render(); };
     const tile = el("div", {
-      class: "mmh3-card mmh3-drop",
+      class: "mmh3p-card mmh3p-drop",
       title: `Add ${kinds.join(" / ")} \u2014 click to browse, drop a file, `
         + `or right-click to paste`,
       onclick: () => panel.picker.click(),
       oncontextmenu: (e) => panel.slotMenu(e, null),
-    }, el("span", { class: "mmh3-dropplus" }, "+"),
-       el("span", { class: "mmh3-dropkinds" }, kinds.join(" / ")));
+    }, el("span", { class: "mmh3p-dropplus" }, "+"),
+       el("span", { class: "mmh3p-dropkinds" }, kinds.join(" / ")));
 
     tile.addEventListener("dragover", (e) => {
       if (!e.dataTransfer?.types?.includes("Files")) return;
@@ -2672,7 +2672,7 @@ class Editor {
       const ok = this.usable(s);
       const cites = ok ? this.citationCount(s.tag) : 0;
       const card = el("div", {
-        class: `mmh3-card ${s.cls}` + (ok ? "" : " unusable")
+        class: `mmh3p-card ${s.cls}` + (ok ? "" : " unusable")
           + (s.joinRight ? " joinR" : "") + (s.joinLeft ? " joinL" : ""),
         draggable: ok,
         title: ok ? `${s.tag} \u2022 ${s.source}` : this.modeNote(s),
@@ -2688,17 +2688,17 @@ class Editor {
         },
       },
         this.mediaThumb(s),
-        el("div", { class: "mmh3-cardbar" },
-          el("span", { class: `mmh3-tagname ${s.cls}` }, `${s.kind} ${s.idx}`),
+        el("div", { class: "mmh3p-cardbar" },
+          el("span", { class: `mmh3p-tagname ${s.cls}` }, `${s.kind} ${s.idx}`),
           ok
-            ? el("span", { class: "mmh3-cite" + (cites ? "" : " zero"),
+            ? el("span", { class: "mmh3p-cite" + (cites ? "" : " zero"),
                 title: cites ? `cited ${cites}\u00d7` : "not cited yet" },
                 cites || "\u2013")
-            : el("span", { class: "mmh3-cite off", title: this.modeNote(s) },
+            : el("span", { class: "mmh3p-cite off", title: this.modeNote(s) },
                 "\u2298"),
           this.cardTools(s)),
         s.note && s.note !== "standalone"
-          ? el("span", { class: "mmh3-cardnote" },
+          ? el("span", { class: "mmh3p-cardnote" },
               "\u266a\u2192V" + (s.note.match(/\d+/) || [""])[0])
           : null);
       if (s.item && s.panel) this.railReorder(card, s);
@@ -2725,7 +2725,7 @@ class Editor {
     if (s.tag) {
       const pinned = this.pins.includes(s.tag);
       tools.push(el("span", {
-        class: "mmh3-cardtool mmh3-pintool" + (pinned ? " pinned" : ""),
+        class: "mmh3p-cardtool mmh3p-pintool" + (pinned ? " pinned" : ""),
         title: pinned ? "Unpin" : "Pin \u2014 keep this one on screen while you write",
         onclick: (e) => {
           e.stopPropagation();
@@ -2739,7 +2739,7 @@ class Editor {
     if (s.item && s.panel && !s.joinRight) {
       const still = s.item.kind === "picture";
       tools.push(el("span", {
-        class: "mmh3-cardtool" + (s.item.trim || s.item.crop || s.item.rotate
+        class: "mmh3p-cardtool" + (s.item.trim || s.item.crop || s.item.rotate
           || s.item.mirror || s.item.resize ? " on" : ""),
         title: still ? "Crop, rotate or mirror this picture"
                      : "Trim this clip, or crop the frame",
@@ -2755,7 +2755,7 @@ class Editor {
       }, still ? "\u25a3" : "\u2702"));
 
       tools.push(el("span", {
-        class: "mmh3-cardtool mmh3-rmtool",
+        class: "mmh3p-cardtool mmh3p-rmtool",
         title: `Remove ${s.item.name} from the node`,
         onclick: (e) => {
           e.stopPropagation();
@@ -2768,7 +2768,7 @@ class Editor {
       }, "\u2715"));
     }
 
-    return tools.length ? el("div", { class: "mmh3-cardtools" }, ...tools) : null;
+    return tools.length ? el("div", { class: "mmh3p-cardtools" }, ...tools) : null;
   }
 
   /** Drag one rail card onto another to reorder the underlying media. */
@@ -2777,11 +2777,11 @@ class Editor {
       if (!e.dataTransfer.types.includes(RAIL_MIME)) return;
       e.preventDefault(); e.stopPropagation();
       e.dataTransfer.dropEffect = "move";
-      card.classList.add("mmh3-dropinto");
+      card.classList.add("mmh3p-dropinto");
     });
-    card.addEventListener("dragleave", () => card.classList.remove("mmh3-dropinto"));
+    card.addEventListener("dragleave", () => card.classList.remove("mmh3p-dropinto"));
     card.addEventListener("drop", (e) => {
-      card.classList.remove("mmh3-dropinto");
+      card.classList.remove("mmh3p-dropinto");
       if (!e.dataTransfer.types.includes(RAIL_MIME)) return;
       e.preventDefault(); e.stopPropagation();
       const tag = e.dataTransfer.getData(RAIL_MIME);
@@ -2803,7 +2803,7 @@ class Editor {
     const camSpd = el("select", {},
       ["(speed)", "at slow speed", "at fast speed"]
         .map((v, i) => el("option", { value: i ? v : "" }, v)));
-    const camBtn = el("button", { class: "mmh3-btn", onclick: () => {
+    const camBtn = el("button", { class: "mmh3p-btn", onclick: () => {
       const base = CAMERA_MOVES.find(([k]) => k === camMove.value)[1];
       this.insert([base, camAmp.value, camSpd.value].filter(Boolean).join(" "));
     }}, "+ Camera");
@@ -2824,7 +2824,7 @@ class Editor {
       timeIn.value = next.toFixed(1);
     }, { passive: false });
 
-    const shotBtn = el("button", { class: "mmh3-btn",
+    const shotBtn = el("button", { class: "mmh3p-btn",
       title: "Insert the next [Shot N]. Shots after the first use the cut time " +
         "from the stepper, formatted as At MM:SS.mmm",
       onclick: () => {
@@ -2861,18 +2861,18 @@ class Editor {
       if (styleSel.value) { this.insert(styleSel.value + ", "); styleSel.value = ""; }
     });
 
-    const chips = el("div", { class: "mmh3-chips" }, this.refChips());
+    const chips = el("div", { class: "mmh3p-chips" }, this.refChips());
     if (this.sidebar) {
       // Same strip, different column: it stacks into one column by CSS, so
       // the cards, their drag-reorder and their tools all carry over.
       this.railEl.replaceChildren(
-        el("div", { class: "mmh3-railhead" }, "media"), chips);
+        el("div", { class: "mmh3p-railhead" }, "media"), chips);
     }
-    return el("div", { class: "mmh3-chipbar" },
+    return el("div", { class: "mmh3p-chipbar" },
       this.sidebar ? null : chips,
       extraChips.length
-        ? el("div", { class: "mmh3-subjrow" }, extraChips) : null,
-      el("div", { class: "mmh3-tools" },
+        ? el("div", { class: "mmh3p-subjrow" }, extraChips) : null,
+      el("div", { class: "mmh3p-tools" },
         timeIn, shotBtn, camMove, camAmp, camSpd, camBtn, styleSel),
       this.dialogueRow(lang),
       this.phraseRow());
@@ -2902,18 +2902,18 @@ class Editor {
   phraseRow() {
     this.phrases = this.phrases || [];
     this.phraseCats = this.phraseCats || [];
-    this.phraseCatEl = el("select", { class: "mmh3-phrasecat",
+    this.phraseCatEl = el("select", { class: "mmh3p-phrasecat",
       title: "Filter phrases by category",
       onchange: () => { this.phraseCat = this.phraseCatEl.value;
         this.drawPhrases(); } });
-    this.phraseEl = el("select", { class: "mmh3-phrasesel",
+    this.phraseEl = el("select", { class: "mmh3p-phrasesel",
       onchange: () => this.showPhrasePeek(),
       onmouseenter: () => this.showPhrasePeek(),
       onmouseleave: () => this.hidePhrasePeek(),
       // Opening the list would leave the popover floating over it.
       onmousedown: () => this.hidePhrasePeek(),
       onblur: () => this.hidePhrasePeek() });
-    this.phraseBar = el("div", { class: "mmh3-tools mmh3-phraserow" });
+    this.phraseBar = el("div", { class: "mmh3p-tools mmh3p-phraserow" });
     this.drawPhraseBar();
     this.drawPhrases();
     this.loadPhrases();
@@ -2927,29 +2927,29 @@ class Editor {
     if (this.phraseConfirm) {
       const p = this.phraseConfirm;
       this.phraseBar.replaceChildren(
-        el("span", { class: "mmh3-toollabel" }, "Phrases:"),
-        el("span", { class: "mmh3-phrasewarn" }, `Delete \u201c${p.name}\u201d?`),
+        el("span", { class: "mmh3p-toollabel" }, "Phrases:"),
+        el("span", { class: "mmh3p-phrasewarn" }, `Delete \u201c${p.name}\u201d?`),
         // The normal row relies on the picker to take up the slack; this one
         // has no flexible control, so it needs a growing spacer of its own.
-        el("span", { class: "mmh3-toolgrow" }),
-        el("button", { class: "mmh3-btn mmh3-danger",
+        el("span", { class: "mmh3p-toolgrow" }),
+        el("button", { class: "mmh3p-btn mmh3p-danger",
           onclick: () => this.confirmDeletePhrase() }, "Delete"),
-        el("button", { class: "mmh3-btn",
+        el("button", { class: "mmh3p-btn",
           onclick: () => { this.phraseConfirm = null; this.drawPhraseBar(); } },
           "Cancel"));
       return;
     }
     this.phraseBar.replaceChildren(
-      el("span", { class: "mmh3-toollabel" }, "Phrases:"),
+      el("span", { class: "mmh3p-toollabel" }, "Phrases:"),
       this.phraseCatEl, this.phraseEl,
-      el("button", { class: "mmh3-btn",
+      el("button", { class: "mmh3p-btn",
         title: "Insert the selected phrase at the caret",
         onclick: () => this.insertPhrase() }, "+ Phrase"),
-      el("span", { class: "mmh3-toolspace" }),
-      el("button", { class: "mmh3-btn",
+      el("span", { class: "mmh3p-toolspace" }),
+      el("button", { class: "mmh3p-btn",
         title: "Save the selected text as a phrase",
         onclick: () => this.newPhrase() }, "+ New"),
-      el("button", { class: "mmh3-btn mmh3-danger",
+      el("button", { class: "mmh3p-btn mmh3p-danger",
         title: "Delete the selected phrase",
         onclick: () => this.deletePhrase() }, "Delete"));
   }
@@ -2987,11 +2987,11 @@ class Editor {
     this.hidePhrasePeek();
     const p = this.selectedPhrase();
     if (!p || !p.text) return;
-    const box = el("div", { class: "mmh3-phrasepeek" },
-      el("div", { class: "mmh3-phrasepeekhead" },
+    const box = el("div", { class: "mmh3p-phrasepeek" },
+      el("div", { class: "mmh3p-phrasepeekhead" },
         el("span", {}, p.name),
-        p.category ? el("span", { class: "mmh3-phrasepeekcat" }, p.category) : null),
-      el("div", { class: "mmh3-phrasepeektext" }, p.text));
+        p.category ? el("span", { class: "mmh3p-phrasepeekcat" }, p.category) : null),
+      el("div", { class: "mmh3p-phrasepeektext" }, p.text));
     document.body.append(box);
     const r = this.phraseEl.getBoundingClientRect();
     const b = box.getBoundingClientRect();
@@ -3033,9 +3033,9 @@ class Editor {
 
   openCtx(x, y, text) {
     this.closeCtx();
-    const item = (label, fn) => el("div", { class: "mmh3-ctxitem",
+    const item = (label, fn) => el("div", { class: "mmh3p-ctxitem",
       onclick: () => { this.closeCtx(); fn(); } }, label);
-    const menu = el("div", { class: "mmh3-ctxmenu" },
+    const menu = el("div", { class: "mmh3p-ctxmenu" },
       item("Save selection as phrase\u2026", () => this.phraseDialog(text)),
       item("Copy", async () => {
         const ok = await copyText(text);
@@ -3067,7 +3067,7 @@ class Editor {
    *  so there's always somewhere to type — reaching for the whole field when
    *  nothing was selected surprised people. */
   phraseDialog(initial) {
-    const text = el("textarea", { rows: 5, class: "mmh3-phrasetext",
+    const text = el("textarea", { rows: 5, class: "mmh3p-phrasetext",
       placeholder: "The wording to save\u2026" });
     text.value = initial || "";
     const name = el("input", { type: "text", placeholder: "Name",
@@ -3076,7 +3076,7 @@ class Editor {
     const known = [...(this.phraseCats || [])];
     const catNew = el("input", { type: "text", placeholder: "New category name",
       style: { display: "none" } });
-    const cat = el("select", { class: "mmh3-savecat",
+    const cat = el("select", { class: "mmh3p-savecat",
       onchange: () => {
         const isNew = cat.value === "\u0000new";
         catNew.style.display = isNew ? "" : "none";
@@ -3108,20 +3108,20 @@ class Editor {
     };
     window.addEventListener("keydown", onKey);
 
-    const overlay = el("div", { class: "mmh3-overlay mmh3-phraseover" },
-      el("div", { class: "mmh3-phrasemodal" },
-        el("div", { class: "mmh3-head" },
-          el("div", { class: "mmh3-title" }, "Save a phrase"),
-          el("button", { class: "mmh3-x", onclick: close }, "\u2715")),
-        el("div", { class: "mmh3-phrasebody" },
+    const overlay = el("div", { class: "mmh3p-overlay mmh3p-phraseover" },
+      el("div", { class: "mmh3p-phrasemodal" },
+        el("div", { class: "mmh3p-head" },
+          el("div", { class: "mmh3p-title" }, "Save a phrase"),
+          el("button", { class: "mmh3p-x", onclick: close }, "\u2715")),
+        el("div", { class: "mmh3p-phrasebody" },
           el("label", {}, "Phrase"), text,
-          el("div", { class: "mmh3-saverow" }, name, cat, catNew)),
-        el("div", { class: "mmh3-phrasefoot" },
-          el("span", { class: "mmh3-clearnote" },
+          el("div", { class: "mmh3p-saverow" }, name, cat, catNew)),
+        el("div", { class: "mmh3p-phrasefoot" },
+          el("span", { class: "mmh3p-clearnote" },
             "Ctrl+Enter saves \u00b7 Esc closes"),
-          el("div", { class: "mmh3-clearactions" },
-            el("button", { class: "mmh3-btn primary", onclick: commit }, "Save"),
-            el("button", { class: "mmh3-btn", onclick: close }, "Cancel")))));
+          el("div", { class: "mmh3p-clearactions" },
+            el("button", { class: "mmh3p-btn primary", onclick: commit }, "Save"),
+            el("button", { class: "mmh3p-btn", onclick: close }, "Cancel")))));
     document.body.append(overlay);
     (initial ? name : text).focus();
   }
@@ -3191,7 +3191,7 @@ class Editor {
     const next = `S${used.length ? Math.max(...used.map((s) => +s.slice(1))) + 1 : 1}`;
 
     const vo = el("button", {
-      class: "mmh3-btn" + (this.voiceover ? " primary" : ""),
+      class: "mmh3p-btn" + (this.voiceover ? " primary" : ""),
       title: "Off-screen voiceover. While on, inserted lines use the guide's " +
              "exact phrasing and append the lips-closed clause, which is " +
              "required on every voiceover line.",
@@ -3212,7 +3212,7 @@ class Editor {
     };
 
     const spkBtn = (id, isNew) => el("button", {
-      class: "mmh3-btn" + (isNew ? " ghost" : ""),
+      class: "mmh3p-btn" + (isNew ? " ghost" : ""),
       title: isNew
         ? `Add ${id} \u2014 the next speaker in the video's speaking order`
         : `Insert a line for ${id}`,
@@ -3220,26 +3220,26 @@ class Editor {
     }, isNew ? `+ (${id})` : `(${id})`);
 
     const pair = used.length >= 2
-      ? el("button", { class: "mmh3-btn",
+      ? el("button", { class: "mmh3p-btn",
           title: "Two speakers vocalising together",
           onclick: () => this.insert(line(`${used[0]},${used[1]}`)) },
           `(${used[0]},${used[1]})`)
       : null;
 
-    return el("div", { class: "mmh3-tools mmh3-dialogrow" },
-      el("span", { class: "mmh3-toollabel" }, "Dialogue:"),
+    return el("div", { class: "mmh3p-tools mmh3p-dialogrow" },
+      el("span", { class: "mmh3p-toollabel" }, "Dialogue:"),
       lang,
       ...used.map((id) => spkBtn(id, false)),
       spkBtn(next, true),
       pair,
       vo,
-      el("span", { class: "mmh3-toolsep" }),
-      el("button", { class: "mmh3-btn",
+      el("span", { class: "mmh3p-toolsep" }),
+      el("button", { class: "mmh3p-btn",
         title: "A line crossing a cut. Use it twice \u2014 once at the end of " +
                "the pre-cut half, once at the start of the post-cut half \u2014 " +
                "and say the audio continues.",
         onclick: () => this.insert("<scenetrans>") }, "\u2933 scenetrans"),
-      el("button", { class: "mmh3-btn",
+      el("button", { class: "mmh3p-btn",
         title: "Speech truncated by the end of the video",
         onclick: () => this.insert("<cutoff>") }, "\u2301 cutoff"));
   }
@@ -3260,15 +3260,15 @@ class Editor {
           "use this value for the native node's length";
       },
     });
-    return el("div", { class: "mmh3-sec" },
+    return el("div", { class: "mmh3p-sec" },
       el("label", {}, "Video end time (s) \u2192 becomes S.SS in the instruction line"),
-      el("div", { class: "mmh3-row" }, input, hint));
+      el("div", { class: "mmh3p-row" }, input, hint));
   }
 
   naButton(obj, key) {
-    return el("button", { class: "mmh3-btn", style: { alignSelf: "flex-start" },
+    return el("button", { class: "mmh3p-btn", style: { alignSelf: "flex-start" },
       onclick: (e) => {
-        const box = e.target.closest(".mmh3-sec").querySelector("textarea");
+        const box = e.target.closest(".mmh3p-sec").querySelector("textarea");
         if (box) {
           box.value = "N/A";
           // Let the field's own handlers run: they update the state and
@@ -3319,20 +3319,20 @@ class Editor {
       FL2VA: "Instruction line auto-generated from duration. Describe the motion path from Picture 1 to Picture 2; favors a single shot.",
       L2VA: "Instruction line auto-generated. Infer a plausible earlier state, then converge onto <Picture 1> in the final shot.",
     };
-    f.append(el("div", { class: "mmh3-sec" },
+    f.append(el("div", { class: "mmh3p-sec" },
       el("span", { class: "hint" }, modeHints[s.mode])));
 
     if (s.mode === "FL2VA" || s.mode === "L2VA") f.append(this.durationRow());
 
     if (s.mode === "FL2VA") {
-      f.append(el("div", { class: "mmh3-sec" },
+      f.append(el("div", { class: "mmh3p-sec" },
         el("label", {}, "Picture 2 belongs to Shot"),
         el("input", { type: "number", min: "1", step: "1", style: { width: "80px" },
           value: s.p2Shot,
           oninput: (e) => { s.p2Shot = parseInt(e.target.value, 10) || 1; } })));
     }
     if (s.mode === "L2VA") {
-      f.append(el("div", { class: "mmh3-sec" },
+      f.append(el("div", { class: "mmh3p-sec" },
         el("label", {}, "Final shot index N (Picture 1 lands here)"),
         el("input", { type: "number", min: "1", step: "1", style: { width: "80px" },
           value: s.lastShot,
@@ -3345,7 +3345,7 @@ class Editor {
       FL2VA: "first-frame state \u2192 observable intermediate changes \u2192 narrowing differences \u2192 last-frame state",
       L2VA: "plausible preceding state \u2192 action/transition path \u2192 gradual convergence \u2192 last-frame landing",
     };
-    f.append(el("div", { class: "mmh3-sec mmh3-grow" },
+    f.append(el("div", { class: "mmh3p-sec mmh3p-grow" },
       el("label", {}, "integrated_multimodal_description"),
       this.ta(s, "imd", 12,
         `[Shot 1] Live-action, cinematic, ...\nRecommended: ${structures[s.mode]}`),
@@ -3357,13 +3357,13 @@ class Editor {
       "1\u20134 sentences: ambience, physical action sounds, non-verbal human sounds.");
     const musicTa = this.ta(s, "music", 3,
       "1\u20133 sentences: instrumentation, tempo, rhythm, dynamics. No abstract mood words.");
-    f.append(el("div", { class: "mmh3-audiopair" },
-      el("div", { class: "mmh3-sec" },
+    f.append(el("div", { class: "mmh3p-audiopair" },
+      el("div", { class: "mmh3p-sec" },
         this.secLabel("overall_soundscape"),
-        el("div", { class: "mmh3-row" }, soundTa, this.naButton(s, "soundscape"))),
-      el("div", { class: "mmh3-sec" },
+        el("div", { class: "mmh3p-row" }, soundTa, this.naButton(s, "soundscape"))),
+      el("div", { class: "mmh3p-sec" },
         this.secLabel("non_diegetic_music"),
-        el("div", { class: "mmh3-row" }, musicTa, this.naButton(s, "music")))));
+        el("div", { class: "mmh3p-row" }, musicTa, this.naButton(s, "music")))));
     linkHeights(soundTa, musicTa);
   }
 
@@ -3386,7 +3386,7 @@ class Editor {
       const defText = r.subjectDefs.map((d) => d.text).join("\n");
       const ns = [...new Set([...defText.matchAll(/<Subject (\d+)>/g)].map((m) => m[1]))];
       return ns.map((n) => el("span", {
-        class: "mmh3-chip subj", title: `Insert <Subject ${n}>`,
+        class: "mmh3p-chip subj", title: `Insert <Subject ${n}>`,
         onclick: () => this.insert(`<Subject ${n}>`),
       }, el("b", {}, `Subject ${n}`)));
     };
@@ -3455,23 +3455,23 @@ class Editor {
     const drawDefs = () => {
       defsWrap.replaceChildren();
       r.subjectDefs.forEach((d, i) => {
-        const mini = el("div", { class: "mmh3-minitags" });
-        const roleRow = el("div", { class: "mmh3-roles" });
+        const mini = el("div", { class: "mmh3p-minitags" });
+        const roleRow = el("div", { class: "mmh3p-roles" });
         const paintMini = () => {
           mini.replaceChildren(
             ...[...d.text.matchAll(/<(Subject|Picture|Video|Audio) (\d+)>/g)]
               .map((m) => el("span",
-                { class: `mmh3-minitag ${TAG_CLASS[m[1]]}` }, `${m[1]} ${m[2]}`)));
+                { class: `mmh3p-minitag ${TAG_CLASS[m[1]]}` }, `${m[1]} ${m[2]}`)));
           // Lines get one-click role presets for the tag they define.
           const am = d.text.match(/<Audio (\d+)>/);
           const pm = d.text.trim().match(/^<Picture (\d+)>/);
           roleRow.replaceChildren();
           if (pm && !am) {
             const n = pm[1];
-            roleRow.append(el("span", { class: "mmh3-rolelabel" }, "role:"));
+            roleRow.append(el("span", { class: "mmh3p-rolelabel" }, "role:"));
             PICTURE_ROLES.forEach((role) => {
               roleRow.append(el("span", {
-                class: "mmh3-rolechip" + (d.role === role.id ? " on" : ""),
+                class: "mmh3p-rolechip" + (d.role === role.id ? " on" : ""),
                 title: role.title + ` \u2014 sets ${role.marker} + ${role.task}`,
                 onclick: () => applyPictureRole(d, n, role),
               }, role.label));
@@ -3479,10 +3479,10 @@ class Editor {
           }
           if (am) {
             const n = am[1];
-            roleRow.append(el("span", { class: "mmh3-rolelabel" }, "role:"));
+            roleRow.append(el("span", { class: "mmh3p-rolelabel" }, "role:"));
             AUDIO_ROLES.forEach((role) => {
               roleRow.append(el("span", {
-                class: "mmh3-rolechip" + (d.role === role.id ? " on" : ""),
+                class: "mmh3p-rolechip" + (d.role === role.id ? " on" : ""),
                 title: role.title + ` \u2014 sets ${role.marker} + ${role.task}`,
                 onclick: () => applyAudioRole(d, n, role),
               }, role.label));
@@ -3493,9 +3493,9 @@ class Editor {
           placeholder: "<Subject 1> is the ... in <Picture 1>, with ...",
           oninput: (e) => { d.text = e.target.value; d.role = null; paintMini(); } });
         paintMini();
-        const row = el("div", { class: "mmh3-defrow" + (d.off ? " off" : "") },
+        const row = el("div", { class: "mmh3p-defrow" + (d.off ? " off" : "") },
           this.rowPower(d, drawDefs), ta,
-          el("button", { class: "mmh3-btn ghost", title: "Remove line",
+          el("button", { class: "mmh3p-btn ghost", title: "Remove line",
             onclick: () => { r.subjectDefs.splice(i, 1); drawDefs(); this.updatePreview(); },
           }, "\u2715"));
         defsWrap.append(row, mini, roleRow);
@@ -3505,21 +3505,21 @@ class Editor {
     const addDef = (seed) => {
       r.subjectDefs.push({ text: seed });
       drawDefs();
-      const t = defsWrap.querySelector(".mmh3-defrow:last-of-type textarea");
+      const t = defsWrap.querySelector(".mmh3p-defrow:last-of-type textarea");
       if (t) { t.focus(); t.selectionStart = t.selectionEnd = t.value.length; this.lastFocus = t; }
       this.updatePreview();
     };
-    f.append(el("div", { class: "mmh3-sec" },
+    f.append(el("div", { class: "mmh3p-sec" },
       this.secLabel("subject_definitions"),
       defsWrap,
-      el("div", { class: "mmh3-tools" },
-        el("button", { class: "mmh3-btn",
+      el("div", { class: "mmh3p-tools" },
+        el("button", { class: "mmh3p-btn",
           onclick: () => addDef(`<Subject ${nextTagN("Subject")}> is `) }, "+ Subject"),
-        el("button", { class: "mmh3-btn",
+        el("button", { class: "mmh3p-btn",
           onclick: () => addDef(`<Picture ${nextTagN("Picture")}> is `) }, "+ Picture line"),
-        el("button", { class: "mmh3-btn",
+        el("button", { class: "mmh3p-btn",
           onclick: () => addDef(`<Video ${nextTagN("Video")}> is `) }, "+ Video line"),
-        el("button", { class: "mmh3-btn",
+        el("button", { class: "mmh3p-btn",
           onclick: () => addDef(`<Audio ${nextTagN("Audio")}> is `) }, "+ Audio line")),
       el("span", { class: "hint" },
         "One line per tracked item. Focus a line, then click media chips above to assign " +
@@ -3529,9 +3529,9 @@ class Editor {
         "storyboards; otherwise cite the picture inside the subject.")));
 
     /* summary --------------------------------------------------------- */
-    f.append(el("div", { class: "mmh3-sec" },
+    f.append(el("div", { class: "mmh3p-sec" },
       el("label", {}, "summary"),
-      el("div", { class: "mmh3-ttypes" }, TASK_TYPES.map((t) =>
+      el("div", { class: "mmh3p-ttypes" }, TASK_TYPES.map((t) =>
         el("label", {},
           el("input", { type: "checkbox", checked: r.summaryTypes.includes(t),
             onchange: (e) => {
@@ -3580,7 +3580,7 @@ class Editor {
       r.retention.forEach((row, i) => {
         const markers = row.label?.startsWith("<Audio") ? AUDIO_MARKERS : VISUAL_MARKERS;
         if (!markers.includes(row.marker)) row.marker = markers[0];
-        retWrap.append(el("div", { class: "mmh3-retrow" + (row.off ? " off" : "") },
+        retWrap.append(el("div", { class: "mmh3p-retrow" + (row.off ? " off" : "") },
           this.rowPower(row, drawRet),
           el("select", {
             onchange: (e) => { row.label = e.target.value; drawRet(); this.updatePreview(); } },
@@ -3593,10 +3593,10 @@ class Editor {
           el("select", {
             onchange: (e) => { row.marker = e.target.value; this.updatePreview(); } },
             markers.map((m) => el("option", { value: m, selected: m === row.marker }, m))),
-          el("button", { class: "mmh3-btn ghost",
+          el("button", { class: "mmh3p-btn ghost",
             onclick: () => { r.retention.splice(i, 1); drawRet(); this.updatePreview(); } },
             "\u2715"),
-          el("input", { class: "mmh3-retnote", type: "text", value: row.note,
+          el("input", { class: "mmh3p-retnote", type: "text", value: row.note,
             placeholder: (() => {
               const hint = roleHint(definitionFor(this.state, row.label));
               return hint ? `e.g. ${hint.note}`
@@ -3607,11 +3607,11 @@ class Editor {
       });
     };
     drawRet();
-    f.append(el("div", { class: "mmh3-sec" },
+    f.append(el("div", { class: "mmh3p-sec" },
       this.secLabel("retention_analysis"),
       retWrap,
-      el("div", { class: "mmh3-tools" },
-        el("button", { class: "mmh3-btn", onclick: () => {
+      el("div", { class: "mmh3p-tools" },
+        el("button", { class: "mmh3p-btn", onclick: () => {
           const labels = knownLabels();
           if (!labels.length) { toast("Define a subject or connect media first"); return; }
           const used = new Set(r.retention.map((x) => x.label));
@@ -3625,7 +3625,7 @@ class Editor {
             note: hint ? hint.note : "" });
           drawRet(); this.updatePreview();
         } }, "+ Entry"),
-        el("button", { class: "mmh3-btn",
+        el("button", { class: "mmh3p-btn",
           title: "One entry per item defined above \u2014 not per picture cited " +
             "inside a subject",
           onclick: () => {
@@ -3664,11 +3664,11 @@ class Editor {
     const detTa = this.ta(r, "detail", 14,
       "[Shot 1] A medium shot establishes <Subject 1>, ...\n[Shot 2] At 00:03.000, the shot cuts to ...");
     detTa.addEventListener("input", paintWc);
-    f.append(el("div", { class: "mmh3-sec" },
+    f.append(el("div", { class: "mmh3p-sec" },
       el("label", {}, "detailed_description \u2014 style opening (before [Shot 1])"),
       this.ta(r, "styleLine", 2,
         "The target video is in a realistic multi-camera sitcom style with warm indoor lighting.")));
-    f.append(el("div", { class: "mmh3-sec mmh3-grow" },
+    f.append(el("div", { class: "mmh3p-sec mmh3p-grow" },
       el("label", {}, "detailed_description \u2014 shots"),
       detTa, wcSpan));
 
@@ -3679,13 +3679,13 @@ class Editor {
     const refMusicTa = this.ta(r, "music", 3,
       "Audience-only score. If reused: \"<Audio 2> is directly reused as the complete " +
       "audience-only score.\"");
-    f.append(el("div", { class: "mmh3-audiopair" },
-      el("div", { class: "mmh3-sec" },
+    f.append(el("div", { class: "mmh3p-audiopair" },
+      el("div", { class: "mmh3p-sec" },
         this.secLabel("overall_soundscape"),
-        el("div", { class: "mmh3-row" }, refSoundTa, this.naButton(r, "soundscape"))),
-      el("div", { class: "mmh3-sec" },
+        el("div", { class: "mmh3p-row" }, refSoundTa, this.naButton(r, "soundscape"))),
+      el("div", { class: "mmh3p-sec" },
         this.secLabel("non_diegetic_music"),
-        el("div", { class: "mmh3-row" }, refMusicTa, this.naButton(r, "music")))));
+        el("div", { class: "mmh3p-row" }, refMusicTa, this.naButton(r, "music")))));
     linkHeights(refSoundTa, refMusicTa);
   }
 
@@ -3696,7 +3696,7 @@ class Editor {
    *  temporarily unplugged. */
   rowPower(obj, redraw) {
     const dot = el("span", {
-      class: "mmh3-rowpow" + (obj.off ? "" : " on"),
+      class: "mmh3p-rowpow" + (obj.off ? "" : " on"),
       title: obj.off ? "Left out of the prompt \u2014 click to include"
                      : "Included \u2014 click to leave out of the prompt",
       onclick: () => {
@@ -3715,7 +3715,7 @@ class Editor {
     state.off = state.off || {};
     const on = !state.off[name];
     const dot = el("span", {
-      class: "mmh3-secpow" + (on ? " on" : ""),
+      class: "mmh3p-secpow" + (on ? " on" : ""),
       title: on ? "Included \u2014 click to leave it out of the prompt"
                 : "Left out of the prompt \u2014 click to include it again",
       onclick: () => {
@@ -3738,13 +3738,13 @@ class Editor {
     // chain has already inserted.
     let html = escapeHtml(text)
       .replace(/&lt;(Subject|Picture|Video|Audio) (\d+)&gt;/g,
-        (m, k, n) => `<span class="t-${TAG_CLASS[k]}">&lt;${k} ${n}&gt;</span>`)
+        (m, k, n) => `<span class="mmh3p-t-${TAG_CLASS[k]}">&lt;${k} ${n}&gt;</span>`)
       .replace(/\[(?!Shot\b)([^\]\n<>]{1,24})\]/g,
-        '<span class="t-lang">[$1]</span>')
-      .replace(/\[Shot (\d+)\]/g, '<span class="t-shot">[Shot $1]</span>')
-      .replace(/&lt;(\/?d|scenetrans|cutoff)&gt;/g, '<span class="t-d">&lt;$1&gt;</span>')
-      .replace(/\((S\d+)\)/g, '<span class="t-spk">($1)</span>')
-      .replace(/\bN\/A\b/g, '<span class="t-na">N/A</span>');
+        '<span class="mmh3p-t-lang">[$1]</span>')
+      .replace(/\[Shot (\d+)\]/g, '<span class="mmh3p-t-shot">[Shot $1]</span>')
+      .replace(/&lt;(\/?d|scenetrans|cutoff)&gt;/g, '<span class="mmh3p-t-d">&lt;$1&gt;</span>')
+      .replace(/\((S\d+)\)/g, '<span class="mmh3p-t-spk">($1)</span>')
+      .replace(/\bN\/A\b/g, '<span class="mmh3p-t-na">N/A</span>');
     this.previewEl.innerHTML = html;
 
     const rank = { error: 0, warn: 1, info: 2 };
@@ -3814,13 +3814,13 @@ export function promptFields(node) {
   if (isRef && !state.ref) state.ref = {};
   const target = isRef ? state.ref : state;
 
-  const root = el("div", { class: "mmh3-quick" });
+  const root = el("div", { class: "mmh3p-quick" });
   const field = (label, obj, key, rows, placeholder, cls) => {
     const t = el("textarea", {
       rows, placeholder, value: obj[key] ?? "",
       oninput: (e) => { obj[key] = e.target.value; },
     });
-    root.append(el("div", { class: "mmh3-sec" + (cls ? ` ${cls}` : "") },
+    root.append(el("div", { class: "mmh3p-sec" + (cls ? ` ${cls}` : "") },
       el("label", {}, label), t));
     return t;
   };
@@ -3831,19 +3831,19 @@ export function promptFields(node) {
     field("detailed_description — style opening", target, "styleLine", 2,
       "The target video is in a realistic multi-camera sitcom style…");
     field("detailed_description — shots", target, "detail", 10,
-      "[Shot 1] A medium shot establishes <Subject 1>, …", "mmh3-grow");
+      "[Shot 1] A medium shot establishes <Subject 1>, …", "mmh3p-grow");
   } else {
     field("integrated_multimodal_description", state, "imd", 10,
-      "[Shot 1] Live-action, cinematic, …", "mmh3-grow");
+      "[Shot 1] Live-action, cinematic, …", "mmh3p-grow");
   }
 
-  const pair = el("div", { class: "mmh3-audiopair" });
+  const pair = el("div", { class: "mmh3p-audiopair" });
   const audioBox = (label, key, placeholder) => {
     const t = el("textarea", {
       rows: 3, placeholder, value: target[key] ?? "",
       oninput: (e) => { target[key] = e.target.value; },
     });
-    pair.append(el("div", { class: "mmh3-sec" }, el("label", {}, label), t));
+    pair.append(el("div", { class: "mmh3p-sec" }, el("label", {}, label), t));
     return t;
   };
   const soundTa = audioBox("overall_soundscape", "soundscape",
@@ -3879,23 +3879,23 @@ export function openQuickEdit(node) {
   };
   const esc = (e) => { if (e.key === "Escape") close(); };
   const overlay = el("div", {
-    class: "mmh3-overlay",
+    class: "mmh3p-overlay",
     onmousedown: (e) => { if (e.target === overlay) close(); },
   },
-    el("div", { class: "mmh3-quickmodal" },
-      el("div", { class: "mmh3-head" },
-        el("div", { class: "mmh3-title" }, "Quick edit",
+    el("div", { class: "mmh3p-quickmodal" },
+      el("div", { class: "mmh3p-head" },
+        el("div", { class: "mmh3p-title" }, "Quick edit",
           el("small", {}, mode === "REF" ? "Full-reference" : mode)),
-        el("button", { class: "mmh3-btn",
+        el("button", { class: "mmh3p-btn",
           title: "Open the full Prompt Builder instead",
           onclick: () => { close(); openEditor(node); } }, "Full editor…"),
-        el("button", { class: "mmh3-x", onclick: close }, "✕")),
-      el("div", { class: "mmh3-quickbody" }, fields.root),
-      el("div", { class: "mmh3-foot" },
+        el("button", { class: "mmh3p-x", onclick: close }, "✕")),
+      el("div", { class: "mmh3p-quickbody" }, fields.root),
+      el("div", { class: "mmh3p-foot" },
         el("span", { class: "stats" },
           "Writes the same fields the full editor does"),
-        el("button", { class: "mmh3-btn", onclick: close }, "Cancel"),
-        el("button", { class: "mmh3-btn primary", onclick: () => {
+        el("button", { class: "mmh3p-btn", onclick: close }, "Cancel"),
+        el("button", { class: "mmh3p-btn primary", onclick: () => {
           fields.save(); toast("Saved to node"); close();
         } }, "Save to node"))));
   window.addEventListener("keydown", esc);
@@ -3906,7 +3906,7 @@ export function openQuickEdit(node) {
 
 function linkHeights(a, b) {
   if (typeof ResizeObserver !== "function" || !a || !b) return;
-  // ta() now returns a .mmh3-chipwrap div, not the bare textarea — the wrap
+  // ta() now returns a .mmh3p-chipwrap div, not the bare textarea — the wrap
   // has no CSS height of its own (block content sizes it), so a height set
   // on the wrap wouldn't reach the textarea inside. Sync the textareas.
   a = a.querySelector?.("textarea") || a;
@@ -3969,16 +3969,16 @@ function setMode(node, mode) {
 function openModeMenu(node, btn) {
   closeModeMenu();
   const current = loadState(node).mode;
-  const menu = el("div", { class: "mmh3-modemenu" },
+  const menu = el("div", { class: "mmh3p-modemenu" },
     ...MODES.map((m) => el("div", {
-      class: "mmh3-modeitem" + (m.id === current ? " on" : ""),
+      class: "mmh3p-modeitem" + (m.id === current ? " on" : ""),
       onmousedown: (e) => e.stopPropagation(),   // outside-click closer
       onclick: (e) => {
         e.stopPropagation();
         closeModeMenu();
         setMode(node, m.id);
       },
-    }, el("b", {}, m.label), el("span", { class: "mmh3-modehint" }, m.hint))));
+    }, el("b", {}, m.label), el("span", { class: "mmh3p-modehint" }, m.hint))));
 
   document.body.append(menu);
   _modeMenu = menu;
@@ -4017,7 +4017,7 @@ export function updateSummary(node) {
 
   // Left: two lines of the prompt itself. textContent, not innerHTML \u2014 the
   // prompt is user text and must never be parsed as markup. CSS clamps it.
-  const preview = el("div", { class: "mmh3-sumtext" + (text ? "" : " empty") });
+  const preview = el("div", { class: "mmh3p-sumtext" + (text ? "" : " empty") });
   // 300 chars is well past what two clamped lines can show at this width, so
   // the node isn't carrying a whole prompt it will never display.
   preview.textContent = text
@@ -4037,7 +4037,7 @@ export function updateSummary(node) {
   ].filter(Boolean).join(" \u2022 ");
 
   const btn = el("button", {
-    class: "mmh3-modebtn" + (over || orphans ? " warn" : ""),
+    class: "mmh3p-modebtn" + (over || orphans ? " warn" : ""),
     title: `${detail}\nClick to change mode`,
     onmousedown: (e) => e.stopPropagation(),
     onclick: (e) => {
@@ -4047,13 +4047,13 @@ export function updateSummary(node) {
       openModeMenu(node, btn);
     },
   }, el("b", {}, MODES.find((m) => m.id === state.mode)?.label || state.mode),
-     el("span", { class: "mmh3-modecaret" }, "\u25be"));
+     el("span", { class: "mmh3p-modecaret" }, "\u25be"));
 
   // A scroll on the left marks the bar as the prompt, and is an explicit
   // target for opening the editor — the whole strip already opens it, but
   // nothing said so.
   const scroll = el("span", {
-    class: "mmh3-sumicon",
+    class: "mmh3p-sumicon",
     title: "Open the Prompt Builder",
     onmousedown: (e) => e.stopPropagation(),
     onclick: (e) => { e.stopPropagation(); openEditor(node); },
@@ -4069,9 +4069,9 @@ export function updateSummary(node) {
   };
   const marks = [];
   if (filled("soundscape", "overall_soundscape"))
-    marks.push(el("span", { class: "mmh3-summark", title: "overall_soundscape has content" }, "\u{1F50A}"));
+    marks.push(el("span", { class: "mmh3p-summark", title: "overall_soundscape has content" }, "\u{1F50A}"));
   if (filled("music", "non_diegetic_music"))
-    marks.push(el("span", { class: "mmh3-summark", title: "non_diegetic_music has content" }, "\u{1F3B5}"));
+    marks.push(el("span", { class: "mmh3p-summark", title: "non_diegetic_music has content" }, "\u{1F3B5}"));
 
   node._mmh3Summary.title = `${detail}\nClick to open the editor`;
   node._mmh3Summary.replaceChildren(scroll, preview, ...marks, btn);
