@@ -2407,21 +2407,44 @@ class Editor {
     return (this._citeText.match(new RegExp(esc, "g")) || []).length;
   }
 
+  /** The thumbnail for a reference, reused across renders.
+   *
+   *  render() rebuilds the whole form, so a fresh <video> per render meant the
+   *  clip reloaded and blinked every time anything redrew — switching a section
+   *  off being the obvious one. Handing back the *same* element instead makes
+   *  the rebuild a DOM move, which browsers do not treat as a new load, so the
+   *  frame on screen survives. Keyed on what the element actually shows, so a
+   *  clip that changes file still gets a new one. */
   mediaThumb(s, big) {
-    if (s.preview?.type === "img")
-      return el("img", { class: "mmh3p-thumb", src: s.preview.url });
-    if (s.preview?.type === "video")
-      return el("video", { class: "mmh3p-thumb", src: s.preview.url, muted: true,
+    const type = s.preview?.type || "none";
+    // Cards only. The `big` variants are built on hover for the peek panels,
+    // which are never rebuilt by render() and so never flash — and two peeks
+    // can be open at once, where sharing one element would move it out of the
+    // first. Fall back to the tag when there is no URL, or two previewless
+    // slots would share one canvas.
+    const key = big ? null : `${type}|${s.preview?.url || s.tag}`;
+    this._thumbs = this._thumbs || new Map();
+    const cached = key && this._thumbs.get(key);
+    if (cached) return cached;
+
+    let node;
+    if (type === "img") {
+      node = el("img", { class: "mmh3p-thumb", src: s.preview.url });
+    } else if (type === "video") {
+      node = el("video", { class: "mmh3p-thumb", src: s.preview.url, muted: true,
         loop: true, preload: "metadata",
         onmouseenter: (e) => e.target.play().catch(() => {}),
         onmouseleave: (e) => e.target.pause() });
-    // Drawing-buffer size, kept in step with .mmh3p-card / .mmh3p-peek in the
-    // stylesheet so the waveform isn't drawn at the wrong resolution and
-    // stretched by the browser.
-    const cv = el("canvas", { class: "mmh3p-thumb mmh3p-wave",
-      width: big ? 495 : 124, height: big ? 135 : 80 });
-    if (s.preview?.url) setTimeout(() => this.drawWave(cv, s.preview.url), 0);
-    return cv;
+    } else {
+      // Drawing-buffer size, kept in step with .mmh3p-card / .mmh3p-peek in the
+      // stylesheet so the waveform isn't drawn at the wrong resolution and
+      // stretched by the browser.
+      node = el("canvas", { class: "mmh3p-thumb mmh3p-wave",
+        width: big ? 495 : 124, height: big ? 135 : 80 });
+      if (s.preview?.url) setTimeout(() => this.drawWave(node, s.preview.url), 0);
+    }
+    if (key) this._thumbs.set(key, node);
+    return node;
   }
 
   /* --- hover peek ------------------------------------------------- */

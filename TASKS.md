@@ -172,7 +172,23 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
     Note the sidebar track is still 186px, so a centred 128px card leaves ~20px
     either side. Tightening the column to fit is a separate call — say if you want
     it, since it would hand that width to the form.
-18. 🟦 videos flash when clicking the prompt builder section toggles.
+18. 🟩 videos flash when clicking the prompt builder section toggles.
+
+    Cause: `render()` calls `formEl.replaceChildren()` and rebuilds every card, so
+    each redraw built a **new** `<video>` element, and a new element with the same
+    `src` is a new load — hence the blink. Section toggles call `render()`, which is
+    why they showed it, but any redraw did.
+
+    Card thumbnails are now cached per reference and reused, so a rebuild moves the
+    existing element rather than replacing it, and browsers don't treat a move as a
+    load. Measured in Chromium: five re-renders went from 5 media loads to 1.
+
+    Scoped deliberately to the card thumbnails. The `big` variants are built on
+    hover for the peek panels — those are never rebuilt by `render()` so they never
+    flashed, and two peeks can be open at once, where sharing one element would
+    yank it out of the first. The key is the preview URL, so a clip that changes
+    file still gets a fresh element while a renumbered tag on the same file does
+    not.
 19. 🟦 the shot and camera control bar's dropdown boxes should only use the minimum width needed.
 20. 🟦 the top and bottom margins of the prompt builder's main pane should be consistent with the left and right margins.
 21. 🟦 add a dashed box with a plus on it for adding media in the chips area, if relevant for the current prompt mode.
