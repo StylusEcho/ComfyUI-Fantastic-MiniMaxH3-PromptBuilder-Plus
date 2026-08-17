@@ -153,7 +153,7 @@ if PromptServer is not None and web is not None:
 
     routes = PromptServer.instance.routes
 
-    @routes.post("/minimax_h3/upload")
+    @routes.post("/minimax_h3_plus/upload")
     async def upload(request):
         """Accept one file, store it under input/minimax_h3, return its metadata."""
         try:
@@ -205,7 +205,7 @@ if PromptServer is not None and web is not None:
             "height": info.get("height"),
         })
 
-    @routes.post("/minimax_h3/extract_audio")
+    @routes.post("/minimax_h3_plus/extract_audio")
     async def extract_audio_route(request):
         """Write the trimmed audio of an existing item out as its own WAV.
 
@@ -291,72 +291,13 @@ if PromptServer is not None and web is not None:
             "duration": info.get("duration"), "has_audio": True,
         })
 
-    def _output_root():
-        if folder_paths is None:
-            raise RuntimeError("folder_paths unavailable")
-        return os.path.realpath(folder_paths.get_output_directory())
-
-    def _safe_dir(rel):
-        """Resolve a browser path, refusing anything outside the output dir."""
-        root = _output_root()
-        target = os.path.realpath(os.path.join(root, rel or ""))
-        if target != root and not target.startswith(root + os.sep):
-            return root, ""                     # escape attempt -> back to root
-        if target == root:
-            return root, ""
-        return target, os.path.relpath(target, root).replace(os.sep, "/")
-
-    @routes.get("/minimax_h3/browse")
-    async def browse(request):
-        """List folders under the output directory, for the folder picker."""
-        rel = request.query.get("path", "")
-        try:
-            target, rel = _safe_dir(rel)
-        except Exception as exc:
-            return web.json_response({"error": str(exc)}, status=500)
-        dirs = []
-        try:
-            with os.scandir(target) as it:
-                for entry in it:
-                    if entry.is_dir() and not entry.name.startswith("."):
-                        dirs.append(entry.name)
-        except Exception as exc:
-            return web.json_response({"error": f"unreadable: {exc}"}, status=500)
-        dirs.sort(key=str.lower)
-        return web.json_response({"path": "" if rel in (".", "") else rel,
-                                  "dirs": dirs})
-
-    @routes.post("/minimax_h3/mkdir")
-    async def mkdir(request):
-        """Create a folder from the picker, inside the output directory."""
-        try:
-            body = await request.json()
-        except Exception:
-            return web.json_response({"error": "expected JSON body"}, status=400)
-        name = re.sub(r"[^A-Za-z0-9 ._-]+", "_", str(body.get("name") or "")).strip()
-        if not name:
-            return web.json_response({"error": "give the folder a name"},
-                                     status=400)
-        try:
-            parent, _ = _safe_dir(body.get("path", ""))
-            path = os.path.realpath(os.path.join(parent, name))
-            root = _output_root()
-            if not path.startswith(root + os.sep):
-                return web.json_response({"error": "outside the output folder"},
-                                         status=400)
-            os.makedirs(path, exist_ok=True)
-        except Exception as exc:
-            return web.json_response({"error": f"could not create: {exc}"},
-                                     status=500)
-        return web.json_response({"created": name})
-
-    @routes.get("/minimax_h3/capabilities")
+    @routes.get("/minimax_h3_plus/capabilities")
     async def capabilities(request):
         caps = media_io.backends()
         caps["video"] = media_io.can_decode_video()
         return web.json_response(caps)
 
-    @routes.get("/minimax_h3/presets")
+    @routes.get("/minimax_h3_plus/presets")
     async def list_presets(request):
         names = []
         try:
@@ -367,7 +308,7 @@ if PromptServer is not None and web is not None:
             pass
         return web.json_response({"presets": sorted(names, key=str.lower)})
 
-    @routes.post("/minimax_h3/presets/save")
+    @routes.post("/minimax_h3_plus/presets/save")
     async def save_preset(request):
         try:
             body = await request.json()
@@ -386,7 +327,7 @@ if PromptServer is not None and web is not None:
             return web.json_response({"error": f"save failed: {exc}"}, status=500)
         return web.json_response({"name": name, "count": len(items)})
 
-    @routes.post("/minimax_h3/presets/load")
+    @routes.post("/minimax_h3_plus/presets/load")
     async def load_preset(request):
         try:
             body = await request.json()
@@ -415,7 +356,7 @@ if PromptServer is not None and web is not None:
                 missing.append(item.get("name") or target)
         return web.json_response({"name": name, "items": kept, "missing": missing})
 
-    @routes.post("/minimax_h3/presets/delete")
+    @routes.post("/minimax_h3_plus/presets/delete")
     async def delete_preset(request):
         try:
             body = await request.json()
@@ -432,7 +373,7 @@ if PromptServer is not None and web is not None:
 
     # -- prompt library ---------------------------------------------------
 
-    @routes.get("/minimax_h3/phrases")
+    @routes.get("/minimax_h3_plus/phrases")
     async def list_phrases(request):
         items = _read_phrases()
         cats = sorted({(i.get("category") or "").strip()
@@ -440,7 +381,7 @@ if PromptServer is not None and web is not None:
                       key=str.lower)
         return web.json_response({"phrases": items, "categories": cats})
 
-    @routes.post("/minimax_h3/phrases/save")
+    @routes.post("/minimax_h3_plus/phrases/save")
     async def save_phrase(request):
         try:
             body = await request.json()
@@ -471,7 +412,7 @@ if PromptServer is not None and web is not None:
             return web.json_response({"error": f"could not save: {exc}"}, status=500)
         return web.json_response({"saved": entry["id"]})
 
-    @routes.post("/minimax_h3/phrases/delete")
+    @routes.post("/minimax_h3_plus/phrases/delete")
     async def delete_phrase(request):
         try:
             body = await request.json()
@@ -488,7 +429,7 @@ if PromptServer is not None and web is not None:
             return web.json_response({"error": f"could not delete: {exc}"}, status=500)
         return web.json_response({"deleted": pid})
 
-    @routes.get("/minimax_h3/prompts")
+    @routes.get("/minimax_h3_plus/prompts")
     async def list_prompts(request):
         entries, categories = [], set()
         directory = _prompt_dir()
@@ -521,7 +462,7 @@ if PromptServer is not None and web is not None:
             "categories": sorted(categories, key=str.lower),
         })
 
-    @routes.post("/minimax_h3/prompts/save")
+    @routes.post("/minimax_h3_plus/prompts/save")
     async def save_prompt(request):
         try:
             body = await request.json()
@@ -561,7 +502,7 @@ if PromptServer is not None and web is not None:
                 pass
         return web.json_response({"id": entry_id, "name": record["name"]})
 
-    @routes.post("/minimax_h3/prompts/load")
+    @routes.post("/minimax_h3_plus/prompts/load")
     async def load_prompt(request):
         try:
             body = await request.json()
@@ -573,7 +514,7 @@ if PromptServer is not None and web is not None:
             return web.json_response({"error": "prompt not found"}, status=404)
         return web.json_response({"id": entry_id, **data})
 
-    @routes.post("/minimax_h3/prompts/meta")
+    @routes.post("/minimax_h3_plus/prompts/meta")
     async def update_prompt_meta(request):
         """Toggle favourite or move to another category without a full save."""
         try:
@@ -597,7 +538,7 @@ if PromptServer is not None and web is not None:
         return web.json_response({"id": entry_id, "favorite": data["favorite"],
                                   "category": data["category"]})
 
-    @routes.post("/minimax_h3/prompts/category")
+    @routes.post("/minimax_h3_plus/prompts/category")
     async def rename_category(request):
         """Rename a category across every prompt, or clear it entirely."""
         try:
@@ -629,7 +570,7 @@ if PromptServer is not None and web is not None:
                 pass
         return web.json_response({"from": source, "to": target, "changed": changed})
 
-    @routes.post("/minimax_h3/prompts/delete")
+    @routes.post("/minimax_h3_plus/prompts/delete")
     async def delete_prompt(request):
         try:
             body = await request.json()
@@ -644,7 +585,7 @@ if PromptServer is not None and web is not None:
             return web.json_response({"error": f"delete failed: {exc}"}, status=500)
         return web.json_response({"deleted": entry_id})
 
-    @routes.post("/minimax_h3/probe")
+    @routes.post("/minimax_h3_plus/probe")
     async def probe_route(request):
         try:
             body = await request.json()

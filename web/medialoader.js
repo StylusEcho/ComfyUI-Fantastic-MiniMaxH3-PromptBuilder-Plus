@@ -1288,7 +1288,7 @@ export class TrimModal {
     panel.say(`Extracting ${span.toFixed(1)}s of audio\u2026`);
     panel.render();
     try {
-      const resp = await api.fetchApi("/minimax_h3/extract_audio", {
+      const resp = await api.fetchApi("/minimax_h3_plus/extract_audio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ file: this.item.file,
@@ -1620,7 +1620,7 @@ function miniPlayer(url) {
 let capsPromise = null;
 function capabilities() {
   if (!capsPromise) {
-    capsPromise = api.fetchApi("/minimax_h3/capabilities")
+    capsPromise = api.fetchApi("/minimax_h3_plus/capabilities")
       .then((r) => r.json())
       .catch(() => ({ video: true, av: false, ffmpeg: false }));
   }
@@ -1632,7 +1632,7 @@ async function presetApi(path, body) {
     ? { method: "POST", body: JSON.stringify(body),
         headers: { "Content-Type": "application/json" } }
     : {};
-  const resp = await api.fetchApi("/minimax_h3/presets" + path, opts);
+  const resp = await api.fetchApi("/minimax_h3_plus/presets" + path, opts);
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(data.error || `request failed (${resp.status})`);
   return data;
@@ -1641,7 +1641,7 @@ async function presetApi(path, body) {
 async function uploadFile(file) {
   const body = new FormData();
   body.append("file", file, file.name);
-  const resp = await api.fetchApi("/minimax_h3/upload", { method: "POST", body });
+  const resp = await api.fetchApi("/minimax_h3_plus/upload", { method: "POST", body });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(data.error || `upload failed (${resp.status})`);
   return data;

@@ -1513,7 +1513,7 @@ async function libApi(path, body) {
     ? { method: "POST", body: JSON.stringify(body),
         headers: { "Content-Type": "application/json" } }
     : {};
-  const resp = await api.fetchApi("/minimax_h3/prompts" + path, opts);
+  const resp = await api.fetchApi("/minimax_h3_plus/prompts" + path, opts);
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(data.error || `request failed (${resp.status})`);
   return data;
@@ -2883,7 +2883,7 @@ class Editor {
   async loadPhrases() {
     this.phraseRouteMissing = false;
     try {
-      const resp = await api.fetchApi("/minimax_h3/phrases");
+      const resp = await api.fetchApi("/minimax_h3_plus/phrases");
       if (!resp.ok) {
         this.phraseRouteMissing = resp.status === 404 || resp.status === 405;
         throw new Error("unavailable");
@@ -3129,7 +3129,7 @@ class Editor {
   async savePhrase(entry) {
     if (!entry.name) { toast("Give the phrase a name", 3500); return; }
     try {
-      const resp = await api.fetchApi("/minimax_h3/phrases/save", {
+      const resp = await api.fetchApi("/minimax_h3_plus/phrases/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(entry),
@@ -3158,7 +3158,7 @@ class Editor {
     this.drawPhraseBar();
     if (!p) return;
     try {
-      const resp = await api.fetchApi("/minimax_h3/phrases/delete", {
+      const resp = await api.fetchApi("/minimax_h3_plus/phrases/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: p.id }),
