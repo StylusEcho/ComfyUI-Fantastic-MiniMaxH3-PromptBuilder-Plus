@@ -1,5 +1,6 @@
-/* MiniMax H3 Prompt Builder — frontend
- * Compact node summary + "Edit prompt" button opening a modal template editor.
+/* MiniMax H3 Prompt Builder editor — shared frontend module
+ * The modal template editor and node summary, mounted onto MiniMax H3 Prompt
+ * Studio (see promptstudio.js). Not a node registration of its own.
  * Formats follow MiniMax's official prompt-writing guides shipped with the
  * open-weight release (VIDEO_PROMPT_WRITING_GUIDE_base_en / _ref_en).
  */
@@ -9,7 +10,6 @@ import { LOADER_NAME, computeTags, viewURL as loaderViewURL,
   safeCanvasFocus, openLoaderModal, isOn, TrimModal,
   fileCount, MODE_CAPACITY } from "./medialoader.js";
 
-const NODE_NAME = "MiniMaxH3PromptBuilder";
 // Private drag type: marks a drag as "reorder the rail" so a drop on another
 // card moves media, while a drop on a textarea still inserts the tag.
 const RAIL_MIME = "application/x-mmh3-rail";
@@ -3786,40 +3786,6 @@ export function hideWidget(node, name) {
   if (w.element) w.element.style.display = "none";
 }
 
-/** Create a Media Loader beside this node and connect it, or focus the
- *  existing one if the references input is already wired. */
-function addMediaLoader(node) {
-  const inIdx = (node.inputs || []).findIndex((i) => i.name === "references");
-  if (inIdx < 0) { toast("This node has no references input"); return; }
-
-  const existing = node.inputs[inIdx].link != null ? originNode(node, inIdx) : null;
-  if (existing) {
-    // Focusing the canvas is renderer-specific; open its editor if that fails.
-    if (!safeCanvasFocus(existing)) openLoaderModal(existing);
-    toast("Media Loader is already connected");
-    return;
-  }
-
-  let loader = null;
-  try {
-    loader = LiteGraph.createNode(LOADER_NAME);
-  } catch (e) { loader = null; }
-  if (!loader) {
-    toast("Media Loader node not found \u2014 restart ComfyUI");
-    return;
-  }
-  app.graph.add(loader);
-  try {
-    loader.pos = [node.pos[0] - ((loader.size?.[0] || 430) + 60), node.pos[1]];
-  } catch (e) { /* let the renderer place it */ }
-  loader.connect(0, node, inIdx);   // slot 0 is the references bundle
-  try {
-    node.setDirtyCanvas?.(true, true);
-    app.graph.setDirtyCanvas(true, true);
-  } catch (e) { /* Vue redraws itself */ }
-  toast("Media Loader added and connected");
-}
-
 export function openEditor(node) {
   try {
     new Editor(node);
@@ -4110,77 +4076,3 @@ export function updateSummary(node) {
   node._mmh3Summary.title = `${detail}\nClick to open the editor`;
   node._mmh3Summary.replaceChildren(scroll, preview, ...marks, btn);
 }
-
-app.registerExtension({
-  name: "MiniMaxH3.PromptBuilder",
-  async beforeRegisterNodeDef(nodeType, nodeData) {
-    if (nodeData.name !== NODE_NAME) return;
-    console.log("[MiniMaxH3 PromptBuilder] extension registered");
-
-    const onNodeCreated = nodeType.prototype.onNodeCreated;
-    nodeType.prototype.onNodeCreated = function () {
-      try {
-        const r = onNodeCreated?.apply(this, arguments);
-        injectCSS();
-        hideWidget(this, "prompt_text");
-        hideWidget(this, "builder_state");
-
-        // Canvas buttons first so no DOM widget can sit on top of them.
-        this.addWidget("button", "Prompt Builder", null, () => openEditor(this));
-        this.addWidget("button", "+ Media loader", null, () => addMediaLoader(this));
-
-        // Clickable DOM summary as a second, layout-independent way in.
-        if (this.addDOMWidget) {
-          const summary = el("div", {
-            class: "mmh3-summary",
-            title: "Quick-edit the prompt \u2014 the scroll opens the full editor",
-            style: { cursor: "pointer", height: "52px", minHeight: "52px" },
-            onclick: () => openQuickEdit(this),
-          });
-          this._mmh3Summary = summary;
-          const sw = this.addDOMWidget("mmh3_summary", "div", summary,
-            { serialize: false });
-          // Explicit height so either renderer reserves space for it.
-          sw.computedHeight = 52;
-          sw.computeSize = () => [330, 52];
-        }
-
-        try { this.size[0] = Math.max(this.size[0], 330); } catch (e) { /* Vue sizes it */ }
-        setTimeout(() => updateSummary(this), 0);
-        return r;
-      } catch (err) {
-        // Without this the node still registers but none of the UI
-        // appears, which looks like "the node did not load".
-        console.error("[Fantastic H3 Prompt Builder] setup failed for this node:", err);
-        try { this.addWidget("button", "\u26a0 UI failed \u2014 click", null, () => {
-          alert("Fantastic H3 Prompt Builder could not build its interface.\n\n" + err +
-            "\n\nOpen the browser console for the full trace.");
-        }); } catch (e2) { /* nothing more we can do */ }
-        return undefined;
-      }
-
-    };
-
-    // Canvas-only convenience; the button and summary panel are the
-    // renderer-independent ways in.
-    const onDblClick = nodeType.prototype.onDblClick;
-    nodeType.prototype.onDblClick = function (e, pos, canvas) {
-      openEditor(this);
-      return onDblClick?.apply(this, arguments) ?? true;
-    };
-
-    const onConfigure = nodeType.prototype.onConfigure;
-    nodeType.prototype.onConfigure = function () {
-      const r = onConfigure?.apply(this, arguments);
-      setTimeout(() => updateSummary(this), 0);
-      return r;
-    };
-
-    const onConnectionsChange = nodeType.prototype.onConnectionsChange;
-    nodeType.prototype.onConnectionsChange = function () {
-      const r = onConnectionsChange?.apply(this, arguments);
-      setTimeout(() => updateSummary(this), 0);
-      return r;
-    };
-  },
-});

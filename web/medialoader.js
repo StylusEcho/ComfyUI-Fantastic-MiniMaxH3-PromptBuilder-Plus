@@ -1,6 +1,7 @@
-/* MiniMax H3 Media Loader — frontend
+/* MiniMax H3 Media Loader panel — shared frontend module
  * On-node panel: drag-and-drop plus a file picker, previews with playback,
- * drag-to-reorder, and per-video audio split routing.
+ * drag-to-reorder, and per-video audio split routing. Mounted onto MiniMax
+ * H3 Prompt Studio (see promptstudio.js). Not a node registration of its own.
  *
  * Tag numbers shown here follow the native node's presentation order:
  * images, then videos (a paired soundtrack's <Audio N> emitted just before
@@ -10,7 +11,6 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
 export const LOADER_NAME = "MiniMaxH3MediaLoader";
-export const SPLITTER_NAME = "MiniMaxH3ReferenceSplitter";
 export const MAX = { picture: 9, video: 3, audio: 3, total: 12 };
 // H3 policy: 2-15s per reference clip, 15s total per media type.
 export const TRIM_FPS = 24;   // H3's timeline; used for frame-stepping
@@ -167,23 +167,6 @@ export function applyCanvasSizing(node, widget, width, height) {
   } catch (e) {
     /* Vue may own layout entirely; the CSS height keeps the panel intact. */
   }
-}
-
-/** Nodes fed by one of this node's outputs. Renderer-agnostic. */
-export function outputTargets(node, slot) {
-  try {
-    const direct = node.getOutputNodes?.(slot);
-    if (Array.isArray(direct) && direct.length) return direct;
-  } catch (e) { /* fall through to the link table */ }
-  const out = [];
-  try {
-    for (const id of node.outputs?.[slot]?.links || []) {
-      const link = app.graph.links?.[id];
-      const target = link && app.graph.getNodeById?.(link.target_id);
-      if (target) out.push(target);
-    }
-  } catch (e) { /* nothing wired */ }
-  return out;
 }
 
 export function safeCanvasFocus(node) {
@@ -2595,41 +2578,6 @@ function splitHelp(anchor) {
   document.body.append(box);
 }
 
-function flash(text) {
-  const t = el("div", { class: "mml-toast" }, text);
-  document.body.append(t);
-  setTimeout(() => t.remove(), 1800);
-}
-
-/** Spawn a Reference Splitter and wire this node's bundle into it.
- *  The bundle output takes many links, so this coexists with the Prompt
- *  Builder connection. `slot` is the references output — 0 on the Media
- *  Loader, but the Prompt Studio emits the prompt first. */
-export function addSplitter(node, slot = 0) {
-  const existing = outputTargets(node, slot).find((n) => n.type === SPLITTER_NAME);
-  if (existing) {
-    safeCanvasFocus(existing);
-    flash("Splitter is already connected");
-    return existing;
-  }
-  let sp = null;
-  try {
-    sp = LiteGraph.createNode(SPLITTER_NAME);
-  } catch (e) { sp = null; }
-  if (!sp) {
-    flash("Reference Splitter not found \u2014 restart ComfyUI");
-    return null;
-  }
-  app.graph.add(sp);
-  try {
-    sp.pos = [node.pos[0] + ((node.size?.[0] || NODE_W) + 60), node.pos[1]];
-  } catch (e) { /* let the renderer place it */ }
-  node.connect(slot, sp, 0);
-  try { app.graph.setDirtyCanvas(true, true); } catch (e) { /* Vue redraws */ }
-  flash("Splitter added \u2014 wire its slots to MiniMaxH3ReferenceToVideo");
-  return sp;
-}
-
 export function openLoaderModal(node, title = "MiniMax H3 Media Loader") {
   injectCSS();
   const panel = new LoaderPanel(node, { modal: true });
@@ -2651,73 +2599,3 @@ export function openLoaderModal(node, title = "MiniMax H3 Media Loader") {
   document.body.append(overlay);
   return panel;
 }
-
-/* ------------------------------------------------------------ extension */
-
-app.registerExtension({
-  name: "MiniMaxH3.MediaLoader",
-  async beforeRegisterNodeDef(nodeType, nodeData) {
-    if (nodeData.name !== LOADER_NAME) return;
-
-    const onNodeCreated = nodeType.prototype.onNodeCreated;
-    nodeType.prototype.onNodeCreated = function () {
-      try {
-        const r = onNodeCreated?.apply(this, arguments);
-        injectCSS();
-        const w = this.widgets?.find((w) => w.name === "media_state");
-        if (w) {
-          w.hidden = true;
-          w.type = "hidden";
-          w.computeSize = () => [0, -4];
-        }
-        // Built-in widgets go first: in Nodes 2.0 a widget added after a DOM
-        // widget anchors to the node's bottom and leaves a gap on resize.
-        this.addWidget("button", "Open loader\u2026", null, () => openLoaderModal(this));
-        this.addWidget("button", "+ Native-output splitter", null,
-          () => addSplitter(this));
-
-        this._mmlPanel = new LoaderPanel(this);
-        const widget = this.addDOMWidget("mml_panel", "div", this._mmlPanel.root,
-          { serialize: false });
-        this._mmlWidget = widget;
-        applyCanvasSizing(this, widget, NODE_W, PANEL_H);
-        return r;
-      } catch (err) {
-        // Without this the node still registers but none of the UI
-        // appears, which looks like "the node did not load".
-        console.error("[Fantastic H3 Media Loader] setup failed for this node:", err);
-        try { this.addWidget("button", "\u26a0 UI failed \u2014 click", null, () => {
-          alert("Fantastic H3 Media Loader could not build its interface.\n\n" + err +
-            "\n\nOpen the browser console for the full trace.");
-        }); } catch (e2) { /* nothing more we can do */ }
-        return undefined;
-      }
-
-    };
-
-    // Canvas-only: Vue owns sizing there, so failure here must be harmless.
-    const onResize = nodeType.prototype.onResize;
-    nodeType.prototype.onResize = function (size) {
-      try {
-        const min = this.computeSize();
-        size[0] = Math.max(NODE_W, size[0]);
-        size[1] = Math.max(min[1], size[1]);
-      } catch (e) { /* leave the size alone */ }
-      return onResize?.apply(this, arguments);
-    };
-
-    const onConfigure = nodeType.prototype.onConfigure;
-    nodeType.prototype.onConfigure = function () {
-      const r = onConfigure?.apply(this, arguments);
-      setTimeout(() => {
-        if (this._mmlPanel) {
-          this._mmlPanel.items = this._mmlPanel.read();
-          this._mmlPanel.render();
-        }
-        applyCanvasSizing(this, this.widgets?.find((w) => w.name === "mml_panel"),
-          NODE_W, PANEL_H);
-      }, 0);
-      return r;
-    };
-  },
-});
