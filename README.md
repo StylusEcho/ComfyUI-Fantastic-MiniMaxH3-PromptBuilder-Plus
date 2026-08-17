@@ -1,28 +1,28 @@
-# ComfyUI Fantastic MiniMax H3 Prompt Builder
+# ComfyUI MiniMax H3 Prompt Studio (Plus)
 
 Guided prompt writing and reference-media handling for the open-weight
-**MiniMax H3** video model in ComfyUI.
+**MiniMax H3** video model in ComfyUI, in a single node.
 
 H3 doesn't want a casual sentence — it wants a structured prompt with named
 sections, shot timings, speaker IDs, and tags pointing at your reference media.
 MiniMax publishes a written guide for that format, and normally a separate
 rewriting model (`H3-Context-IR`) turns your idea into it. That rewriter wasn't
-open-sourced. This node pack is the hand-driven replacement: fillable templates
-for every mode, live checking against the guide's rules, and a media loader that
-keeps your reference tags straight.
+open-sourced. This pack is the hand-driven replacement: fillable templates for
+every mode, live checking against the guide's rules, and a media panel that
+keeps your reference tags straight — all on **MiniMax H3 Prompt Studio**, the
+one node this pack installs.
 
-![Reference mode workflow](docs/1.png)
-
-*Media Loader → Prompt Builder → MiniMax H3 Reference to Video*
+This is a companion to
+[Adudeguyman's Fantastic H3 Prompt Builder](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder),
+not a replacement for it. That pack's standalone Prompt Builder, Media Loader,
+Reference Splitter, and Filename Prefix nodes aren't duplicated here — install
+both packs side by side if you want those too (see
+[Reference mode](#reference-mode) for why full-reference workflows still want
+the Reference Splitter).
 
 ![Keyframe workflow](docs/2.png)
 
-*Media Loader → Prompt Builder → MiniMax H3 Image to Video*
-
-![Splitter workflow](docs/3.png)
-
-*Media Loader → Reference Splitter → processor. For use without the Prompt
-Builder, managing reference media only.*
+*Prompt Studio → MiniMax H3 Image to Video*
 
 ![Media previews in the editor](docs/6.png)
 
@@ -30,7 +30,7 @@ Builder, managing reference media only.*
 automatically adds the tag (like `<Picture 1>`) into the active text field for
 you.*
 
-Picture thumbnails in the Media Loader carry their pixel size and aspect ratio
+Picture thumbnails in the media panel carry their pixel size and aspect ratio
 in the corner, repeated in the larger preview when you click one. The ratio is
 named from the same list the resolution selectors use (16:9, 4:3, 9:16, 21:9
 and so on), with `≈` when a reference only comes close — so you can see at a
@@ -48,7 +48,7 @@ any frame straight out of a video into your picture references.*
 - [What you get](#what-you-get)
 - [Requirements](#requirements)
 - [Install](#install)
-- [Prompt Studio: one node instead of two](#prompt-studio-one-node-instead-of-two)
+- [Prompt Studio](#prompt-studio)
 - [Quick start](#quick-start)
 - [Writing a prompt](#writing-a-prompt)
 - [Prompt library](#prompt-library)
@@ -61,20 +61,18 @@ any frame straight out of a video into your picture references.*
 
 ## What you get
 
-Five nodes, all under **conditioning → video_models**:
+One node, under **conditioning → video_models**:
 
 | Node | What it's for |
 |---|---|
-| **MiniMax H3 Prompt Studio** | The Prompt Builder and Media Loader in one node. No inputs to wire — prompt, references, two keyframe images, and a mode flag out. Start here. |
-| **MiniMax H3 Prompt Builder** | The editor on its own, with fillable fields for every prompt mode. Takes reference media from a separate Media Loader. |
-| **MiniMax H3 Media Loader** | Drag-and-drop your reference images, videos, and audio. Shows exactly which tag each one will get. |
-| **MiniMax H3 Reference Splitter** | Optional. Fans media out into individual slots for `MiniMaxH3ReferenceToVideo`. |
-| **MiniMax H3 Filename Prefix** | Optional. Builds a save prefix with the date already filled in, for dated output folders. |
+| **MiniMax H3 Prompt Studio** | The prompt editor and the reference-media panel in one node. No inputs required — prompt, the gated reference bundle, two keyframe images, a mode flag, and a routed MODEL all come out. Start here. |
 
-The Studio and the separate Builder + Loader pair do the same job — pick
-whichever suits the graph. Everything below applies to both unless it says
-otherwise, and existing workflows built on the separate nodes keep working
-exactly as they did.
+That's deliberate: this pack exists so you don't need two nodes wired together
+for the common case. If you also install
+[the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder),
+its Prompt Builder, Media Loader, Reference Splitter, and Filename Prefix
+nodes appear alongside Prompt Studio with no name clashes — the two packs are
+built to coexist.
 
 Highlights:
 
@@ -86,6 +84,26 @@ Highlights:
   you connected but never mentioned — flagged while you write, not after a
   failed render.
 - **The official guide is built in.** A 📖 button opens the full PDF.
+- **Your work isn't lost by a stray click.** Closing with unsaved changes asks
+  first — **Save to node**, **Discard**, or **Keep editing**. Only *Save to
+  node* changes what the node sends; ✕, Cancel and Escape discard. The ⚙ menu
+  turns off click-outside-to-close, or the warning itself, if you'd rather work
+  another way.
+- **Reference tags read as chips** in the text, colour-coded by kind, with the
+  thumbnail on hover — no side panel opening and shifting the layout. Hovering
+  a `<Subject N>` shows the first picture its definition cites, the media it
+  references, its speaker ID, and any `<Audio N>` attached to it — including
+  voice references declared the other way round, in the audio's own line. Tags
+  with nothing behind them show red as you type.
+- **A dialogue row** with a language picker and one button per speaker already
+  in the prompt, plus the next unused ID — and a voiceover toggle that writes
+  the guide's exact phrasing including the lips-closed clause.
+- **Cut markers are chipped too** — `[Shot 2] at 00:03.000` reads as one unit,
+  in a neutral slate, so the structure of a multi-shot prompt is scannable.
+- **Spoken lines are shaded** — `<d>…</d>` blocks get a blue band matching the
+  speaker chips, with the markers dimmed and the language tag picked out, so you can see at a glance
+  what the model will actually say and catch delivery notes that drifted
+  inside the tags. Speaker IDs like `(S1)` are chipped too.
 - **Drag-and-drop media** with previews, playback, and reorderable slots.
 - **Non-destructive trim and crop** — a popout editor sends just a slice of a
   clip (like its last 3 seconds), or just a region of the frame, without
@@ -95,8 +113,15 @@ Highlights:
 - **Media presets** so you can reload a set of references in one click.
 - **Unload media** clears the node in one go (after a confirmation) without
   deleting the underlying files, so presets pointing at them still work.
-- **Detail control for reference video** — decode big clips at a smaller size
+- **Node size presets** — a `size` button steps the whole node through L, XL
+  (+25%) and XXL (+40%) when you want more room for the media grid, and
+  **Open loader…** puts the same panel in a full-size window.
+- **Size control for reference video** — decode big clips at a smaller size
   so a long 4K reference doesn't eat gigabytes of RAM.
+- **Optional model routing.** Wire both checkpoints — `fl2va_model` and
+  `ref2va_model` — once, and the node's `model` output passes through whichever
+  one the saved mode actually runs on. Both inputs are lazy, so the checkpoint
+  the mode isn't using is never pulled into memory.
 
 ---
 
@@ -108,7 +133,7 @@ Highlights:
 - **PyAV or ffmpeg** — only needed for reference *videos*. Images and audio work
   without either. There's a good chance you already have this: many ComfyUI
   installs ship with ffmpeg, and PyAV comes along with several common custom
-  node packs. Try dropping a video on the Media Loader first — if it's accepted,
+  node packs. Try dropping a video on the media panel first — if it's accepted,
   you're set. If not, `pip install av` into your ComfyUI environment is the easy
   route. Either way the node still loads and tells you why videos are
   unavailable, rather than failing when you hit queue.
@@ -121,38 +146,42 @@ Highlights:
 
 ```bash
 cd ComfyUI/custom_nodes
-git clone https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder
+git clone https://github.com/StylusEcho/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder-Plus
 ```
 
-**Via ComfyUI Manager** — search for "Fantastic MiniMax H3 Prompt Builder" and install.
+**Via ComfyUI Manager** — search for "MiniMax H3 Prompt Studio" and install.
 
 **Manually** — download the ZIP and extract into `ComfyUI/custom_nodes/` so you
-end up with `ComfyUI/custom_nodes/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder/`.
+end up with `ComfyUI/custom_nodes/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder-Plus/`.
+
+This installs alongside
+[the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)
+without conflict — install one or both.
 
 Then **restart ComfyUI completely** — not just a browser refresh. Nodes are only
 registered at startup.
 
-To confirm it worked, search the node menu for "MiniMax H3". All five nodes
-above should be listed.
+To confirm it worked, search the node menu for "MiniMax H3 Prompt Studio".
 
 ---
 
-## Prompt Studio: one node instead of two
+## Prompt Studio
 
-**MiniMax H3 Prompt Studio** is the Prompt Builder and the Media Loader on a
-single node. Same editor, same media panel — but the media lives on the node
-that writes the prompt, so there is nothing to wire between them and the tags
-the editor offers are always the tags the output actually carries.
+**MiniMax H3 Prompt Studio** puts the prompt editor and the reference-media
+panel on one node. There's nothing to wire between them: the media lives on
+the same node that writes the prompt, so the tags the editor offers are always
+the tags the output actually carries.
 
-It has **no inputs at all**, and five outputs:
+It takes **no required inputs**, and has six outputs:
 
 | Output | Type | Goes to |
 |---|---|---|
 | `prompt` | `STRING` | the `prompt` input on **Image to Video** or **Reference to Video** |
-| `references` | `H3_REFS` | a **Reference Splitter**, whose slots feed **Reference to Video** |
+| `references` | `H3_REFS` | a **Reference Splitter**, whose slots feed **Reference to Video** — from the original pack, if you have it installed too |
 | `picture_1` | `IMAGE` | `first_frame` on **Image to Video** (or `last_frame` for L2VA) |
 | `picture_2` | `IMAGE` | `last_frame` on **Image to Video**, for FL2VA |
 | `ref2va_needed` | `BOOLEAN` | a switch node, to pick which H3 node runs |
+| `model` | `MODEL` | the sampler, once you've wired both checkpoints in (see below) |
 
 `ref2va_needed` is true only in **Reference** mode — the one mode whose prompt
 goes to **Reference to Video** instead of **Image to Video**. Feed it to a
@@ -174,79 +203,60 @@ Reference media comes from the node's own panel rather than upstream slots, so
 the keyframe and reference media you load are picked up directly. The
 `references` bundle and both picture outputs are **mode-gated**: T2VA leaves
 all three empty, I2VA and L2VA fill `picture_1` only, and FL2VA fills both —
-the same rule the Prompt Builder applies to its pass-throughs, so switching
-mode never quietly sends media the mode can't use. Anything withheld is printed
-to the console, never dropped silently.
+so switching mode never quietly sends media the mode can't use. Anything
+withheld is printed to the console, never dropped silently.
 
-Three buttons on the node:
+Two optional inputs, `fl2va_model` and `ref2va_model`, take both H3 checkpoints
+at once; the `model` output passes through whichever one the saved mode
+actually runs on (`ref2va` in Reference mode, `fl2va` everywhere else). Both
+are lazy, so the checkpoint the mode isn't using is never pulled into memory —
+wire both in once and let the mode decide, instead of rewiring the sampler by
+hand every time you switch modes.
 
-- **Prompt Builder** — opens the full prompt editor.
-- **Open Media Loader in Window** — the media panel in a resizable modal, for
-  when the on-node panel is too small to work in.
-- **+ Native-output splitter** — drops in a Reference Splitter and wires this
-  node's `references` output into it.
-
-Drag the node's bottom edge and the media panel grows with it, so you can give
-the thumbnails as much room as the canvas allows. It won't shrink below the
-standalone Media Loader's size.
-
-Under the buttons is a summary strip: two lines of the current prompt on the
-left, and the mode on the right as a button. Click it for a dropdown of all
-five modes and pick one without opening the editor — handy for sending the
-same prompt through a different mode. Switching there rewrites the prompt the
-way the editor's Save does, but only when there is one; an empty node stays
-empty. Hover the strip for the reference count, duration, and any warnings,
-and the mode button turns red when you're over a limit. The same strip is on
-the standalone Prompt Builder.
-
-Use the separate **Prompt Builder** and **Media Loader** instead when you want
-one media set feeding several prompts, or media routed from other nodes through
-the builder's individual pass-through slots. Both approaches are supported, and
-neither is going away.
+The node carries no buttons — everything is reachable from the panel itself.
+The media panel sits at the top; drag the node's bottom edge and it grows with
+you, so you can give the thumbnails as much room as the canvas allows. Below
+it, a prompt bar shows two lines of the current prompt and the mode as a
+button on the right — click the bar to quick-edit the main text fields in
+place, click the mode button for a dropdown of all five modes without opening
+the full editor, or double-click the node (or click the 📜 icon in the bar) to
+open the full editor. In T2VA, where there's no reference media to show, the
+bar expands in place to the same three quick-edit fields instead of staying
+collapsed. Hover the bar for the reference count, duration, and any warnings,
+and the mode button turns red when you're over a limit.
 
 ---
 
 ## Quick start
 
-This is the same for every mode. To do it on a single node, use the
-[Prompt Studio](#prompt-studio-one-node-instead-of-two) and skip step 6's
-wiring — its media panel replaces it.
+This is the same for every mode.
 
-1. Add a **MiniMax H3 Prompt Builder**.
-2. Click **Prompt Builder**, pick your mode along the top, and fill in the fields.
-   The finished prompt builds live in the right-hand panel.
-3. Click **Save to node**.
-4. Connect the Prompt Builder's `prompt` output to the `prompt` input on
-   whichever H3 node you're using:
+1. Add a **MiniMax H3 Prompt Studio**.
+2. Drop your keyframe or reference media onto the panel, if your mode needs
+   any (T2VA needs none).
+3. Click the prompt bar (or double-click the node) to open the editor, pick
+   your mode along the top, and fill in the fields. The finished prompt builds
+   live in the right-hand panel.
+4. Click **Save to node**.
+5. Connect the node's `prompt` output to the `prompt` input on whichever H3
+   node you're using:
    - **MiniMax H3 Image to Video** for T2VA, I2VA, FL2VA, and L2VA
    - **MiniMax H3 Reference to Video** for reference mode
 
    If `prompt` shows as a widget rather than an input, right-click it and choose
    *Convert widget to input*.
-5. Set `width`, `height`, and `length` on that node. For first/last-frame modes
+6. Set `width`, `height`, and `length` on that node. For first/last-frame modes
    the editor shows the exact frame count to use — H3 only accepts certain
    values, and the editor already rounds to a valid one.
-6. Wire up whatever your mode needs:
+7. Wire up whatever your mode needs:
    - **T2VA** — nothing else; the prompt is the whole input.
-   - **I2VA / FL2VA / L2VA** — load your keyframe images with either ComfyUI's
-     own **Load Image** nodes or this pack's **Media Loader**, then connect them
-     to **Image to Video** like so:
-     - **I2VA** — your image → `first_frame`
-     - **FL2VA** — first image → `first_frame`, second image → `last_frame`
-     - **L2VA** — your image → `last_frame`
-
-     With **Load Image** nodes you have a choice: wire them straight into the
-     H3 node, or route them through the Prompt Builder first — into its
-     `picture_1` input and back out of the matching output. You can also do
-     both, by splitting the connection so the same image reaches the H3 node and
-     the builder. Routing through the builder is what gives you previews while
-     you write.
-
-     The **Media Loader** does the same job with less wiring: drop your images
-     on it, run its single `references` output into the Prompt Builder, and take
-     the frames from the builder's `picture_1` and `picture_2` outputs.
+   - **I2VA / FL2VA / L2VA** — connect the node's own `picture_1` (and
+     `picture_2` for FL2VA) outputs to **Image to Video**:
+     - **I2VA** — `picture_1` → `first_frame`
+     - **FL2VA** — `picture_1` → `first_frame`, `picture_2` → `last_frame`
+     - **L2VA** — `picture_1` → `last_frame`
    - **Reference mode** — see [Reference mode](#reference-mode) below.
-7. Queue it.
+8. Queue it.
 
 The rest of the workflow — loaders, samplers, VAE decode, save — is unchanged
 from ComfyUI's built-in MiniMax H3 templates. This pack only replaces how the
@@ -256,7 +266,7 @@ prompt gets written.
 
 ## Writing a prompt
 
-Click **Prompt Builder** to open the editor, then pick a mode along the top:
+Click the prompt bar to open the editor, then pick a mode along the top:
 
 | Mode | You give it | Good for |
 |---|---|---|
@@ -290,8 +300,8 @@ save — so clearing is only permanent once you press **Save to node**.
 ![I2VA editor layout](docs/4.png)
 
 *I2VA layout — only the input Picture 1 can be used in I2VA mode. Other media is
-disabled. You can rearrange which image is used as Picture 1 on the Media Loader
-node: click and drag the ☰ icon. Alternatively, media can be disabled and
+disabled. You can rearrange which image is used as Picture 1 in the panel:
+click and drag the ☰ icon. Alternatively, media can be disabled and
 enabled by clicking the green dial, which automatically reorders the media
 passed to the processing node. NOTE: changing order or disabling media changes
 its label for the prompt — it does **not** automatically update your prompt.*
@@ -339,18 +349,22 @@ H3 Reference to Video** and the `ref2va` checkpoint.
 
 ### The short version
 
-1. On the Prompt Builder, click **+ Media loader**. A Media Loader appears,
-   already connected.
-2. Drop your reference files onto it, or click **Load files…**. Images, video,
-   and audio can all go in at once — each lands in the right group.
-3. Open **Prompt Builder** and switch to **Reference** mode. Your media now shows
-   up as clickable thumbnails; click one to insert its tag into your text.
-4. Fill in the six sections, then **Save to node**.
-5. Connect the Prompt Builder's media outputs — `picture_1`, `video_1`, and so
-   on — to the matching slots on **MiniMax H3 Reference to Video**, alongside
-   the `prompt` connection you already made.
+1. Drop your reference files onto Prompt Studio's own panel, or click
+   **Load files…**. Images, video, and audio can all go in at once — each
+   lands in the right group.
+2. Open the editor and switch to **Reference** mode. Your media now shows up
+   as clickable thumbnails; click one to insert its tag into your text.
+3. Fill in the six sections, then **Save to node**.
+4. Connect the node's `prompt` output to **MiniMax H3 Reference to Video**'s
+   `prompt` input.
+5. `references` carries the whole gated bundle, but **Reference to Video**
+   wants individual `ref_image_N` / `ref_video_N` / etc. slots — so it needs a
+   **Reference Splitter** in between. This pack doesn't include one; install
+   [the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)
+   alongside this one, add its **Fantastic H3 Reference Splitter**, and wire
+   `references` → the splitter → the matching slots on **Reference to Video**.
 
-### What the media loader shows you
+### What the media panel shows you
 
 Every reference gets a tag like `<Picture 1>` or `<Audio 2>`, and your prompt
 refers to media by those tags. The numbering isn't simply "which slot did I plug
@@ -370,30 +384,34 @@ treated as part of the video or as a separate audio reference. The **?** button
 by the videos heading explains the choice, and there's a
 [summary in the FAQ](#what-do-off--paired--alone-do).
 
-### Video detail and memory
+### Video size and memory
 
 Reference video is decoded to raw float frames, so memory is
 `width x height x 3 x 4 bytes x frames` — a 15-second 1080p clip is about 9 GB,
 and three of those will hurt.
 
-The **detail** picker in the Media Loader's top row caps the long edge while
-decoding, so full-size frames are never built:
+**Nothing is resized unless you ask.** A clip is decoded at its own resolution
+until you set a **size** in its ✂ editor, which caps the long edge while
+decoding so full-size frames are never built:
 
-| Setting | Long edge | 15s of 1080p |
-|---|---|---|
-| full | source size | ~9.0 GB |
-| high *(default)* | 1280 px | ~4.0 GB |
-| standard | 960 px | ~2.2 GB |
-| low | 640 px | ~1.0 GB |
+| Cap on a 15s 1080p clip | Memory |
+|---|---|
+| full *(default)* | ~9.0 GB |
+| 1280 px | ~4.0 GB |
+| 1024 px | ~2.5 GB |
+| 832 px | ~1.7 GB |
 
-Lower settings cost less than you'd think, because the native H3 node rescales
+It costs less quality than you'd expect, because the native H3 node rescales
 every reference to your generation's pixel area regardless — feeding it 1080p
 while generating at 832x480 spends the memory and then throws the detail away.
 Clips already smaller than the cap are left alone.
 
-The setting applies to every video in the node and is remembered for new ones;
-individual clips keep their own value if you set one. Trimming helps too, and
-multiplies with this: detail and duration are independent factors.
+Two cases where you should leave it at full: a video used as a **motion-context
+continuation source**, and any clip whose framing you're matching closely —
+both want to be at least as large as your generation.
+
+Trimming helps too, and multiplies with this: size and duration are
+independent factors.
 
 ### Picture roles
 
@@ -420,6 +438,28 @@ role in their own right.
 Note that `attribute transfer` is a retention marker, not a task type — the
 chip sets `attribute_transfer` on the retention row while the summary stays
 `reference generation`.
+
+### Phrases
+
+Bits of wording you write over and over — a house style line, a camera move you
+like, a soundscape you always start from — can be saved once and inserted with
+a click. The **Phrases** row sits under the dialogue controls:
+
+- **+ New** opens a small window to compose the phrase — prefilled if you had
+  text selected, empty and ready to type if not — with a name and an optional
+  category. Ctrl+Enter saves, Esc closes.
+- **Right-click a selection** in any field for *Save selection as phrase…*,
+  which opens the same window with the text already in it.
+- The two dropdowns filter by category and pick the phrase; hovering the
+  phrase picker shows the whole wording, since the list only has room for the
+  name.
+- **+ Phrase** drops it in at the caret, on the same line — line breaks in a
+  saved phrase are flattened, because the model reads them as shot cuts.
+- **Delete** removes the selected one.
+
+Phrases are stored with ComfyUI rather than in the workflow, so they follow the
+install and are shared by every prompt you write. They're plain text — for
+saving a whole prompt, use the [prompt library](#prompt-library) instead.
 
 ### Switching lines off
 
@@ -510,7 +550,11 @@ other reference — tagged, taggable, and saved with presets.*
 
 **Pictures get the same treatment.** The ▣ button on a picture tile opens the
 editor with the rotate, crop and mirror tools — no timeline, since there's nothing
-to trim. The **size** dropdown caps the long edge of what's actually sent. A 4K photo is
+to trim. The **size** dropdown caps the long edge of what's actually sent. Videos have
+the same control in their ✂ editor, where it matters more — a cap saves that
+memory on *every frame*, so a 15-second clip capped at 1280 px costs a fraction
+of the same clip at 4K. Both default to full — media is only resized when you
+set a size. A 4K photo is
 decoded and rescaled on *every* generation, which costs real time and memory —
 and the native H3 node downsizes references to your generation's pixel area
 anyway, so the detail is discarded regardless. Capping a 4K reference at
@@ -567,8 +611,9 @@ trims its frames and its paired soundtrack together. To keep the full video but
 only a few seconds of its audio, set the video's audio to `off` and load the
 audio separately, then trim that copy.
 
-You can also skip the Media Loader entirely and wire your own loaders — the
-[FAQ](#do-i-have-to-use-the-media-loader) covers every route.
+You can also skip the panel entirely and wire your own loaders straight into
+the native H3 node — the [FAQ](#do-i-have-to-use-the-media-loader) covers your
+options.
 
 ![Reference mode editor layout](docs/5.png)
 
@@ -577,7 +622,7 @@ cite.*
 
 ### Presets
 
-The Media Loader can save your current set of references — which files, their
+The panel can save your current set of references — which files, their
 order, and each video's audio setting — under a name, and reload it later from
 the dropdown.
 
@@ -637,53 +682,44 @@ picture.
 
 ---
 
----
-
 ## FAQ: wiring reference media
 
 This is the fiddly part, so here's the whole picture.
 
 ### Do I have to use the Media Loader?
 
-No. There are four ways to get media in, and they all work:
+No. There are three ways to get media in:
 
-1. **Prompt Studio.** No cable at all — the media panel is on the node that
-   writes the prompt. See
-   [Prompt Studio](#prompt-studio-one-node-instead-of-two).
-2. **Media Loader → Prompt Builder.** One cable. Previews plus tag numbering
-   come free.
-3. **Your own loaders → Prompt Builder.** Wire `LoadImage` and friends into the
-   Prompt Builder's `picture_1`, `video_1`, `audio_1` inputs.
-4. **Straight to the native node.** Skip this pack's media handling entirely and
+1. **Prompt Studio's own panel.** No cable at all — the panel is on the node
+   that writes the prompt. See [Prompt Studio](#prompt-studio).
+2. **Straight to the native node.** Skip this pack's media handling entirely and
    wire your loaders directly into **MiniMax H3 Reference to Video**. You still
    get a well-formed prompt; you just won't get thumbnails in the editor.
+3. **The original pack's Media Loader → Prompt Builder,** if you install
+   [that pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)
+   alongside this one. Its Prompt Builder is a separate node with its own
+   editor, unrelated to Prompt Studio.
 
-Options 2 and 3 mix freely. If a slot has its own input wired, that wins;
-anything else falls back to the Media Loader's bundle. Option 1 is
-self-contained — the Prompt Studio has no media inputs to mix with.
+Prompt Studio itself has no media inputs to wire — option 1 is entirely
+self-contained.
 
 ### Which output goes where?
 
-The Prompt Builder has a `prompt` output plus one output per media slot.
-
-| From Prompt Builder | To MiniMax H3 Reference to Video |
-|---|---|
-| `prompt` | `prompt` |
-| `picture_1` … `picture_9` | `ref_images` slots |
-| `video_1` … `video_3` | `ref_videos` slots |
-| `video_audio_1` … `video_audio_3` | `ref_video_audios` slots |
-| `audio_1` … `audio_3` | `ref_audios` slots |
-
-The native node's slots start at 0 while ours start at 1, so `picture_1` goes to
-`ref_image_0`. Keep them in the same order.
+Prompt Studio has a `prompt` output, a gated `references` bundle, and
+`picture_1` / `picture_2` for the keyframe modes (see
+[Prompt Studio](#prompt-studio) for the full table). `references` isn't split
+into individual slots on its own — see the next question.
 
 ### Then what's the Reference Splitter for?
 
-Only for when you want media to reach the sampler *without* going through the
-Prompt Builder — for instance if you keep the builder off to one side. Media
-Loader → Splitter → native node. If you're already routing media through the
-Prompt Builder, you don't need it. There's a button on the Media Loader that
-adds one, wired up.
+**MiniMax H3 Reference to Video** wants individual `ref_image_N` /
+`ref_video_N` / `ref_video_audio_N` / `ref_audio_N` inputs, not one bundle. A
+Reference Splitter fans `references` out into those slots. This pack doesn't
+include one — install
+[the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)
+alongside this one, add its **Fantastic H3 Reference Splitter**, and wire
+Prompt Studio's `references` output into it. It's the one part of a full
+Reference-mode workflow this pack can't finish on its own.
 
 ### How do tags get their numbers?
 
@@ -699,14 +735,14 @@ plugged into. Two consequences:
   the soundtrack is `<Audio 1>` and the standalone clip is `<Audio 2>` — even
   though the standalone one might feel like it should come first.
 
-You don't have to work this out yourself. The Media Loader shows the exact tag
+You don't have to work this out yourself. The panel shows the exact tag
 order along the bottom of the node, and the editor's thumbnails are labelled
 with the tag each one will actually get. Trust those over intuition.
 
 ### Why is a video's audio a separate thing at all?
 
 ComfyUI has no single "video with sound" type, so frames and audio travel on
-separate wires. The Media Loader splits it for you automatically when you drop
+separate wires. The panel splits it for you automatically when you drop
 in a video file. If you're wiring your own loaders, you'll need one that gives
 you frames and audio separately.
 
@@ -768,7 +804,7 @@ Mode and prompt are saved together by the editor's **Save**, so they can never
 disagree with each other. If the node's state is missing or unreadable, the
 gate fails open and passes everything rather than silently withholding.
 
-For per-item control within a mode, the ◉ toggle on the Media Loader switches
+For per-item control within a mode, the ◉ toggle on the panel switches
 one reference off without unplugging anything.
 
 ### One loader, two pipelines
@@ -781,12 +817,18 @@ Browse Templates → this pack), or open
 the video output and
 [KJNodes](https://github.com/kijai/ComfyUI-KJNodes) for the Set/Get nodes.
 
+**This example predates Prompt Studio** and is still built on the standalone
+Prompt Builder, Media Loader, and two Reference Splitters, so it needs
+[the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)
+installed alongside this one to load at all. It's kept as a reference for the
+Set/Get fan-out pattern described below; a Prompt-Studio-only rebuild of it is
+on the list but isn't done yet.
+
 The example is set up for a 4-step turbo LoRA, with **Sigma Shift at 12 video /
 6 audio**. That audio value is deliberate: the released base configuration is
 12/3, but distilled turbo LoRAs compress the video trajectory, and since the
 audio schedule is derived from the video one, 6 keeps audio aligned at low step
 counts. Running the base FL2VA model without a turbo LoRA? Put it back to 3.
-
 
 The builder also has a **references** output (last slot): the same bundle it
 received, gated to the saved mode, ready for a **Reference Splitter**. That
@@ -796,21 +838,22 @@ Set/Get pair into each pipeline's own splitter, keep one pipeline bypassed,
 and the saved mode decides what media flows: switch to FL2VA and Save, and the
 ref2va side's splitter receives only pictures 1–2; switch to REF and the full
 set flows again. Gating lives in one place — the builder — no matter how many
-pipelines fan out from it.
+pipelines fan out from it. Prompt Studio's own `references` output works the
+same way if you want to build this pattern around it instead.
 
 ### Can I wire every output once and leave it?
 
-Yes — that's the intended way to work. Connect all of the Prompt Builder's media
-outputs to the matching slots on **MiniMax H3 Reference to Video** once, and
-leave the workflow alone.
+Yes — that's the intended way to work. Connect Prompt Studio's outputs to the
+matching slots once (via a Reference Splitter for `references`, see
+[above](#then-whats-the-reference-splitter-for)), and leave the workflow alone.
 
 Slots with nothing in them pass through empty, and the H3 node skips them. The
 tags close up around whatever is actually present, so three images in slots 1, 2
 and 3 are `<Picture 1>`–`<Picture 3>` whether or not the other six are wired.
 
-That pairs with the ◉ toggle on the Media Loader: rather than unplugging cables
+That pairs with the ◉ toggle on the panel: rather than unplugging cables
 between runs, switch an item off and it stops reaching the model — the tag
-numbering adjusts, and the Prompt Builder's checks update to match.
+numbering adjusts, and the editor's checks update to match.
 
 ### What if I connect an image but never mention it in the prompt?
 
@@ -831,10 +874,9 @@ are exact frames of the finished video, so they go to the `first_frame` and
 slots, which exist only on the reference node and mean "here's something to draw
 from", not "here's a frame".
 
-Either loader works. Previews in the editor come from routing an image through
-the Prompt Builder — which you can do with a **Load Image** node just as well as
-with the Media Loader — so the Media Loader's advantage is convenience rather
-than capability. See [Quick start](#quick-start) for the wiring.
+Load your keyframes onto Prompt Studio's own panel and its `picture_1` /
+`picture_2` outputs already carry them — no separate **Load Image** node or
+extra wiring needed. See [Quick start](#quick-start) for the wiring.
 
 These modes take one image each, except FL2VA which takes two. Wire in more and
 the editor tells you exactly which ones will be ignored.
@@ -857,31 +899,33 @@ save node. Route it through a string node, a switch, or anything else and the
 token arrives verbatim — you get a folder literally named `%date:yyyy-MM-dd%`.
 That's a known issue in VideoHelperSuite among others.
 
-**MiniMax H3 Filename Prefix** builds the prefix from parts and resolves the
-date itself, so what reaches the save node is a plain string that survives any
-amount of wiring:
-
-- **folder** — click **📁 Browse…** for a folder browser that walks your
-  ComfyUI output directory: click a folder to enter it, `..` to go up, and
-  **Create** to make a new one on the spot. Or just type a path.
-- **subfolder** — optional extra levels, created if missing (`Ref2V`,
-  `client/act2`).
-- **date_folder** — off, or a dated folder in your preferred format
-  (`YYYY-MM-DD`, `YYYY/MM/DD`, `YYYY-MM-DD_HH-MM`, and so on).
-- **filename** — the start of the file name; the save node still appends its
-  own counter.
-
-So folder `MiniMaxH3`, subfolder `Ref2V`, date `YYYY-MM-DD`, filename `vid`
-gives `MiniMaxH3/Ref2V/2026-08-07/vid_00001.mp4`.
-
-Date tokens still work inside **subfolder** and **filename** if you want them
-there — `%date:hhmmss%` or strftime `%H%M%S` — so `vid_%date:hhmm%` becomes
-`vid_1409`. The node re-evaluates every run, so the date can't get stuck on
-whatever it was when the workflow was loaded.
+This pack doesn't include a fix for that — the original pack's **Fantastic H3
+Filename Prefix** node builds a save prefix from parts and resolves the date
+itself, so what reaches the save node is a plain string that survives any
+amount of wiring. Install
+[the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)
+alongside this one if you want it.
 
 ---
 
 ## Troubleshooting
+
+### The node appears but has no panel or buttons
+
+The Python side registered fine — you can see `media_state` or `builder_state`
+as a plain text widget — but the interface didn't build. That's the frontend
+script failing, and almost always one of:
+
+1. **A stale browser cache.** Python reloads on restart, JavaScript doesn't.
+   Hard-refresh with Ctrl+Shift+R, or try an incognito window.
+2. **Another extension throwing during load,** which can stop later ones
+   registering. Open the browser console (F12) — the first red error usually
+   names the culprit, and it often isn't this pack.
+3. **A partial install.** `custom_nodes/<this pack>/web/` should contain
+   `promptbuilder.js`, `medialoader.js`, `promptstudio.js` and the guide PDF.
+
+If this pack itself is the one failing, the node now shows a **⚠ UI failed**
+button — click it for the error, and include that text in a bug report.
 
 **The nodes don't appear.** ComfyUI needs a full restart, not a page refresh.
 Check the startup console for errors mentioning MiniMaxH3.
@@ -898,12 +942,14 @@ ffmpeg isn't on your PATH, `pip install av` into your ComfyUI environment is the
 simplest fix.
 
 **A button does nothing.** Open the browser console (F12) and click it again —
-any failure prints there. The Media Loader also has an **Open loader…** button
-that works independently of the on-node panel.
+any failure prints there. The panel's **Open loader…** button opens the media
+panel in its own window, independent of the on-node one, if that helps narrow
+it down.
 
 **Something looks squashed or overlapping.** This pack works with both the
-classic node renderer and Nodes 2.0. If a panel misbehaves in one of them, the
-modal buttons (**Prompt Builder**, **Open loader…**) always work regardless.
+classic node renderer and Nodes 2.0. If the on-node panel misbehaves in one of
+them, double-clicking the node still opens the full editor, and **Open
+loader…** still opens the media panel in its own window, regardless.
 
 ---
 
