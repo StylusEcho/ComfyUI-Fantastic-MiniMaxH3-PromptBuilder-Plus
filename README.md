@@ -647,19 +647,12 @@ removing it. Drag one card onto another to reorder your media — the tag number
 renumber to match, exactly as they do on the node. Both act on the node's real
 media, so the editor and the node never disagree.
 
-### Pinned references
+### Keeping a reference in view while you write
 
-Pinning keeps a reference on screen while you write about it. Pin from a
-thumbnail's hover preview, up to three at a time; putting the text caret inside
-a tag like `<Picture 2>` pins that one automatically, marked `auto`, until the
-caret moves.
-
-On a screen 1800px or wider the pin pane lifts out of the editor and stands in
-the empty space to its left, clearing the screen edge by the same margin the
-editor clears the top and bottom. Pins then get as much room as the screen
-allows — around 280px wide at 1080p and 570px at 1440p, against the 176px
-column inside the editor. Below that width there isn't enough room beside the
-editor to be worth it, so the pane stays in its column.
+Reference tags in the text are chips: hover one and its thumbnail opens right
+there, so you can check a reference without leaving the line you're on. That
+replaces the old pinned-references pane, which took a column out of the editor
+and pushed every field sideways.
 
 ### Copying media between slots
 

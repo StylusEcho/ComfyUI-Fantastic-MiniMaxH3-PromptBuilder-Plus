@@ -23,6 +23,15 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
      pack, and none in the upstream repo either (checked both). If it is something
      you saw in another pack, or a name for an existing view, let me know which.
 
+   **Found later, while starting #8 — the biggest one:** upstream's 1.5.0 commit
+   **disabled the pinned-media pane** (`drawPins()` opens with `if (true) return;`,
+   commented "chips in the text carry the previews now"), but left the 📌 pin
+   button on every reference card. So pinning turned the button red and did nothing
+   else — a dead control. That retired the feature **#8, #9, #10, #11 and #40** were
+   all written against. You chose to follow upstream and drop pins rather than
+   restore the pane, so those five are closed as obsolete and the dead button is
+   gone. See #8 for what was removed.
+
    Two more worth knowing about, neither blocking:
 
    - **#12 / #13 supersede recent work rather than upstream.** Linked video+audio are
@@ -84,10 +93,33 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
    cancelled on the actions so it can't strike through the button. The header rule
    is a descendant selector, otherwise `.mmh3p-btn` — declared later in the sheet —
    won on equal specificity and left a 31px button in a 12px heading.
-8. 🟦 show playback controls for pinned videos
-9. 🟦 allow drag and drop resorting of pinned media
-10. 🟦 set max width for pinned sidebar to only as much as is needed to fit the widest images and videos, anchored from the right edge. same logic for vertical, anchor from the top edge.
-11. 🟦 pinned audio only takes up the minimum amount of vertical space possible.
+8. 🟩 show playback controls for pinned videos
+
+   **Obsolete — pins removed instead, per your call.** Upstream retired the pinned
+   pane in 1.5.0 but left the pin button wired to nothing (see #1). Rather than
+   restore the pane, this removes the feature outright: the 📌 card tool,
+   `togglePin`, `syncCaretPin`, `caretTag`, `drawPins`, the `pins`/`autoPin` state,
+   the caret-tracking listeners, and all the pin CSS including the floating
+   wide-screen pane and its `--mmh3p-gap` variable.
+
+   One thing that had to be fixed with it: the pane occupied a **grid track**, so
+   deleting the element without changing `grid-template-columns` dropped the side
+   panel onto a second row (measured: preview 797px wide instead of 439, footer
+   spilling). The body grid is now 2 tracks, 3 with the sidebar, and the side panel
+   is a consistent 440px in every configuration — slightly wider than the 400px it
+   used to shrink to when pins were open. `layout.mjs` and `layout-mixed.mjs`
+   existed only to measure the pane and were deleted; four other harnesses had the
+   element removed. README's "Pinned references" section is replaced by a short
+   note that chip hover previews do this job now.
+9. 🟩 allow drag and drop resorting of pinned media
+
+   **Obsolete — pins removed, see #8.**
+10. 🟩 set max width for pinned sidebar to only as much as is needed to fit the widest images and videos, anchored from the right edge. same logic for vertical, anchor from the top edge.
+
+   **Obsolete — pins removed, see #8.**
+11. 🟩 pinned audio only takes up the minimum amount of vertical space possible.
+
+   **Obsolete — pins removed, see #8.**
 12. 🟦 for linked video/audio, combine them into a single chip. should say Video 1 + Audio 1 etc. when pinned or viewing the hover preview, simply play back as a normal video with audio.
 13. 🟦 when clicking the X for combined video/audio chips, bring up a dialog box asking if the user wants to delete the video only, the audio only, or both, as long as this doesn't cause any issues or conflicts.
 14. 🟦 change the citation count on chips to the top right corner.
@@ -121,7 +153,11 @@ Status key: `🟦` pending · `🟨` in progress · `🟩` complete · `🟥` bl
 37. 🟦 there seems to be certain scenarios where the interface on the node will shrink below its minimum size, and become unable to be returned to its normal size via resizing the node. may or may not be a comfy frontend update bug.
 38. ❓ I have a subgraph with a bool input. this input goes to a switch, where if true, a ref2va is passed along, other wise fl2va. when I connect this bool input to the ref2va\_needed output of — **sentence is cut off; can't tell what goes wrong. See #1.**
 39. 🟦 when in the full media view, allow navigating between different medias with left and right arrow keys.
-40. 🟦 for the pinned media views, only show the cropped view.
+40. 🟩 for the pinned media views, only show the cropped view.
+
+    **Obsolete — pins removed, see #8.** The cropped-view intent lives on in #41
+    (chips reflect cropping) and #42 (hover thumbnail frames the crop), both still
+    open.
 41. 🟦 media chips should reflect the cropping as well.
 42. 🟦 the hover over thumbnail should show the full image, but have a frame around the cropped area, like how the crop editor shows.
 43. ❓ immediately remove items from view when viewing the quick album and removing them from it. — **no "quick album" exists in this pack or upstream. See #1.**

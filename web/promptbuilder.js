@@ -930,19 +930,12 @@ function validate(state, slots) {
 const CSS = `
 .mmh3p-overlay{position:fixed;inset:0;z-index:10000;background:rgba(8,10,14,.62);
   display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;
-  /* The modal's size lives here so the floating pin pane can derive its own
-     margin from it. --mmh3p-gap is the strip of overlay above and below the
-     centred modal; the pane uses the same figure on the left, so all three
-     edges sit the same distance from the screen. */
   --mmh3p-mw:min(1240px,95vw);
-  --mmh3p-mh:min(1290px,92vh);
-  --mmh3p-gap:calc((100vh - var(--mmh3p-mh)) / 2);}
+  --mmh3p-mh:min(1290px,92vh);}
 /* The pixel cap, not the viewport one, is what usually decides this modal's
    height — 92vh only bites on a short screen. Raising the cap by half is what
    makes the editor use more of a tall screen. */
-/* border-box so the rendered height really is --mmh3p-mh. As content-box the
-   1px border made the modal 2px taller, which centred it 1px higher than the
-   gap the pin pane derives from the same variable. */
+/* border-box so the rendered height really is --mmh3p-mh. */
 .mmh3p-modal{box-sizing:border-box;width:var(--mmh3p-mw);height:var(--mmh3p-mh);
   display:flex;flex-direction:column;
   background:#191c22;color:#d7dbe2;border:1px solid #303642;border-radius:10px;
@@ -963,15 +956,13 @@ const CSS = `
 /* Close always sits at the far right, as every other window does. */
 .mmh3p-head .mmh3p-x{margin-left:auto;}
 .mmh3p-x:hover{color:#fff;}
-.mmh3p-body{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 0 440px;min-height:0;
+.mmh3p-body{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 440px;min-height:0;
   transition:grid-template-columns .16s ease;}
-.mmh3p-body.haspins{grid-template-columns:minmax(0,1fr) 176px 400px;}
 /* Sidebar view: a media column at the left edge. .mmh3p-rail is always in the
    DOM so the grid's track count only changes with the class, never with what
    happens to be rendered. */
 .mmh3p-rail{display:none;}
-.mmh3p-body.sidebar{grid-template-columns:186px minmax(0,1fr) 0 440px;}
-.mmh3p-body.sidebar.haspins{grid-template-columns:186px minmax(0,1fr) 176px 400px;}
+.mmh3p-body.sidebar{grid-template-columns:186px minmax(0,1fr) 440px;}
 .mmh3p-body.sidebar .mmh3p-rail{display:flex;flex-direction:column;gap:6px;
   min-height:0;overflow-y:auto;padding:10px 8px;background:#15181e;
   border-right:1px solid #2a2f3a;}
@@ -986,54 +977,8 @@ const CSS = `
   border-radius:7px 7px 0 0;}
 .mmh3p-body.sidebar .mmh3p-rail .mmh3p-card.joinL{border-left-width:1px;
   border-top-width:0;border-radius:0 0 7px 7px;}
-@media (max-width:980px){.mmh3p-body,.mmh3p-body.haspins{grid-template-columns:1fr;}}
-.mmh3p-pins{overflow:hidden auto;background:#15181e;border-left:1px solid #2a2f3a;
-  padding:0;display:flex;flex-direction:column;gap:6px;}
-.mmh3p-body.haspins .mmh3p-pins{padding:10px 8px;}
-.mmh3p-pinhead{flex:0 0 auto;font-size:10px;text-transform:uppercase;
-  letter-spacing:.08em;color:#8a93a3;}
-/* Cards share the pane's height evenly and the picture takes whatever the tag
-   bar and any audio control don't, so a pin is as large as the space allows.
-   min-height:0 is what lets a flex item shrink below its content. */
-.mmh3p-pincard{flex:1 1 0;min-height:0;display:flex;flex-direction:column;
-  border:1px solid #363d4a;border-radius:7px;overflow:hidden;background:#12151b;}
-.mmh3p-pincard .mmh3p-thumb{flex:1 1 auto;min-height:0;width:100%;height:auto;
-  object-fit:contain;display:block;background:#0d1015;}
-.mmh3p-pinbar{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:3px 6px;}
-.mmh3p-pincard audio{flex:0 0 auto;}
+@media (max-width:980px){.mmh3p-body{grid-template-columns:1fr;}}
 
-/* Wide screens: lift the pane out of the modal and stand it in the empty
-   overlay to the left, where a pin can be far bigger than a 176px column
-   allows. Its left/top/bottom insets are all --mmh3p-gap, so it clears the
-   screen edge by exactly what the modal clears the top and bottom by.
-   Below this width the overlay margin is too narrow to be worth it and the
-   pane stays in its in-modal column. */
-@media (min-width:1800px){
-  /* Two columns, not three: up here the pane is never an in-flow grid item —
-     display:none when empty, out of flow when floating — so a third track
-     would leave the side panel sitting in the empty middle one, collapsed to
-     nothing with the footer buttons spilling out of it. */
-  .mmh3p-body,.mmh3p-body.haspins{grid-template-columns:minmax(0,1fr) 400px;}
-  /* Sidebar keeps its rail track, but still drops the pin one for the same
-     reason — three in-flow items, three tracks. */
-  .mmh3p-body.sidebar,.mmh3p-body.sidebar.haspins{
-    grid-template-columns:186px minmax(0,1fr) 400px;}
-  .mmh3p-body.haspins .mmh3p-pins{
-    /* border-box, or the 10px padding and 1px border widen the pane past the
-       calc and it runs under the modal. */
-    box-sizing:border-box;
-    position:fixed;top:var(--mmh3p-gap);bottom:var(--mmh3p-gap);left:var(--mmh3p-gap);
-    width:calc((100vw - var(--mmh3p-mw)) / 2 - var(--mmh3p-gap) - 14px);
-    border:1px solid #303642;border-left:1px solid #303642;border-radius:10px;
-    box-shadow:0 24px 64px rgba(0,0,0,.55);padding:10px;overflow:hidden;}
-  .mmh3p-body:not(.haspins) .mmh3p-pins{display:none;}
-}
-.mmh3p-auto{font-size:9px;color:#6f86b8;border:1px solid #2b3a52;border-radius:7px;
-  padding:0 5px;margin-left:auto;}
-.mmh3p-pinbar .mmh3p-x{margin-left:auto;cursor:pointer;color:#6b7484;font-size:11px;}
-.mmh3p-pinbar .mmh3p-x:hover{color:#e05a5a;}
-.mmh3p-pinempty{border:1px dashed #2e3440;border-radius:7px;padding:8px 6px;text-align:center;
-  font-size:10px;color:#5c6472;line-height:1.4;}
 .mmh3p-card{width:128px;flex:0 0 auto;border:1px solid #2e3440;border-radius:7px;
   overflow:hidden;background:#12151b;cursor:pointer;user-select:none;}
 .mmh3p-card:hover{border-color:#59637a;}
@@ -1236,9 +1181,6 @@ const CSS = `
   user-select:none;}
 .mmh3p-cardtool:hover{color:#c9cfda;}
 .mmh3p-cardtool.on{color:#e0a94c;}
-.mmh3p-pintool{filter:grayscale(1) opacity(.5);}
-.mmh3p-pintool:hover{filter:grayscale(.4) opacity(.85);}
-.mmh3p-pintool.pinned{filter:none;color:#e05a5a;text-shadow:0 0 6px rgba(224,90,90,.5);}
 .mmh3p-rmtool:hover{color:#e05a5a;}
 /* The two audio sections sit side by side at the foot of the form. */
 .mmh3p-audiopair{display:flex;gap:14px;align-items:flex-start;}
@@ -1885,8 +1827,6 @@ class Editor {
     this.state = loadState(node);
     this.slots = getRefSlots(node);
     this.lastFocus = null;
-    this.pins = [];
-    this.autoPin = null;
     this.sidebar = !!node._mmh3Sidebar;
     this.libraryId = null;
     this.libraryName = "";
@@ -1938,7 +1878,6 @@ class Editor {
     // Left-edge column for the sidebar view. Always present so the grid's
     // column count is stable; empty and hidden unless the view is on.
     this.railEl = el("div", { class: "mmh3p-rail" });
-    this.pinsEl = el("div", { class: "mmh3p-pins" });
     this.previewEl = el("pre", { class: "mmh3p-preview" });
     this.issuesEl = el("div", { class: "mmh3p-issues" });
     this.statsEl = el("span", { class: "stats" });
@@ -2012,7 +1951,6 @@ class Editor {
         el("div", { class: "mmh3p-body" },
           this.railEl,
           this.formEl,
-          this.pinsEl,
           el("div", { class: "mmh3p-side" },
             this.previewEl, this.issuesEl,
             el("div", { class: "mmh3p-foot" }, this.statsEl, copyBtn, cancelBtn, saveBtn),
@@ -2044,13 +1982,7 @@ class Editor {
       e.preventDefault();
       this.openCtx(e.clientX, e.clientY, box.value.slice(a, b));
     });
-    this.formEl.addEventListener("input", () => {
-      this.updatePreview();
-      this.syncCaretPin();
-    });
-    const caretEvents = ["click", "keyup", "select", "focusin"];
-    caretEvents.forEach((ev) =>
-      this.formEl.addEventListener(ev, () => this.syncCaretPin()));
+    this.formEl.addEventListener("input", () => this.updatePreview());
     // Dropping a rail card onto a textarea inserts the tag where it lands.
     this.formEl.addEventListener("drop", (e) => {
       const t = e.target;
@@ -2058,7 +1990,6 @@ class Editor {
       setTimeout(() => {
         this.lastFocus = t;
         this.updatePreview();
-        this.syncCaretPin();
       }, 0);
     });
     this.escHandler = (e) => { if (e.key === "Escape") this.close(); };
@@ -2069,8 +2000,6 @@ class Editor {
     const mode = this.state.mode;          // you're still working in this mode
     this.state = defaultState();
     this.state.mode = mode;
-    this.pins = [];
-    this.autoPin = null;
     // Forget the library entry too, so the next save creates a new prompt
     // rather than quietly renaming the one that was loaded.
     this.libraryId = null;
@@ -2535,74 +2464,7 @@ class Editor {
 
   /* --- pinning ----------------------------------------------------- */
 
-  togglePin(tag) {
-    if (this.pins.includes(tag)) this.pins = this.pins.filter((t) => t !== tag);
-    else {
-      this.pins = [tag, ...this.pins].slice(0, 3);
-      this.autoPin = null;   // an explicit pin overrides the caret
-    }
-    this.drawPins();
-  }
-
   /** The tag the caret currently sits inside, if any. */
-  caretTag() {
-    const t = this.lastFocus;
-    if (!t || !t.isConnected || t.selectionStart == null) return null;
-    const pos = t.selectionStart;
-    for (const m of t.value.matchAll(/<(Picture|Video|Audio) \d+>/g)) {
-      if (pos >= m.index && pos <= m.index + m[0].length) return m[0];
-    }
-    return null;
-  }
-
-  syncCaretPin() {
-    const tag = this.caretTag();
-    const known = tag && this.slots.some((s) => s.tag === tag);
-    const next = known ? tag : null;
-    if (next === this.autoPin) return;
-    this.autoPin = next;
-    this.drawPins();
-  }
-
-  drawPins() {
-    if (!this.pinsEl) return;
-    // Chips in the text carry the previews now, so the rail never opens —
-    // it used to widen the body and shove every field sideways.
-    this.pinsEl.replaceChildren();
-    this.pinsEl.parentElement?.classList.remove("haspins");
-    if (true) return;
-    const shown = [];
-    if (this.autoPin && !this.pins.includes(this.autoPin)) shown.push(this.autoPin);
-    shown.push(...this.pins);
-    const list = shown.slice(0, 3)
-      .map((tag) => this.slots.find((s) => s.tag === tag)).filter(Boolean);
-
-    this.overlay.querySelector(".mmh3p-body")
-      .classList.toggle("haspins", list.length > 0);
-    this.overlay.querySelector(".mmh3p-body")
-      .classList.toggle("sidebar", !!this.sidebar);
-
-    this.pinsEl.replaceChildren(
-      el("div", { class: "mmh3p-pinhead" }, "pinned"),
-      ...list.map((s) => el("div", { class: "mmh3p-pincard" },
-        this.mediaThumb(s, true),
-        el("div", { class: "mmh3p-pinbar" },
-          el("span", { class: `mmh3p-tagname ${s.cls}` }, s.tag),
-          s.tag === this.autoPin && !this.pins.includes(s.tag)
-            ? el("span", { class: "mmh3p-auto", title: "Pinned by the caret" }, "auto")
-            : el("span", { class: "mmh3p-x", title: "Unpin",
-                onclick: () => this.togglePin(s.tag) }, "\u2715")),
-        s.preview?.type === "audio"
-          ? el("audio", { src: s.preview.url, controls: true,
-              style: { width: "100%", height: "26px" } })
-          : null)),
-      list.length < 3
-        ? el("div", { class: "mmh3p-pinempty" },
-            list.length ? "pin up to " + (3 - list.length) + " more"
-              : "hover a reference and pin it, or put the caret in a tag")
-        : null);
-  }
-
   /* --- the rail ---------------------------------------------------- */
 
   /** The panel backing this editor's media, if there is one. */
@@ -2739,22 +2601,6 @@ class Editor {
     };
     const tools = [];
 
-    // Pin works off the tag, so it is offered for every reference \u2014 including
-    // media wired straight into the inputs, which has no item behind it.
-    if (s.tag) {
-      const pinned = this.pins.includes(s.tag);
-      tools.push(el("span", {
-        class: "mmh3p-cardtool mmh3p-pintool" + (pinned ? " pinned" : ""),
-        title: pinned ? "Unpin" : "Pin \u2014 keep this one on screen while you write",
-        onclick: (e) => {
-          e.stopPropagation();
-          this.closePeek();
-          this.togglePin(s.tag);
-          this.render();
-        },
-      }, "\u{1F4CC}"));
-    }
-
     if (s.item && s.panel && !s.joinRight) {
       const still = s.item.kind === "picture";
       tools.push(el("span", {
@@ -2779,8 +2625,6 @@ class Editor {
         onclick: (e) => {
           e.stopPropagation();
           this.closePeek();
-          // Drop any pin first, or the rail keeps a tag that no longer exists.
-          if (this.pins.includes(s.tag)) this.togglePin(s.tag);
           s.panel.remove(s.item);
           after();
         },
@@ -3325,7 +3169,6 @@ class Editor {
       this.formEl.scrollTop = 0;
     } else this.formEl.scrollTop = scroll;
     this.updatePreview();
-    this.drawPins();
   }
 
   renderBase() {
