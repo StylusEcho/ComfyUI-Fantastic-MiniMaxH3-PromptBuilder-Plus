@@ -219,22 +219,50 @@ function slotMenuEsc(e) {
 
 // Node size presets. L is the natural size; the others scale both axes so
 // the media grid gets proportionally roomier rather than just wider.
-export const SIZE_PRESETS = [
-  ["L", 1.0], ["XL", 1.25], ["XXL", 1.4],
-];
+/* Node and text scale, 100%-300%. Stored per user rather than per workflow,
+   so a node dropped into a new graph starts at the size you actually work at.
+   The node's own size still serialises with the workflow — this is only the
+   starting point and what the slider shows. */
+const LOADER_PREF_KEY = "mmh3.loaderScale";
+export const SCALE_MIN = 1.0;
+export const SCALE_MAX = 3.0;          // node
+export const TEXT_SCALE_MAX = 2.0;     // type gets unwieldy past this
 
-/** Resize the node to a preset. Unlike applyCanvasSizing this sets an exact
- *  size, so stepping back down to L actually shrinks the node. */
+export function loadScalePrefs() {
+  const d = { node: 1.0, text: 1.0 };
+  try {
+    const v = JSON.parse(localStorage.getItem(LOADER_PREF_KEY) || "{}");
+    return {
+      node: clampScale(v.node ?? d.node),
+      text: clampScale(v.text ?? d.text, TEXT_SCALE_MAX),
+    };
+  } catch (e) {
+    return d;
+  }
+}
+
+export function saveScalePrefs(prefs) {
+  try { localStorage.setItem(LOADER_PREF_KEY, JSON.stringify(prefs)); }
+  catch (e) { /* private mode: this session still honours it */ }
+}
+
+export function clampScale(v, max = SCALE_MAX) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 1.0;
+  return Math.min(max, Math.max(SCALE_MIN, Math.round(n * 100) / 100));
+}
+
+/** Resize the node to a scale factor. Unlike applyCanvasSizing this sets an
+ *  exact size, so going back down actually shrinks the node. */
 export function applyNodeSize(node, factor) {
-  const w = Math.round(NODE_W * factor);
-  const h = Math.round(PANEL_H * factor);
+  const f = clampScale(factor);
+  const w = Math.round(NODE_W * f);
+  const h = Math.round(PANEL_H * f);
   try {
     const widget = node._mmlWidget;
     if (widget) {
       widget.computedHeight = h;
       widget.computeSize = () => [w, h];
-      // The DOM element carries the height on the classic canvas, where the
-      // node is drawn from the widget's box rather than from node.size.
       const elx = widget.element || widget.inputEl;
       if (elx && elx.style) {
         elx.style.height = `${h}px`;
@@ -244,12 +272,8 @@ export function applyNodeSize(node, factor) {
     if (node._mmlPanel?.root?.style) {
       node._mmlPanel.root.style.height = `${h}px`;
     }
-
-    // Height still has to clear the built-in widgets above the panel.
     const min = node.computeSize?.();
     const target = [w, Math.max(min?.[1] || 0, h)];
-    // setSize is the supported route and fires the renderer's own hooks;
-    // assigning node.size alone only moves on Nodes 2.0.
     if (typeof node.setSize === "function") node.setSize(target);
     else { node.size[0] = target[0]; node.size[1] = target[1]; }
     node.onResize?.(node.size);
@@ -260,18 +284,31 @@ export function applyNodeSize(node, factor) {
   }
 }
 
-/** Which preset the node is currently closest to. */
-export function currentPreset(node) {
-  const ratio = (node?.size?.[0] || NODE_W) / NODE_W;
-  let best = SIZE_PRESETS[0];
-  for (const p of SIZE_PRESETS) {
-    if (Math.abs(p[1] - ratio) < Math.abs(best[1] - ratio)) best = p;
+/** Text size only — a multiplier on every font-size, not a zoom.
+ *
+ *  zoom scaled the layout too, so slots grew and fewer fitted; what people
+ *  want here is bigger type in the same boxes. Set on the document so the
+ *  trim editor and other overlays (which live on <body>) inherit it. */
+/** Size an overlay in step with the node scale, so the editors grow too. */
+export function scaleOverlay(node, boxes) {
+  let f = 1;
+  try { f = clampScale(loadScalePrefs().node); } catch (e) { f = 1; }
+  for (const [el2, w, h] of boxes) {
+    if (!el2?.style) continue;
+    el2.style.width = `min(${Math.round(w * f)}px, 96vw)`;
+    if (h) el2.style.height = `min(${Math.round(h * f)}px, 92vh)`;
   }
-  return best[0];
+}
+
+export function applyTextScale(panel, factor) {
+  const f = clampScale(factor, TEXT_SCALE_MAX);
+  try {
+    document.documentElement.style.setProperty("--mml-fs", String(f));
+  } catch (e) { /* nothing to do */ }
 }
 
 const CSS = `
-.mmlp-panel{font-family:system-ui,sans-serif;color:#d7dbe2;font-size:12px;
+.mmlp-panel{font-family:system-ui,sans-serif;color:#d7dbe2;font-size:calc(12px * var(--mml-fs, 1));
   background:#191c22;border:1px solid #2a2f3a;border-radius:8px;padding:8px;
   display:flex;flex-direction:column;gap:6px;box-sizing:border-box;
   width:100%;height:476px;min-height:476px;overflow:hidden;}
@@ -287,6 +324,12 @@ const CSS = `
 .mmlp-shapenone{flex:0 0 auto;padding:10px 8px;border:1px dashed #2e3440;
   border-radius:7px;color:#6b7484;font-size:11px;text-align:center;}
 .mmlp-panel.mmlp-min{height:auto;min-height:0;}
+/* On the Prompt Studio the prompt bar sits directly under this panel and the
+   two stack flush, so squaring off the edge they share makes them read as one
+   surface instead of two boxes. The bar keeps its own top border, which
+   becomes the divider between them. */
+.mmlp-panel.mmlp-joinbelow{border-bottom-left-radius:0;border-bottom-right-radius:0;
+  border-bottom:0;}
 .mmlp-col{display:flex;flex-direction:column;gap:5px;min-width:0;}
 .mmlp-modal .mmlp-panel{border:0;height:100%;min-height:0;}
 .mmlp-overlay{position:fixed;inset:0;z-index:10040;background:rgba(8,10,14,.62);
@@ -297,56 +340,89 @@ const CSS = `
   border:1px solid #303642;border-radius:10px;display:flex;flex-direction:column;
   overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.55);}
 .mmlp-modalhead{display:flex;align-items:center;gap:10px;padding:9px 13px;
-  background:#1e222a;border-bottom:1px solid #2a2f3a;font-size:13px;
+  background:#1e222a;border-bottom:1px solid #2a2f3a;font-size:calc(13px * var(--mml-fs, 1));
   font-weight:500;color:#d7dbe2;font-family:system-ui,sans-serif;}
 .mmlp-modalhead button{margin-left:auto;background:none;border:0;color:#8a93a3;
-  font-size:17px;cursor:pointer;}
+  font-size:calc(17px * var(--mml-fs, 1));cursor:pointer;}
 .mmlp-modalhead button:hover{color:#fff;}
 .mmlp-modalbody{flex:1;min-height:0;padding:8px;overflow:auto;}
 .mmlp-panel.drop{border-color:#6f86b8;background:#1d2330;}
-.mmlp-top{display:flex;align-items:center;gap:8px;flex:0 0 auto;}
+/* One height for everything in the top row. The controls come from three
+   different rules (.mmlp-btn at 22px, .mmlp-sm at 19px, the preset select at
+   23px), which read as a ragged strip; pinning the height here lets each keep
+   its own padding and font without setting the row's height. */
+.mmlp-top{display:flex;align-items:center;gap:8px;flex:0 0 auto;min-width:0;}
+.mmlp-top>button,.mmlp-top button,.mmlp-top select,.mmlp-top input{
+  height:22px;box-sizing:border-box;}
+.mmlp-top .mmlp-btn,.mmlp-top .mmlp-count{flex:0 0 auto;white-space:nowrap;}
 .mmlp-btn{background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
-  padding:4px 10px;font-size:11px;cursor:pointer;}
+  padding:4px 10px;font-size:calc(11px * var(--mml-fs, 1));cursor:pointer;}
 .mmlp-btn:hover{background:#333b4d;}
-.mmlp-presetrow{flex:0 0 auto;display:flex;align-items:center;gap:5px;}
+.mmlp-presetrow{flex:0 0 auto;display:flex;align-items:center;gap:5px;
+  min-width:0;flex-wrap:nowrap;}
+.mmlp-presetrow .mmlp-btn{flex:0 0 auto;white-space:nowrap;}
 /* Preset controls inline in the top row. flex-shrink lets the dropdown give up
    width first when the panel is narrow, so the buttons stay reachable. */
 .mmlp-presetgrp{display:flex;align-items:center;gap:5px;min-width:0;flex:0 1 auto;}
 .mmlp-presetgrp .mmlp-preset{flex:0 1 auto;min-width:60px;}
 .mmlp-slotmenu{position:fixed;z-index:10060;background:#1e222a;border:1px solid #3a4252;
   border-radius:8px;padding:4px;min-width:170px;box-shadow:0 12px 32px rgba(0,0,0,.5);
-  font-family:system-ui,sans-serif;font-size:11px;}
+  font-family:system-ui,sans-serif;font-size:calc(11px * var(--mml-fs, 1));}
 .mmlp-slotitem{padding:6px 9px;border-radius:6px;cursor:pointer;color:#c9cfda;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .mmlp-slotitem:hover{background:#2a3140;}
 .mmlp-slotitem.danger{color:#f0a0a0;}
 .mmlp-slotitem.danger:hover{background:#3a2020;}
-.mmlp-presetlbl{font-size:10px;text-transform:uppercase;letter-spacing:.07em;
+.mmlp-presetlbl{flex:0 0 auto;white-space:nowrap;
+  font-size:calc(10px * var(--mml-fs, 1));text-transform:uppercase;letter-spacing:.07em;
   color:#6b7484;}
-.mmlp-preset{flex:1;min-width:0;background:#12151b;color:#c9cfda;
-  border:1px solid #2e3440;border-radius:6px;padding:3px 6px;font-size:11px;
+.mmlp-preset{flex:1 1 0;min-width:0;max-width:100%;background:#12151b;color:#c9cfda;
+  border:1px solid #2e3440;border-radius:6px;padding:3px 6px;font-size:calc(11px * var(--mml-fs, 1));
   font-family:system-ui,sans-serif;}
 .mmlp-preset:focus{outline:none;border-color:#4a5568;}
-.mmlp-btn.mmlp-sm{padding:3px 9px;font-size:10px;}
+.mmlp-btn.mmlp-sm{padding:3px 9px;font-size:calc(10px * var(--mml-fs, 1));}
 .mmlp-btn.mmlp-on{border-color:#4a6fa5;background:#22304a;color:#c9dcf5;}
 .mmlp-winbtn{position:relative;}
 .mmlp-winbtn.mmlp-hasHidden{border-color:#7a5a2a;color:#e0a94c;}
 .mmlp-badge{position:absolute;top:-5px;right:-5px;min-width:13px;height:13px;
-  padding:0 3px;border-radius:7px;background:#e0a94c;color:#191c22;font-size:9px;
+  padding:0 3px;border-radius:7px;background:#e0a94c;color:#191c22;font-size:calc(9px * var(--mml-fs, 1));
   line-height:13px;text-align:center;font-weight:600;box-sizing:border-box;}
 .mmlp-btn.mmlp-danger{border-color:#7a3a3a;color:#f0a0a0;}
 .mmlp-btn.mmlp-danger:hover{background:#3a2020;}
 .mmlp-presetname{flex:1;min-width:0;background:#12151b;color:#dde2ea;
-  border:1px solid #4a5568;border-radius:6px;padding:3px 7px;font-size:11px;
+  border:1px solid #4a5568;border-radius:6px;padding:3px 7px;font-size:calc(11px * var(--mml-fs, 1));
   font-family:system-ui,sans-serif;}
 .mmlp-presetname:focus{outline:none;border-color:#6f86b8;}
-.mmlp-presetwarn{flex:1;min-width:0;font-size:10px;color:#e0a94c;overflow:hidden;
+.mmlp-presetwarn{flex:1;min-width:0;font-size:calc(10px * var(--mml-fs, 1));color:#e0a94c;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;}
 .mmlp-topspace{flex:1;}
-.mmlp-msg{flex:0 0 auto;font-size:10px;min-height:12px;color:#e0a94c;overflow:hidden;
+.mmlp-scalewrap{position:relative;display:inline-block;}
+/* The size popover must never scale with the text setting: at 200% its own
+   controls would be unreadable and unclickable, leaving no way back. */
+.mmlp-scalemenu{--mml-fs:1;position:absolute;right:0;top:100%;margin-top:6px;
+  z-index:30;display:none;width:268px;background:#1e222a;border:1px solid #3a4252;
+  border-radius:9px;padding:8px;box-shadow:0 16px 40px rgba(0,0,0,.55);}
+.mmlp-scalemenu.on{display:block;}
+.mmlp-scalerow{display:flex;align-items:center;gap:8px;padding:5px 4px;}
+.mmlp-scalelabel{font-size:calc(10px * var(--mml-fs, 1));color:#8a93a3;
+  width:62px;flex:0 0 auto;white-space:nowrap;}
+.mmlp-scalerange{flex:1;min-width:0;}
+.mmlp-scaleval{font-size:calc(10px * var(--mml-fs, 1));color:#d7dbe2;
+  font-family:ui-monospace,monospace;width:58px;text-align:right;flex:0 0 auto;
+  background:#12151b;border:1px solid #2e3440;border-radius:5px;padding:2px 4px;}
+.mmlp-scaleval:focus{outline:none;border-color:#4a5568;}
+.mmlp-scalepct{font-size:calc(10px * var(--mml-fs, 1));color:#6b7484;
+  flex:0 0 auto;margin-left:-2px;}
+.mmlp-scalefoot{display:flex;align-items:center;gap:6px;
+  border-top:1px solid #2a2f3a;margin-top:6px;padding-top:7px;
+  font-size:calc(9px * var(--mml-fs, 1));color:#6b7484;}
+.mmlp-scalefoot span{flex:1;min-width:0;line-height:1.25;}
+.mmlp-count{font-size:calc(10px * var(--mml-fs, 1));color:#8a93a3;font-family:ui-monospace,monospace;}
+.mmlp-count.over{color:#f07070;}
+.mmlp-msg{flex:0 0 auto;font-size:calc(10px * var(--mml-fs, 1));min-height:12px;color:#e0a94c;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;}
 .mmlp-msg.err{color:#f07070;}
-.mmlp-sec{flex:0 0 auto;display:flex;align-items:center;font-size:10px;
+.mmlp-sec{flex:0 0 auto;display:flex;align-items:center;font-size:calc(10px * var(--mml-fs, 1));
   text-transform:uppercase;letter-spacing:.07em;color:#6b7484;}
 .mmlp-sec span{margin-left:auto;text-transform:none;letter-spacing:0;color:#5c6472;
   font-family:ui-monospace,monospace;}
@@ -354,15 +430,20 @@ const CSS = `
 .mmlp-pics{flex:1;min-height:0;display:grid;
   grid-template-columns:repeat(3,minmax(0,1fr));
   grid-template-rows:repeat(3,minmax(0,1fr));gap:5px;}
-.mmlp-vids{flex:0 0 auto;display:grid;grid-template-rows:repeat(3,46px);gap:5px;
+/* flex-grow in the old fixed heights' ratio (46:38) so these sections take
+   their share of a taller node instead of the pictures grid eating all of it.
+   min-height keeps them at their original size at 100%. */
+.mmlp-vids{flex:46 1 auto;min-height:148px;display:grid;
+  grid-template-rows:repeat(3,1fr);gap:5px;
   grid-template-columns:minmax(0,1fr);}
 .mmlp-spacer{flex:1;min-height:0;}
-.mmlp-auds{flex:0 0 auto;display:grid;grid-template-rows:repeat(3,38px);gap:5px;
+.mmlp-auds{flex:38 1 auto;min-height:124px;display:grid;
+  grid-template-rows:repeat(3,1fr);gap:5px;
   grid-template-columns:minmax(0,1fr);}
 
 .mmlp-slot{border:1px dashed #2b313d;border-radius:6px;background:#141820;
   display:flex;align-items:center;justify-content:center;gap:5px;color:#4d5563;
-  font-size:10px;cursor:pointer;overflow:hidden;min-width:0;min-height:0;}
+  font-size:calc(10px * var(--mml-fs, 1));cursor:pointer;overflow:hidden;min-width:0;min-height:0;}
 .mmlp-slot:hover{border-color:#59637a;color:#8a93a3;}
 .mmlp-slot.hot{border-color:#6f86b8;background:#1b2230;color:#9db4dc;}
 .mmlp-slot.filled{border-style:solid;border-color:#2e3440;background:#12151b;cursor:default;
@@ -389,11 +470,12 @@ const CSS = `
   box-shadow:0 0 0 2000px rgba(6,8,12,.55);pointer-events:none;z-index:1;}
 .mmlp-dims.cut{color:#9fe3f5;}
 .mmlp-dims{position:absolute;right:3px;top:3px;padding:1px 4px;border-radius:4px;
-  background:rgba(8,10,14,.85);color:#dfe4ec;font-size:8px;line-height:1.2;
+  background:rgba(8,10,14,.85);color:#dfe4ec;font-size:calc(8px * var(--mml-fs, 1));line-height:1.2;
   font-family:ui-monospace,monospace;pointer-events:none;letter-spacing:0;
   text-shadow:0 1px 2px rgba(0,0,0,.9);z-index:2;}
 .mmlp-dims:empty{display:none;}
-.mmlp-lightdims{font-size:10px;color:#8a93a3;font-family:ui-monospace,monospace;}
+.mmlp-lightdims{font-size:calc(10px * var(--mml-fs, 1));color:#8a93a3;font-family:ui-monospace,monospace;}
+.mmlp-lightnav{font-size:calc(10px * var(--mml-fs, 1));color:#6b7484;font-family:ui-monospace,monospace;}
 .mmlp-pic{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
   display:block;cursor:zoom-in;background:#0d1015;}
 .mmlp-picbar{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;
@@ -405,10 +487,10 @@ const CSS = `
 .mmlp-picbar .mmlp-trimbtn,
 .mmlp-picbar .mmlp-drag,
 .mmlp-picbar .mmlp-x{flex:0 0 auto;}
-.mmlp-picbar .mmlp-trimbtn{font-size:12px;}
-.mmlp-tag{font-family:ui-monospace,monospace;font-size:9px;white-space:nowrap;}
+.mmlp-picbar .mmlp-trimbtn{font-size:calc(12px * var(--mml-fs, 1));}
+.mmlp-tag{font-family:ui-monospace,monospace;font-size:calc(9px * var(--mml-fs, 1));white-space:nowrap;}
 .mmlp-tag.pic{color:#e0a94c;} .mmlp-tag.vid{color:#4cc3e0;} .mmlp-tag.aud{color:#b48ce8;}
-.mmlp-x{cursor:pointer;color:#7a8393;font-size:11px;line-height:1;}
+.mmlp-x{cursor:pointer;color:#7a8393;font-size:calc(11px * var(--mml-fs, 1));line-height:1;}
 .mmlp-x:hover{color:#e05a5a;}
 
 .mmlp-row{display:flex;align-items:center;gap:6px;padding:0 6px;height:100%;
@@ -416,23 +498,23 @@ const CSS = `
 .mmlp-vthumb{width:60px;height:34px;min-width:60px;max-width:60px;border-radius:4px;
   object-fit:contain;background:#0d1015;flex-shrink:0;cursor:zoom-in;}
 .mmlp-meta{min-width:0;flex:1;}
-.mmlp-name{font-size:9px;color:#6b7484;overflow:hidden;text-overflow:ellipsis;
+.mmlp-name{font-size:calc(9px * var(--mml-fs, 1));color:#6b7484;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;}
 .mmlp-play{width:20px;height:20px;border-radius:50%;border:1px solid #3a4252;background:#20242d;
-  color:#c9cfda;font-size:9px;line-height:1;cursor:pointer;flex-shrink:0;
+  color:#c9cfda;font-size:calc(9px * var(--mml-fs, 1));line-height:1;cursor:pointer;flex-shrink:0;
   display:flex;align-items:center;justify-content:center;padding:0;}
 .mmlp-play:hover{border-color:#59637a;}
 .mmlp-bar{flex:1;height:3px;background:#2a2f3a;border-radius:2px;min-width:16px;
   cursor:pointer;position:relative;}
 .mmlp-bar i{position:absolute;left:0;top:0;bottom:0;background:#7d63b8;border-radius:2px;
   display:block;width:0;}
-.mmlp-time{font-size:9px;color:#6b7484;font-family:ui-monospace,monospace;flex-shrink:0;}
+.mmlp-time{font-size:calc(9px * var(--mml-fs, 1));color:#6b7484;font-family:ui-monospace,monospace;flex-shrink:0;}
 .mmlp-seg{display:inline-flex;border:1px solid #2e3440;border-radius:4px;overflow:hidden;
   flex-shrink:0;}
-.mmlp-seg button{background:none;border:0;color:#6b7484;font-size:9px;padding:1px 5px;
+.mmlp-seg button{background:none;border:0;color:#6b7484;font-size:calc(9px * var(--mml-fs, 1));padding:1px 5px;
   cursor:pointer;}
 .mmlp-seg button.on{background:#3a2f56;color:#e2d6f8;}
-.mmlp-power{cursor:pointer;color:#4d5563;font-size:11px;line-height:1;flex-shrink:0;
+.mmlp-power{cursor:pointer;color:#4d5563;font-size:calc(11px * var(--mml-fs, 1));line-height:1;flex-shrink:0;
   user-select:none;}
 .mmlp-power.on{color:#7ec87e;}
 .mmlp-power:hover{color:#a8e6a8;}
@@ -441,9 +523,9 @@ const CSS = `
 .mmlp-slot.filled.off:hover{opacity:.7;}
 .mmlp-segstack{display:flex;flex-direction:column;align-items:center;gap:2px;
   flex-shrink:0;}
-.mmlp-segtag{font-size:9px;}
+.mmlp-segtag{font-size:calc(9px * var(--mml-fs, 1));}
 .mmlp-trimok{border-color:#3e5240;color:#7ec87e;}
-.mmlp-trimbtn{cursor:pointer;color:#e0a94c;opacity:.65;font-size:15px;line-height:1;
+.mmlp-trimbtn{cursor:pointer;color:#e0a94c;opacity:.65;font-size:calc(15px * var(--mml-fs, 1));line-height:1;
   flex-shrink:0;user-select:none;}
 .mmlp-trimbtn:hover{opacity:1;}
 .mmlp-trimbtn.on{opacity:1;text-shadow:0 0 6px rgba(224,169,76,.55);}
@@ -459,7 +541,7 @@ const CSS = `
 .mmlp-tmmodal.audio .mmlp-tmstage{flex:0 0 auto;}
 .mmlp-tmhead{display:flex;align-items:center;gap:8px;padding:8px 12px;
   border-bottom:1px solid #2a2f3a;background:#1b1f27;}
-.mmlp-tmtitle{flex:1;min-width:0;font-size:12px;color:#dde2ea;overflow:hidden;
+.mmlp-tmtitle{flex:1;min-width:0;font-size:calc(12px * var(--mml-fs, 1));color:#dde2ea;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;}
 .mmlp-tmstage{position:relative;background:#000;line-height:0;flex:1 1 auto;min-height:0;}
 .mmlp-tmvideo{width:100%;height:100%;max-height:none;object-fit:contain;display:block;}
@@ -482,22 +564,32 @@ const CSS = `
 .mmlp-tmcorner.sw{left:-6px;bottom:-6px;cursor:nesw-resize;}
 .mmlp-tmcorner.se{right:-6px;bottom:-6px;cursor:nwse-resize;}
 .mmlp-tmcropbar{display:flex;align-items:center;gap:6px;}
-.mmlp-tmcropinfo{font-size:10px;color:#8a93a3;font-family:ui-monospace,monospace;
+.mmlp-tmcropinfo{font-size:calc(10px * var(--mml-fs, 1));color:#8a93a3;font-family:ui-monospace,monospace;
   white-space:nowrap;}
 .mmlp-tmcropinfo.changed{color:#4cc3e0;}
 .mmlp-tmaspect{background:#12151b;color:#c9cfda;border:1px solid #2e3440;
-  border-radius:6px;padding:2px 5px;font-size:11px;}
+  border-radius:6px;padding:2px 5px;font-size:calc(11px * var(--mml-fs, 1));}
 .mmlp-btn.on{background:#173642;border-color:#4cc3e0;color:#9fe3f5;}
 .mmlp-tmtimeline{position:relative;padding:8px 14px 4px;}
 .mmlp-tmwave{display:block;width:100%;height:46px;margin-bottom:2px;}
 .mmlp-tmruler{position:relative;height:16px;}
-.mmlp-tmtick{position:absolute;transform:translateX(-50%);font-size:9px;
+.mmlp-tmtick{position:absolute;transform:translateX(-50%);font-size:calc(9px * var(--mml-fs, 1));
   color:#6b7484;}
 .mmlp-tmtick::before{content:"";position:absolute;left:50%;top:-3px;width:1px;
   height:3px;background:#3a4252;}
 .mmlp-tmbar{position:relative;height:20px;background:#12151b;border-radius:5px;
   margin:2px 0 6px;cursor:pointer;}
 .mmlp-tmsel{position:absolute;top:0;bottom:0;background:#1f6f96;border-radius:5px;}
+/* The 15s-from-start budget line. Sits under the handles (z-index 2) so a
+   handle parked on it stays grabbable, and takes no pointer events of its own
+   — it marks a limit, it isn't a control. */
+.mmlp-tmcap{position:absolute;top:-4px;bottom:-4px;width:2px;z-index:1;
+  background:repeating-linear-gradient(#e0a94c 0 3px,transparent 3px 6px);
+  transform:translateX(-50%);pointer-events:none;
+  box-shadow:0 0 0 1px rgba(0,0,0,.5);}
+.mmlp-tmcap::after{content:"15s";position:absolute;left:50%;bottom:-13px;
+  transform:translateX(-50%);font-size:9px;line-height:1;color:#e0a94c;
+  white-space:nowrap;}
 .mmlp-tmhandle{position:absolute;top:-3px;bottom:-3px;width:9px;background:#4cc3e0;
   border-radius:3px;transform:translateX(-50%);cursor:ew-resize;z-index:2;}
 .mmlp-tmhandle:hover{background:#7fd8ee;box-shadow:0 0 6px rgba(76,195,224,.7);}
@@ -509,49 +601,49 @@ const CSS = `
   border-left:4px solid transparent;border-right:4px solid transparent;
   border-top:5px solid #ffb84d;}
 .mmlp-tmnow{display:flex;gap:5px;align-items:center;height:14px;
-  font-size:9px;color:#8a6a33;text-transform:uppercase;letter-spacing:.06em;}
+  font-size:calc(9px * var(--mml-fs, 1));color:#8a6a33;text-transform:uppercase;letter-spacing:.06em;}
 .mmlp-tmplaytime{color:#ffb84d;font-family:ui-monospace,monospace;
-  text-transform:none;letter-spacing:0;font-size:10px;}
+  text-transform:none;letter-spacing:0;font-size:calc(10px * var(--mml-fs, 1));}
 .mmlp-tmfoot{display:flex;align-items:center;gap:5px;padding:8px 12px 0;
   flex-wrap:wrap;}
 .mmlp-tmfoot.act{padding:8px 12px 4px;border-top:1px solid #23272f;margin-top:8px;}
 .mmlp-tmgap{width:8px;}
 .mmlp-tmspace{flex:1;}
 .mmlp-tmnum{width:52px;background:#12151b;color:#dde2ea;border:1px solid #2e3440;
-  border-radius:6px;padding:3px 6px;font-size:11px;text-align:right;
+  border-radius:6px;padding:3px 6px;font-size:calc(11px * var(--mml-fs, 1));text-align:right;
   font-family:ui-monospace,monospace;}
 .mmlp-tmnum:focus{outline:none;border-color:#4cc3e0;}
-.mmlp-tmdash{color:#5c6472;font-size:11px;}
-.mmlp-tmoutside{font-size:10px;color:#f07070;white-space:nowrap;overflow:hidden;
+.mmlp-tmdash{color:#5c6472;font-size:calc(11px * var(--mml-fs, 1));}
+.mmlp-tmoutside{font-size:calc(10px * var(--mml-fs, 1));color:#f07070;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis;text-transform:none;letter-spacing:0;}
 .mmlp-tmplayhead.out{background:#f07070;
   box-shadow:0 0 0 1px rgba(0,0,0,.65), 0 0 7px rgba(240,112,112,.85);}
 .mmlp-tmplayhead.out::before{border-top-color:#f07070;}
-.mmlp-tmnote{padding:2px 12px 6px;font-size:10px;color:#8a93a3;line-height:1.4;}
+.mmlp-tmnote{padding:2px 12px 6px;font-size:calc(10px * var(--mml-fs, 1));color:#8a93a3;line-height:1.4;}
 .mmlp-tmnote.bad{color:#f07070;}
 .mmlp-tmnote:empty{display:none;}
-.mmlp-tmkeys{padding:0 12px 10px;font-size:10px;color:#5c6472;}
-.mmlp-tmreadout{font-size:11px;color:#8a93a3;font-family:ui-monospace,monospace;}
+.mmlp-tmkeys{padding:0 12px 10px;font-size:calc(10px * var(--mml-fs, 1));color:#5c6472;}
+.mmlp-tmreadout{font-size:calc(11px * var(--mml-fs, 1));color:#8a93a3;font-family:ui-monospace,monospace;}
 .mmlp-tmreadout.bad{color:#f07070;}
 .mmlp-btn.primary{background:#1f4f7d;border-color:#3d7fbf;color:#dbeafe;}
 .mmlp-trimrow{display:flex;align-items:center;flex-wrap:nowrap;gap:3px;
   padding:0 5px;height:100%;overflow:hidden;}
-.mmlp-trimlbl{font-size:9px;text-transform:uppercase;letter-spacing:.07em;
+.mmlp-trimlbl{font-size:calc(9px * var(--mml-fs, 1));text-transform:uppercase;letter-spacing:.07em;
   color:#6b7484;}
 .mmlp-triminput{width:38px;background:#12151b;color:#dde2ea;
-  border:1px solid #2e3440;border-radius:5px;padding:2px 6px;font-size:11px;}
+  border:1px solid #2e3440;border-radius:5px;padding:2px 6px;font-size:calc(11px * var(--mml-fs, 1));}
 .mmlp-triminput:focus{outline:none;border-color:#4a5568;}
 .mmlp-trimdash{color:#6b7484;}
-.mmlp-trimof{font-size:10px;color:#6b7484;}
-.mmlp-trimerr{flex-basis:100%;font-size:10px;color:#f07070;}
+.mmlp-trimof{font-size:calc(10px * var(--mml-fs, 1));color:#6b7484;}
+.mmlp-trimerr{flex-basis:100%;font-size:calc(10px * var(--mml-fs, 1));color:#f07070;}
 .mmlp-trimerr:empty{display:none;}
-.mmlp-drag{cursor:grab;color:#4d5563;font-size:10px;user-select:none;flex-shrink:0;}
+.mmlp-drag{cursor:grab;color:#4d5563;font-size:calc(10px * var(--mml-fs, 1));user-select:none;flex-shrink:0;}
 
 .mmlp-order{flex:0 0 auto;background:#1a2230;border:1px solid #2b3a52;border-radius:6px;
   padding:4px 7px;height:42px;box-sizing:border-box;overflow:hidden;}
-.mmlp-order b{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.07em;
+.mmlp-order b{display:block;font-size:calc(9px * var(--mml-fs, 1));text-transform:uppercase;letter-spacing:.07em;
   color:#6f86b8;font-weight:500;margin-bottom:1px;}
-.mmlp-order div{font-family:ui-monospace,monospace;font-size:9px;color:#9db4dc;
+.mmlp-order div{font-family:ui-monospace,monospace;font-size:calc(9px * var(--mml-fs, 1));color:#9db4dc;
   line-height:1.35;overflow:hidden;}
 /* Same tag colours the prompt preview uses, so a tag looks the same wherever
    it appears. The arrows stay dim: they are punctuation, not content. */
@@ -564,43 +656,43 @@ const CSS = `
 .mmlp-lightbox{max-width:95vw;max-height:92vh;background:#1e222a;border:1px solid #3a4252;
   border-radius:10px;overflow:hidden;padding:8px;}
 .mmlp-lightbox img,.mmlp-lightbox video{max-width:93vw;max-height:84vh;display:block;}
-.mmlp-lightcap{display:flex;align-items:center;gap:8px;padding-top:6px;font-size:11px;
+.mmlp-lightcap{display:flex;align-items:center;gap:8px;padding-top:6px;font-size:calc(11px * var(--mml-fs, 1));
   color:#8a93a3;}
 .mmlp-helpbtn{margin-left:5px;width:13px;height:13px;line-height:1;padding:0;
   border-radius:50%;border:1px solid #3a4252;background:#20242d;color:#8a93a3;
-  font-size:9px;cursor:pointer;font-family:system-ui,sans-serif;}
+  font-size:calc(9px * var(--mml-fs, 1));cursor:pointer;font-family:system-ui,sans-serif;}
 .mmlp-helpbtn:hover{border-color:#6f86b8;color:#c9cfda;}
 .mmlp-help{position:fixed;z-index:10055;width:370px;max-height:min(560px,88vh);
   background:#1e222a;border:1px solid #3a4252;border-radius:9px;overflow:hidden;
   display:flex;flex-direction:column;box-shadow:0 14px 36px rgba(0,0,0,.55);
   font-family:system-ui,sans-serif;}
 .mmlp-helphead{display:flex;align-items:center;padding:7px 10px;background:#232833;
-  border-bottom:1px solid #2a2f3a;font-size:11px;text-transform:uppercase;
+  border-bottom:1px solid #2a2f3a;font-size:calc(11px * var(--mml-fs, 1));text-transform:uppercase;
   letter-spacing:.07em;color:#8a93a3;}
 .mmlp-helphead button{margin-left:auto;background:none;border:0;color:#6b7484;
-  font-size:13px;cursor:pointer;line-height:1;}
+  font-size:calc(13px * var(--mml-fs, 1));cursor:pointer;line-height:1;}
 .mmlp-helphead button:hover{color:#fff;}
 .mmlp-helpbody{overflow:auto;padding:9px 10px;}
-.mmlp-helpbody p{margin:0;font-size:11px;line-height:1.55;color:#aab2c0;}
+.mmlp-helpbody p{margin:0;font-size:calc(11px * var(--mml-fs, 1));line-height:1.55;color:#aab2c0;}
 .mmlp-helprow{display:flex;gap:8px;margin-bottom:9px;}
-.mmlp-helpmode{flex:0 0 auto;font-family:ui-monospace,monospace;font-size:10px;
+.mmlp-helpmode{flex:0 0 auto;font-family:ui-monospace,monospace;font-size:calc(10px * var(--mml-fs, 1));
   border-radius:9px;padding:1px 7px;height:16px;line-height:14px;
   border:1px solid #363d4a;background:#20242d;color:#8a93a3;}
 .mmlp-helpmode.paired{border-color:#7d63b8;background:#3a2f56;color:#e2d6f8;}
 .mmlp-helpmode.alone{border-color:#2c6f81;background:#1d3a44;color:#a5e2f0;}
-.mmlp-helpsub{font-size:10px;text-transform:uppercase;letter-spacing:.07em;
+.mmlp-helpsub{font-size:calc(10px * var(--mml-fs, 1));text-transform:uppercase;letter-spacing:.07em;
   color:#6b7484;margin:12px 0 6px;padding-top:8px;border-top:1px solid #2a2f3a;}
 .mmlp-wirerow{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:6px;}
-.mmlp-wirerow code{font-family:ui-monospace,monospace;font-size:10px;color:#9db4dc;
+.mmlp-wirerow code{font-family:ui-monospace,monospace;font-size:calc(10px * var(--mml-fs, 1));color:#9db4dc;
   background:#181c24;border-radius:4px;padding:1px 5px;}
-.mmlp-arrow{color:#5c6472;font-size:10px;}
-.mmlp-tags{font-family:ui-monospace,monospace;font-size:9px;color:#6b7484;
+.mmlp-arrow{color:#5c6472;font-size:calc(10px * var(--mml-fs, 1));}
+.mmlp-tags{font-family:ui-monospace,monospace;font-size:calc(9px * var(--mml-fs, 1));color:#6b7484;
   flex-basis:100%;padding-left:2px;}
 .mmlp-helpnote{margin-top:10px !important;padding-top:9px;
   border-top:1px solid #2a2f3a;color:#8a93a3 !important;}
 .mmlp-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:10060;
   background:#2b3140;color:#fff;border:1px solid #4a5568;border-radius:8px;
-  padding:8px 16px;font-size:13px;font-family:system-ui,sans-serif;}
+  padding:8px 16px;font-size:calc(13px * var(--mml-fs, 1));font-family:system-ui,sans-serif;}
 `;
 
 let cssDone = false;
@@ -626,6 +718,8 @@ export class TrimModal {
     this.start = item.trim?.start || 0;
     this.end = item.trim?.end ?? this.dur;
     this.crop = item.crop ? { ...item.crop } : null;
+    // True only while the rect is one we put up for the handles' sake.
+    this.cropAuto = false;
     this.mirror = !!item.mirror;
     this.rotate = ((parseInt(item.rotate, 10) || 0) % 360 + 360) % 360;
     this.resize = parseInt(item.resize, 10) || 0;
@@ -635,6 +729,11 @@ export class TrimModal {
     injectCSS();
     this.build();
     document.body.append(this.overlay);
+    // Overlays live on <body>, so they don't inherit the node's size; scale
+    // them to match, or a 200% node still opens a 640px editor.
+    scaleOverlay(this.panel?.node, [
+      [this.overlay.querySelector(".mmlp-tmmodal"), 640, 0],
+    ]);
     window.addEventListener("keydown", this.onKey = (e) => this.key(e));
   }
 
@@ -697,7 +796,11 @@ export class TrimModal {
   }
 
   apply() {
-    const it = this.item;
+    // Resolve to whichever object the panel currently holds: a sync can have
+    // replaced it since the modal opened, and writing to the old one would
+    // drop the edit on the floor without any error.
+    const it = this.panel.live?.(this.item) || this.item;
+    this.item = it;
     const eps = 0.05;
     if (this.isStill) {
       delete it.trim;
@@ -832,9 +935,16 @@ export class TrimModal {
     this.playTime = el("span", { class: "mmlp-tmplaytime" });
     this.outside = el("span", { class: "mmlp-tmoutside" });
     this.note = el("div", { class: "mmlp-tmnote" });
+    // The furthest the end can go and still be inside H3's per-clip budget,
+    // measured from wherever the start currently sits. Drawn only when it
+    // falls inside the clip — on anything 15s or shorter the whole file is
+    // already within budget and the line would just pin to the end.
+    this.capLine = el("div", { class: "mmlp-tmcap",
+      title: `${CLIP.max}s from the start — H3's longest reference clip. `
+        + "Drag the end handle near it to snap." });
     this.bar = el("div", { class: "mmlp-tmbar",
       onmousedown: (e) => this.barDown(e) },
-      this.selEl, this.hStart, this.hEnd, this.playhead);
+      this.selEl, this.capLine, this.hStart, this.hEnd, this.playhead);
     if (this.item.kind === "audio") {
       this.wave = el("canvas", { class: "mmlp-tmwave", width: 560, height: 46 });
       this.drawWave(this.wave);
@@ -910,12 +1020,30 @@ export class TrimModal {
     window.addEventListener("mouseup", up);
   }
 
+  /** Where the 15s budget line sits, or null when the whole clip fits inside
+   *  it and there is nothing to mark. */
+  capAt() {
+    if (this.isStill || !this.dur) return null;
+    const at = this.start + CLIP.max;
+    return at < this.dur ? at : null;
+  }
+
   barMove(e) {
     if (!this.drag) return;
     const t = this.timeAt(e);
     if (this.drag === "playhead") { this.seek(t); return; }
     if (this.drag === "s") this.start = Math.min(t, this.end - 0.1);
-    else this.end = Math.max(t, this.start + 0.1);
+    else {
+      // Snap the end to the budget line when it lands near it, so hitting
+      // exactly 15s is a drag rather than a typed number. The tolerance is a
+      // share of the clip so it stays the same distance on screen whatever
+      // the duration, and is only ever a nudge.
+      const cap = this.capAt();
+      const near = Math.max(0.05, this.dur * 0.012);
+      this.end = Math.max(
+        cap !== null && Math.abs(t - cap) <= near ? cap : t,
+        this.start + 0.1);
+    }
     this.seek(t);                      // preview follows the handle being moved
     this.layoutTimeline();
   }
@@ -932,15 +1060,28 @@ export class TrimModal {
       this.numStart.value = this.start.toFixed(2);
     if (this.numEnd && this.typing !== this.numEnd)
       this.numEnd.value = this.end.toFixed(2);
+    // The 15s line rides with the start handle, since the budget is measured
+    // from wherever the kept range begins.
+    if (this.capLine) {
+      const cap = this.capAt();
+      this.capLine.style.display = cap === null ? "none" : "";
+      if (cap !== null) this.capLine.style.left = p(cap);
+    }
     this.readout.textContent = `${span.toFixed(1)}s kept`;
     this.checkOutside();
-    const bad = span < CLIP.min;
-    this.readout.classList.toggle("bad", bad);
-    this.readout.title = bad
+    const under = span < CLIP.min;
+    const over = span > CLIP.max + 0.001;
+    this.readout.classList.toggle("bad", under || over);
+    this.readout.title = under
       ? `Kept span is under ${CLIP.min}s. MiniMax H3 was trained on ` +
         `${CLIP.min}\u2013${CLIP.max}s reference clips; shorter ones tend to be ` +
         "weakly followed or ignored. Widen the range, or pad short files " +
-        "(like sound effects) with silence before loading." : "";
+        "(like sound effects) with silence before loading."
+      : over
+        ? `Kept span is over ${CLIP.max}s, H3's longest reference clip. `
+          + "Drag the end handle back to the marked line to sit exactly on "
+          + "the limit."
+        : "";
   }
 
   updatePlayhead() {
@@ -1021,15 +1162,29 @@ export class TrimModal {
       title: "Crop the frame",
       onclick: () => {
         this.cropMode = !this.cropMode;
-        if (this.cropMode && !this.crop)
+        if (this.cropMode && !this.crop) {
+          // Inset so the handles are grabbable — the frame edge is not. That
+          // makes opening the tool *look* like a 75% crop, so it is marked as
+          // ours: if it is never dragged, closing throws it away rather than
+          // leaving media cropped that the user only glanced at.
           this.crop = { x: 0.125, y: 0.125, w: 0.75, h: 0.75 };
-        if (!this.cropMode && this.crop &&
-            this.crop.w > 0.995 && this.crop.h > 0.995) this.crop = null;
+          this.cropAuto = true;
+        }
+        if (!this.cropMode && this.crop
+            && (this.cropAuto
+                || (this.crop.w > 0.995 && this.crop.h > 0.995))) {
+          this.crop = null;
+          this.cropAuto = false;
+        }
         if (!this.cropMode) this.seek(this.media?.currentTime || 0, false);
         this.syncCrop();
       } }, "\u25a3 Crop");
     this.aspectEl = el("select", { class: "mmlp-tmaspect",
-      onchange: (e) => { this.aspect = e.target.value; this.forceAspect(); } },
+      onchange: (e) => {
+        this.aspect = e.target.value;
+        if (this.crop) this.cropAuto = false;
+        this.forceAspect();
+      } },
       [["free", "freeform"], ["1", "1:1"],
        [String(16 / 9), "16:9"], [String(9 / 16), "9:16"],
        [String(4 / 3), "4:3"], [String(3 / 4), "3:4"],
@@ -1054,13 +1209,63 @@ export class TrimModal {
             .map(([v, label]) => el("option",
               { value: String(v), selected: this.resize === v }, label)))
       : null;
+    // Only for stills: writing a resized copy of a video would mean
+    // re-encoding it, which is a different job entirely.
+    this.bakeBtn = this.isStill
+      ? el("button", { class: "mmlp-btn mmlp-sm",
+          title: "Write a resized copy into ComfyUI's input folder and use " +
+                 "that instead. Your original file is left alone.",
+          onclick: () => this.bake() }, "\u2b07 Write copy")
+      : null;
     return el("span", { class: "mmlp-tmcropbar" },
       this.rotBtn, this.mirrorBtn, this.cropBtn, this.aspectEl,
-      this.sizeEl, this.cropInfo);
+      this.sizeEl, this.bakeBtn, this.cropInfo);
   }
 
   /** Mirror only the picture: the crop overlay stays in screen space, so a
    *  rect drawn here means the same region the backend will cut. */
+  /** Write the current size/crop/rotation out as a new file and point the
+   *  item at it. The edits then live in the pixels, so they're cleared. */
+  async bake() {
+    // A copy is worth writing whenever it would differ from the source —
+    // a crop, rotation or mirror counts, not just a size cap.
+    const changes = !!(this.resize || this.crop || this.mirror || this.rotate);
+    if (!changes) {
+      this.modalSay("Nothing to write yet \u2014 set a size, crop, rotation " +
+        "or mirror first, then this saves a copy with those baked in.", true);
+      return;
+    }
+    this.modalSay("Writing a resized copy\u2026");
+    try {
+      const resp = await api.fetchApi("/minimax_h3/bake", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file: this.item.file, resize: this.resize, crop: this.crop,
+          rotate: this.rotate, mirror: this.mirror,
+        }),
+      });
+      const info = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(info.error || `failed (${resp.status})`);
+
+      const it = this.item;
+      it.file = info.file;
+      it.name = info.name;
+      it.width = info.width;
+      it.height = info.height;
+      delete it.crop; delete it.mirror; delete it.rotate; delete it.resize;
+      this.crop = null; this.mirror = false; this.rotate = 0; this.resize = 0;
+
+      this.panel.say(`Wrote ${info.width}\u00d7${info.height} copy of ` +
+        `${info.was?.[0]}\u00d7${info.was?.[1]} \u2014 this reference now uses ` +
+        "the smaller file. The original is untouched.");
+      this.close();
+      this.panel.commit();
+    } catch (e) {
+      this.modalSay(`Couldn't write the copy: ${e.message}`, true);
+    }
+  }
+
   /** Source size, and what will actually be sent when they differ. */
   showSize() {
     if (!this.cropInfo) return;
@@ -1139,6 +1344,7 @@ export class TrimModal {
       const dx = (ev.clientX - c0.mx) / wrap.width;
       const dy = (ev.clientY - c0.my) / wrap.height;
       const c = this.crop;
+      this.cropAuto = false;             // touched: it is a real crop now
       if (mode === "move") {
         c.x = Math.min(Math.max(c0.x + dx, 0), 1 - c.w);
         c.y = Math.min(Math.max(c0.y + dy, 0), 1 - c.h);
@@ -1396,7 +1602,8 @@ export class TrimModal {
             ? el("button", { class: "mmlp-btn mmlp-sm",
                 title: "Whole clip, no crop",
                 onclick: () => { this.start = 0; this.end = this.dur;
-                  this.crop = null; this.cropMode = false; this.mirror = false;
+                  this.crop = null; this.cropAuto = false;
+                  this.cropMode = false; this.mirror = false;
                   this.rotate = 0; this.resize = 0;
                   if (this.sizeEl) this.sizeEl.value = "0";
                   this.syncCrop(); this.syncMirror(); this.syncRotate();
@@ -1426,36 +1633,63 @@ export class TrimModal {
   }
 }
 
-function lightbox(item, tag) {
-  const url = viewURL(item.file);
-  const media = item.kind === "video"
-    ? el("video", { src: url, controls: true, autoplay: true, loop: true })
-    : el("img", { src: url });
-  if (!item.width) {
-    media.addEventListener(item.kind === "video" ? "loadedmetadata" : "load",
-      () => {
+/** Full-size viewer. `siblings` is the other viewable references, so ← and →
+ *  step between them without closing and reopening; passing none simply leaves
+ *  the arrows inert. */
+function lightbox(item, tag, siblings = []) {
+  const list = siblings.length ? siblings : [{ item, tag }];
+  let i = Math.max(0, list.findIndex((e) => e.item === item));
+  const box = el("div", { class: "mmlp-lightbox" });
+
+  const draw = () => {
+    const { item: it, tag: tg } = list[i];
+    const url = viewURL(it.file);
+    const media = it.kind === "video"
+      ? el("video", { src: url, controls: true, autoplay: true, loop: true })
+      : el("img", { src: url });
+    const dims = el("span", { class: "mmlp-lightdims",
+      style: { marginLeft: "auto" } }, dimsLabel(it.width, it.height));
+    if (!it.width) {
+      media.addEventListener(it.kind === "video" ? "loadedmetadata" : "load", () => {
         const w = media.naturalWidth || media.videoWidth;
         const h = media.naturalHeight || media.videoHeight;
         if (!w) return;
-        item.width = w; item.height = h;
-        const cap = overlay.querySelector(".mmlp-lightdims");
-        if (cap) cap.textContent = dimsLabel(w, h);
+        it.width = w; it.height = h;
+        dims.textContent = dimsLabel(w, h);
       });
-  }
-  const overlay = el("div", { class: "mmlp-light",
-    onclick: (e) => { if (e.target === overlay) overlay.remove(); } },
-    el("div", { class: "mmlp-lightbox" }, media,
+    }
+    box.replaceChildren(media,
       el("div", { class: "mmlp-lightcap" },
-        el("span", { class: `mmlp-tag ${tag.startsWith("<Video") ? "vid" : "pic"}` }, tag),
-        el("span", {}, item.name),
-        el("span", { class: "mmlp-lightdims" },
-          dimsLabel(item.width, item.height)),
-        el("button", { class: "mmlp-btn", style: { marginLeft: "auto" },
-          onclick: () => overlay.remove() }, "Close"))));
-  const esc = (e) => {
-    if (e.key === "Escape") { overlay.remove(); window.removeEventListener("keydown", esc); }
+        el("span", { class: `mmlp-tag ${tg.startsWith("<Video") ? "vid" : "pic"}` }, tg),
+        el("span", {}, it.name),
+        list.length > 1
+          ? el("span", { class: "mmlp-lightnav" }, `${i + 1}/${list.length}`)
+          : null,
+        // Size and ratio ride with Close on the right, clear of the name,
+        // which is the part that varies in length.
+        dims,
+        el("button", { class: "mmlp-btn",
+          onclick: () => overlay.remove() }, "Close")));
   };
-  window.addEventListener("keydown", esc);
+
+  const step = (by) => {
+    if (list.length < 2) return;
+    i = (i + by + list.length) % list.length;
+    draw();
+  };
+  draw();
+
+  const overlay = el("div", { class: "mmlp-light",
+    onclick: (e) => { if (e.target === overlay) overlay.remove(); } }, box);
+  const keys = (e) => {
+    if (e.key === "Escape") { overlay.remove(); window.removeEventListener("keydown", keys); return; }
+    // Leave the arrows alone while a video's own controls have focus, or
+    // seeking with the keyboard would jump to the next clip instead.
+    if (e.target instanceof HTMLMediaElement) return;
+    if (e.key === "ArrowLeft") { e.preventDefault(); step(-1); }
+    if (e.key === "ArrowRight") { e.preventDefault(); step(1); }
+  };
+  window.addEventListener("keydown", keys);
   document.body.append(overlay);
 }
 
@@ -1647,6 +1881,18 @@ async function uploadFile(file) {
   return data;
 }
 
+/** Give an item a stable id.
+ *
+ *  Items are re-parsed from JSON whenever a panel syncs, which creates fresh
+ *  objects. Anything that identified an item by object identity — a tile's
+ *  click handler, say — then silently stopped matching, so Remove appeared to
+ *  do nothing or hit the wrong tile. An id survives the round trip. */
+let uidSeq = 0;
+function withUid(item) {
+  if (item && !item.uid) item.uid = `m${Date.now().toString(36)}${uidSeq++}`;
+  return item;
+}
+
 /* --------------------------------------------------------------- panel */
 
 export class LoaderPanel {
@@ -1667,6 +1913,13 @@ export class LoaderPanel {
     injectCSS();
 
     this.root = el("div", { class: "mmlp-panel" });
+    this.root.addEventListener("mousedown", (e) => {
+      if (!e.target.closest(".mmlp-scalewrap")) this.closeScaleMenu();
+    });
+    // Dragging a slider must not be treated as a click elsewhere.
+    this.root.addEventListener("click", (e) => {
+      if (e.target.closest(".mmlp-scalemenu")) e.stopPropagation();
+    });
     this.picker = el("input", {
       type: "file", multiple: true, style: { display: "none" },
       accept: "image/*,video/*,audio/*",
@@ -1768,18 +2021,23 @@ export class LoaderPanel {
   read() {
     try {
       const v = JSON.parse(this.widget()?.value || "[]");
-      return Array.isArray(v) ? v : [];
+      return Array.isArray(v) ? v.map(withUid) : [];
     } catch (e) { return []; }
   }
 
   commit() {
+    this.items.forEach(withUid);
     const w = this.widget();
     if (w) w.value = JSON.stringify(this.items);
     try { this.node.setDirtyCanvas?.(true, true); } catch (e) { /* Vue redraws itself */ }
-    this.render();
-    // A modal and the on-node panel can be open at once; keep both current.
-    (this.node._mmlPanels || []).forEach((p) => {
-      if (p !== this) { p.items = p.read(); p.render(); }
+    // Re-read into EVERY panel, this one included, so they all hold objects
+    // parsed from the same JSON. Previously only the other panels re-read,
+    // which left each panel's tiles closing over a different generation of
+    // objects — the cause of Remove hitting the wrong tile after an edit.
+    const panels = this.node._mmlPanels || [this];
+    panels.forEach((p) => {
+      p.items = p.read();
+      p.render();
     });
     // The Prompt Studio hangs its summary refresh here: on that node the media
     // and the prompt live together, so changing one has to redraw the other.
@@ -1789,13 +2047,92 @@ export class LoaderPanel {
 
   count(kind) { return this.items.filter((i) => i.kind === kind).length; }
 
-  /** Step to the next node size preset. */
-  cycleSize() {
-    const now = currentPreset(this.node);
-    const i = SIZE_PRESETS.findIndex(([name]) => name === now);
-    const [, factor] = SIZE_PRESETS[(i + 1) % SIZE_PRESETS.length];
-    applyNodeSize(this.node, factor);
-    this.render();
+  /** Node and text scale. Dragging does NOT apply: resizing the node moves
+   *  this popover with it, which pulls the slider out from under the cursor.
+   *  Set both, then Apply. */
+  scaleControl() {
+    const prefs = this.scalePrefs || (this.scalePrefs = loadScalePrefs());
+    const pending = { node: prefs.node, text: prefs.text };
+    const pct = (v) => `${Math.round(v * 100)}%`;
+    const inputs = {};
+    const outs = {};
+
+    const dirty = () => applyBtn.classList.toggle("primary",
+      pending.node !== prefs.node || pending.text !== prefs.text);
+
+    const maxFor = (key) => key === "text" ? TEXT_SCALE_MAX : SCALE_MAX;
+
+    const slider = (key, label) => {
+      // The number is typeable: a slider alone can't hit an exact value.
+      const out = el("input", { type: "number", class: "mmlp-scaleval",
+        min: String(Math.round(SCALE_MIN * 100)),
+        max: String(Math.round(maxFor(key) * 100)), step: "5",
+        value: String(Math.round(pending[key] * 100)),
+        onchange: (e) => {
+          pending[key] = clampScale(Number(e.target.value) / 100, maxFor(key));
+          const shown = Math.round(pending[key] * 100);
+          e.target.value = String(shown);      // snap back if out of range
+          input.value = String(shown);
+          dirty();
+        },
+        onkeydown: (e) => { if (e.key === "Enter") e.target.blur(); } });
+      const input = el("input", { type: "range", class: "mmlp-scalerange",
+        min: String(Math.round(SCALE_MIN * 100)),
+        max: String(Math.round(maxFor(key) * 100)), step: "5",
+        value: String(Math.round(pending[key] * 100)),
+        oninput: (e) => {
+          pending[key] = clampScale(Number(e.target.value) / 100, maxFor(key));
+          out.value = String(Math.round(pending[key] * 100));
+          dirty();
+        } });
+      inputs[key] = input;
+      outs[key] = out;
+      return el("label", { class: "mmlp-scalerow" },
+        el("span", { class: "mmlp-scalelabel" }, label), input, out,
+        el("span", { class: "mmlp-scalepct" }, "%"));
+    };
+
+    const commit = (n, t) => {
+      prefs.node = n; prefs.text = t;
+      pending.node = n; pending.text = t;
+      inputs.node.value = String(Math.round(n * 100));
+      inputs.text.value = String(Math.round(t * 100));
+      outs.node.value = String(Math.round(n * 100));
+      outs.text.value = String(Math.round(t * 100));
+      saveScalePrefs(prefs);
+      applyTextScale(this, t);
+      applyNodeSize(this.node, n);       // last: this moves the popover
+      applyBtn.classList.remove("primary");
+    };
+
+    const applyBtn = el("button", { class: "mmlp-btn mmlp-sm",
+      onclick: (e) => { e.stopPropagation(); commit(pending.node, pending.text); } },
+      "Apply");
+
+    const menu = el("div", { class: "mmlp-scalemenu" },
+      slider("node", "Node size"),
+      slider("text", "Text size"),
+      el("div", { class: "mmlp-scalefoot" },
+        el("span", {}, "Remembered for new nodes"),
+        el("button", { class: "mmlp-btn mmlp-sm",
+          onclick: (e) => { e.stopPropagation(); commit(1, 1); } }, "Reset"),
+        applyBtn));
+
+    const btn = el("button", { class: "mmlp-btn mmlp-sm",
+      title: "Node and text size",
+      onclick: (e) => {
+        e.stopPropagation();
+        const open = menu.classList.toggle("on");
+        btn.classList.toggle("on", open);
+      } }, "\u2921 Size");
+    this._scaleMenu = menu;
+    this._scaleBtn = btn;
+    return el("span", { class: "mmlp-scalewrap" }, btn, menu);
+  }
+
+  closeScaleMenu() {
+    this._scaleMenu?.classList.remove("on");
+    this._scaleBtn?.classList.remove("on");
   }
 
 
@@ -1883,7 +2220,8 @@ export class LoaderPanel {
   }
 
   toggle(item) {
-    item.enabled = item.enabled === false;
+    const it = this.live(item);
+    it.enabled = it.enabled === false;
     this.commit();
   }
 
@@ -1898,8 +2236,17 @@ export class LoaderPanel {
   }
 
   remove(item) {
-    this.items = this.items.filter((i) => i !== item);
+    const uid = item?.uid;
+    this.items = uid
+      ? this.items.filter((i) => i.uid !== uid)
+      : this.items.filter((i) => i !== item);
     this.commit();
+  }
+
+  /** Current object for an item, whichever generation the caller holds. */
+  live(item) {
+    if (!item) return null;
+    return (item.uid && this.items.find((i) => i.uid === item.uid)) || item;
   }
 
   move(from, to) {
@@ -1912,7 +2259,7 @@ export class LoaderPanel {
   /** One filled picture cell. Extracted so the standard grid and the
    *  mode-shaped layout render the identical tile rather than two that
    *  drift apart. */
-  picCell(it, tags) {
+  picCell(it, tags, reorder = true) {
       const tag = (tags.get(it) || "").slice(1, -1);
       return (this.reorderable(el("div",
         { class: "mmlp-slot filled pic" + (isOn(it) ? "" : " off") },
@@ -1971,16 +2318,18 @@ export class LoaderPanel {
                 this.commit();
               }
             },
-            onclick: () => lightbox(it, tags.get(it) || "") });
+            onclick: () => lightbox(it, tags.get(it) || "", this.viewable(tags)) });
           return [img, marquee, badge];
         })(),
         el("div", { class: "mmlp-picbar" },
           this.powerBtn(it),
           el("span", { class: "mmlp-tag pic" }, isOn(it) ? tag : "off"),
           this.trimBtn(it),
-          el("span", { class: "mmlp-drag", title: "Drag to reorder" }, "\u2630"),
+          reorder
+            ? el("span", { class: "mmlp-drag", title: "Drag to reorder" }, "\u2630")
+            : null,
           el("span", { class: "mmlp-x", title: "Remove",
-            onclick: () => this.remove(it) }, "\u2715"))), it));
+            onclick: () => this.remove(it) }, "\u2715"))), it, reorder));
   }
 
   /** Top-right controls: the layout toggle, and a way into the full-size
@@ -1994,8 +2343,8 @@ export class LoaderPanel {
       out.push(el("button", {
         class: "mmlp-btn mmlp-sm" + (this.compact ? " mmlp-on" : ""),
         title: this.compact
-          ? `Showing only what ${m} uses \u2014 click for every slot`
-          : `Show only the slots ${m} uses`,
+          ? `Showing only the slots ${m} uses \u2014 click for every slot`
+          : `Showing every slot \u2014 click for only the ones ${m} uses`,
         onclick: () => {
           this.compact = !this.compact;
           this.render();
@@ -2003,7 +2352,7 @@ export class LoaderPanel {
           // node has to be told: render() alone never reaches it.
           try { this.node._mmlOnCommit?.(); } catch (e) { /* cosmetic */ }
         },
-      }, this.compact ? "\u25f0 Mode" : "\u25f1 All"));
+      }, this.compact ? "\u25f0 Used" : "\u25f1 All"));
     }
     const hidden = this.hiddenCount();
     out.push(el("button", {
@@ -2105,6 +2454,45 @@ export class LoaderPanel {
     return true;
   }
 
+  /** Swap a slot's media for the clipboard's, keeping its position — and so
+   *  its tag number, which is what makes this different from remove + paste:
+   *  tags already written into the prompt keep pointing at the same slot. */
+  replaceItem(target) {
+    if (!_mediaClip) return false;
+    const idx = this.items.indexOf(target);
+    if (idx < 0) return false;
+    let copy;
+    try {
+      copy = JSON.parse(JSON.stringify(_mediaClip));
+    } catch (e) { return false; }
+    // Measured with the outgoing item already gone: a like-for-like swap must
+    // not be refused for a slot the replacement is about to free.
+    const held = this.items;
+    this.items = held.filter((i) => i !== target);
+    const why = this.capacityError(copy.kind, copy.name);
+    if (why) { this.items = held; this.say(why, true); this.render(); return true; }
+    this.items = held.slice();
+    if (copy.kind === "video" && copy.audio_mode === "paired"
+        && audioCount(this.items.filter((i) => i !== target)) >= MAX.audio) {
+      copy.audio_mode = "off";
+      this.say(`Replaced ${target.name} with ${copy.name}, audio off — already `
+        + `using ${MAX.audio} audio clips.`, true);
+    } else {
+      this.say(`Replaced ${target.name} with ${copy.name}.`);
+    }
+    this.items[idx] = copy;
+    this.commit();
+    return true;
+  }
+
+  /** Pictures and videos in load order — what the full-size viewer can step
+   *  through. Audio has no lightbox, so it is left out. */
+  viewable(tags) {
+    return this.items
+      .filter((i) => i.kind === "picture" || i.kind === "video")
+      .map((i) => ({ item: i, tag: tags.get(i) || "" }));
+  }
+
   /** Right-click menu for a slot. `item` is null on an empty slot. */
   slotMenu(e, item) {
     e.preventDefault();
@@ -2116,9 +2504,15 @@ export class LoaderPanel {
       rows.push(["Duplicate", () => { this.copyItem(item); this.pasteItem(); }]);
     }
     rows.push([
-      _mediaClip ? `Paste ${_mediaClip.name}` : "Paste image from clipboard",
+      _mediaClip ? `Paste ${_mediaClip.name}` : "Paste Media",
       () => { if (!this.pasteItem()) this.pasteFromSystem(); },
     ]);
+    // Only for a like-for-like swap: replacing a picture with a video would
+    // renumber both kinds, which is what the plain paste is for.
+    if (item && _mediaClip && _mediaClip.kind === item.kind
+        && _mediaClip !== item) {
+      rows.push([`Replace with ${_mediaClip.name}`, () => this.replaceItem(item)]);
+    }
     if (item) {
       rows.push([isOn(item) ? "Switch off" : "Switch on", () => {
         item.enabled = !isOn(item);
@@ -2154,14 +2548,18 @@ export class LoaderPanel {
     try {
       const entries = await navigator.clipboard?.read?.();
       for (const entry of entries || []) {
-        const type = entry.types.find((t) => t.startsWith("image/"));
+        // Any media the clipboard will hand over, not just images. In practice
+        // browsers rarely expose video or audio here, but Ctrl+V over the panel
+        // carries real files of any kind and already accepts them.
+        const type = entry.types.find((t) => /^(image|video|audio)\//.test(t));
         if (!type) continue;
         const blob = await entry.getType(type);
         const ext = type.split("/")[1] || "png";
         await this.add([new File([blob], `pasted-${Date.now()}.${ext}`, { type })]);
         return;
       }
-      this.say("Nothing to paste — copy a picture or a slot first.", true);
+      this.say("Nothing to paste — copy media or a slot first, or drop a file "
+        + "onto the panel.", true);
     } catch (err) {
       // Reading the clipboard needs permission and a secure context; a plain
       // Ctrl+V over the panel still works and doesn't go through this path.
@@ -2171,9 +2569,13 @@ export class LoaderPanel {
     this.render();
   }
 
-  reorderable(node, item) {
-    node.draggable = true;
+  /** Drag-to-reorder plus the right-click menu. `enable` only gates the
+   *  reordering: the menu is how you copy, paste and remove a slot, so it
+   *  stays even in a layout with nothing to reorder into. */
+  reorderable(node, item, enable = true) {
     node.addEventListener("contextmenu", (e) => this.slotMenu(e, item));
+    if (!enable) return node;
+    node.draggable = true;
     node.addEventListener("dragstart", (e) => {
       e.stopPropagation();
       e.dataTransfer.effectAllowed = "move";
@@ -2222,6 +2624,17 @@ export class LoaderPanel {
   }
 
   render() {
+    try {
+      this.drawPanel();
+    } catch (err) {
+      // A partial redraw looks like "the buttons stopped working", because
+      // the old tiles stay on screen holding stale handlers.
+      console.error("[Fantastic H3 Media Loader] render failed:", err);
+    }
+  }
+
+  drawPanel() {
+    this.closeScaleMenu?.();
     this.players.forEach((p) => p.stop());
     this.players = [];
 
@@ -2267,10 +2680,7 @@ export class LoaderPanel {
             onclick: () => { this.unloadPrompt = true; this.render(); } },
             "Unload media")
         : null,
-      el("button", { class: "mmlp-btn mmlp-sm",
-        title: "Node size \u2014 click to step through L, XL and XXL",
-        onclick: () => this.cycleSize() },
-        `size ${currentPreset(this.node)}`),
+      this.scaleControl(),
       presetGroup,
       el("span", { class: "mmlp-topspace" }),
       ...this.topRight()));
@@ -2352,7 +2762,12 @@ export class LoaderPanel {
     const sh = this.shape();
     if (sh) {
       const cells = [];
-      pics.slice(0, sh.pictures).forEach((it, i) => cells.push(this.picCell(it, tags)));
+      // One visible slot (I2VA / L2VA) has nothing to reorder against, so the
+      // ☰ handle and the drag itself are dropped — FL2VA keeps both, where
+      // swapping decides which picture is the first frame and which the last.
+      const canReorder = sh.pictures > 1;
+      pics.slice(0, sh.pictures).forEach((it, i) =>
+        cells.push(this.picCell(it, tags, canReorder)));
       for (let i = pics.length; i < sh.pictures; i += 1)
         cells.push(this.emptySlot("picture", i + 1));
       if (sh.pictures) {
@@ -2370,6 +2785,10 @@ export class LoaderPanel {
       }
       this.root.replaceChildren(...kids.filter(Boolean));
       this.root.classList.toggle("mmlp-min", !sh.pictures);
+      // .mmlp-min collapses the panel through a class rule, which an inline
+      // height set by the node's fitPanel() would silently outrank — leaving
+      // the panel pinned open and the prompt bar with no room to expand into.
+      if (!sh.pictures) { this.root.style.height = ""; this.root.style.minHeight = ""; }
       return;
     }
     this.root.classList.remove("mmlp-min");
@@ -2406,7 +2825,7 @@ export class LoaderPanel {
           preload: "metadata",
           onmouseenter: (e) => e.target.play().catch(() => {}),
           onmouseleave: (e) => e.target.pause(),
-          onclick: () => lightbox(it, tags.get(it) || "") }),
+          onclick: () => lightbox(it, tags.get(it) || "", this.viewable(tags)) }),
         el("div", { class: "mmlp-meta" },
           el("div", { class: "mmlp-tag vid" },
             isOn(it) ? (tags.get(it) || "").slice(1, -1) : "off"),
@@ -2597,5 +3016,6 @@ export function openLoaderModal(node, title = "MiniMax H3 Media Loader") {
       el("div", { class: "mmlp-modalbody" }, panel.root)));
   window.addEventListener("keydown", esc);
   document.body.append(overlay);
+  scaleOverlay(node, [[overlay.querySelector(".mmlp-modal"), 1140, 780]]);
   return panel;
 }

@@ -1,9 +1,15 @@
 [project]
 name = "fantastic-minimax-h3-prompt-builder-plus"
-# 2.0.0: this release drops the standalone Prompt Builder / Media Loader /
-# Reference Splitter / Filename Prefix nodes in favour of Prompt Studio alone
-# — a breaking change for any saved workflow still wired to those node types.
-version = "2.0.0"
+# 2.0.0 broke saved workflows twice over, deliberately, in one release rather
+# than spending two: it dropped the standalone Prompt Builder / Media Loader /
+# Reference Splitter / Filename Prefix nodes in favour of Prompt Studio alone,
+# and reordered Prompt Studio's outputs to put model first. Slots are positional,
+# so links out of a pre-2.0.0 Prompt Studio come back one slot off and need
+# reconnecting. See "Upgrading from 1.x" in the README.
+# 2.1.0 folds in upstream 1.5.5/1.5.6 (node/text size controls replacing the
+# old size-preset button, a crop-render crash fix, and the picture "bake"
+# route) — no further breakage.
+version = "2.1.0"
 description = "MiniMax H3 Prompt Studio: a single guided prompt-writing and reference-media node for the H3 video model, with live checking against MiniMax's prompt guide."
 license = { file = "LICENSE" }
 requires-python = ">=3.9"

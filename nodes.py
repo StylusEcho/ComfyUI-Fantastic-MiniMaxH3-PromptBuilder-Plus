@@ -273,25 +273,37 @@ class MiniMaxH3PromptStudio:
     DESCRIPTION = (
         "MiniMax H3 prompt writing and reference media in a single node. "
         "Click 'Edit Prompt' to open the guided editor, and load media in the "
-        "panel below it. Outputs the final prompt STRING, an H3_REFS bundle "
-        "holding only what the chosen mode can actually send, the first two "
-        "loaded pictures as IMAGEs for first_frame / last_frame, and a "
-        "ref2va_needed BOOLEAN that is true in full-reference mode."
+        "panel below it. Outputs the MODEL for the mode being used, the final "
+        "prompt STRING, an H3_REFS bundle holding only what the chosen mode "
+        "can actually send, the first two loaded pictures as IMAGEs for "
+        "first_frame / last_frame, and a ref2va_needed BOOLEAN that is true "
+        "in full-reference mode."
     )
 
-    RETURN_TYPES = ("STRING", "H3_REFS", "IMAGE", "IMAGE", "BOOLEAN", "MODEL")
-    RETURN_NAMES = ("prompt", "references", "picture_1", "picture_2",
-                    "ref2va_needed", "model")
+    # model leads, matching the order the chain is actually wired in: the
+    # checkpoint reaches the sampler first, then the prompt and its media.
+    #
+    # Slots are positional in a saved workflow, so moving it here shifts every
+    # other output down one and any graph built before this release will come
+    # back mis-wired — prompt landing where model belongs, and so on. That is a
+    # deliberate one-off, taken in the same breaking release that dropped the
+    # standalone nodes rather than spent as a second break later. Anything
+    # added from here on gets appended last, as references and the pictures
+    # originally were.
+    RETURN_TYPES = ("MODEL", "STRING", "H3_REFS", "IMAGE", "IMAGE", "BOOLEAN")
+    RETURN_NAMES = ("model", "prompt", "references", "picture_1", "picture_2",
+                    "ref2va_needed")
+    # model carries whichever checkpoint the saved mode runs on — ref2va in
+    # full-reference mode, fl2va everywhere else — so both can stay wired and
+    # the mode picks between them.
     # ref2va_needed is True only in full-reference mode — the one mode whose
     # prompt has to go to MiniMaxH3ReferenceToVideo rather than ImageToVideo.
     # Wire it into a switch to pick the branch from the editor's mode instead
     # of rewiring by hand.
-    # The first two loaded pictures on their own, so I2VA / L2VA / FL2VA reach
-    # first_frame and last_frame on MiniMaxH3ImageToVideo with no splitter in
-    # between — those modes never use more than two. Appended after
-    # references rather than sitting beside the prompt: inserting them
-    # earlier would renumber references in every workflow already built on
-    # this node.
+    # picture_1 / picture_2 are the first two loaded pictures on their own, so
+    # I2VA / L2VA / FL2VA reach first_frame and last_frame on
+    # MiniMaxH3ImageToVideo with no splitter in between — those modes never
+    # use more than two.
     FUNCTION = "build"
 
     @classmethod
@@ -380,7 +392,7 @@ class MiniMaxH3PromptStudio:
                   "input is empty — the model output carries nothing.")
         else:
             print(f"[MiniMaxH3 Studio] mode {mode} -> passing {want} through.")
-        return (prompt_text.strip(), gated, *keyframes, mode == "REF", model)
+        return (model, prompt_text.strip(), gated, *keyframes, mode == "REF")
 
 
 NODE_CLASS_MAPPINGS = {

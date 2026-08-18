@@ -113,10 +113,14 @@ Highlights:
 - **Media presets** so you can reload a set of references in one click.
 - **Unload media** clears the node in one go (after a confirmation) without
   deleting the underlying files, so presets pointing at them still work.
-- **Node size presets** — a `size` button steps the whole node through L, XL
-  (+25%) and XXL (+40%) when you want more room for the media grid, and
-  **Open loader…** puts the same panel in a full-size window.
-- **Size control for reference video** — decode big clips at a smaller size
+- **Size control** — ⤢ Size sets the media panel's scale (100–300%) and its
+  text size (100–200%) independently, by slider or by typing the number.
+  Changes apply when you press **Apply**, not while you drag, because
+  resizing the node would pull the slider out from under the pointer. Both are
+  remembered for you rather than for the workflow, so a node dropped into a
+  new graph starts at the size you actually work at. The prompt editor has the
+  same two sliders in its ⚙ menu, which is what you want on a 4K monitor.
+- **Detail control for reference video** — decode big clips at a smaller size
   so a long 4K reference doesn't eat gigabytes of RAM.
 - **Optional model routing.** Wire both checkpoints — `fl2va_model` and
   `ref2va_model` — once, and the node's `model` output passes through whichever
@@ -163,6 +167,24 @@ registered at startup.
 
 To confirm it worked, search the node menu for "MiniMax H3 Prompt Studio".
 
+### Upgrading from 1.x
+
+**2.0.0 is a breaking release — check any workflow you already have.** Two things
+changed that a saved workflow can't adapt to on its own:
+
+- **The standalone Prompt Builder, Media Loader, Reference Splitter and Filename
+  Prefix nodes are gone from this pack.** A workflow wired to them will report the
+  node types as missing. Install
+  [the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)
+  alongside this one and they come back, unchanged.
+- **Prompt Studio's outputs were reordered** to put `model` first. ComfyUI stores
+  connections by slot position, not by name, so every link out of a Prompt Studio
+  placed before 2.0.0 now points one slot off — the link that fed `prompt` is now
+  attached to `model`, and so on. **Reconnect its output wires**; there is no need
+  to delete and re-add the node, and you shouldn't, since your prompt, editor
+  state and loaded media all live on the node's own widgets and are carried
+  across the update intact.
+
 ---
 
 ## Prompt Studio
@@ -176,12 +198,12 @@ It takes **no required inputs**, and has six outputs:
 
 | Output | Type | Goes to |
 |---|---|---|
+| `model` | `MODEL` | the sampler, once you've wired both checkpoints in (see below) |
 | `prompt` | `STRING` | the `prompt` input on **Image to Video** or **Reference to Video** |
 | `references` | `H3_REFS` | a **Reference Splitter**, whose slots feed **Reference to Video** — from the original pack, if you have it installed too |
 | `picture_1` | `IMAGE` | `first_frame` on **Image to Video** (or `last_frame` for L2VA) |
 | `picture_2` | `IMAGE` | `last_frame` on **Image to Video**, for FL2VA |
 | `ref2va_needed` | `BOOLEAN` | a switch node, to pick which H3 node runs |
-| `model` | `MODEL` | the sampler, once you've wired both checkpoints in (see below) |
 
 `ref2va_needed` is true only in **Reference** mode — the one mode whose prompt
 goes to **Reference to Video** instead of **Image to Video**. Feed it to a
@@ -562,6 +584,14 @@ anyway, so the detail is discarded regardless. Capping a 4K reference at
 updates live, and it never upscales: a picture already under the cap is left
 alone.
 
+The cap only affects what's decoded — the file in ComfyUI's input folder stays
+full size, and every run pays to decode it. **⬇ Write copy** does the permanent
+version: it writes a resized copy (with the current crop, rotation and mirror
+baked in) into the input folder and points the reference at it, so the file, the
+decode and the tensor all shrink. Your original file is left exactly as it was;
+the copy is a new entry. A 4K PNG capped at 1280 px goes from about 25 MB to
+2.4 MB.
+
 One exception worth respecting: a picture used as `first_frame` or `last_frame`
 should stay **at least as large as your generation**, or the model will be
 upscaling it back and you'll see the softness.
@@ -647,19 +677,12 @@ removing it. Drag one card onto another to reorder your media — the tag number
 renumber to match, exactly as they do on the node. Both act on the node's real
 media, so the editor and the node never disagree.
 
-### Pinned references
+### Keeping a reference in view while you write
 
-Pinning keeps a reference on screen while you write about it. Pin from a
-thumbnail's hover preview, up to three at a time; putting the text caret inside
-a tag like `<Picture 2>` pins that one automatically, marked `auto`, until the
-caret moves.
-
-On a screen 1800px or wider the pin pane lifts out of the editor and stands in
-the empty space to its left, clearing the screen edge by the same margin the
-editor clears the top and bottom. Pins then get as much room as the screen
-allows — around 280px wide at 1080p and 570px at 1440p, against the 176px
-column inside the editor. Below that width there isn't enough room beside the
-editor to be worth it, so the pane stays in its column.
+Reference tags in the text are chips: hover one and its thumbnail opens right
+there, so you can check a reference without leaving the line you're on. That
+replaces the old pinned-references pane, which took a column out of the editor
+and pushed every field sideways.
 
 ### Copying media between slots
 
