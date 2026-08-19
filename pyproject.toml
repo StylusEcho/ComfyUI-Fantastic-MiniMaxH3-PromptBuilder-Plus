@@ -1,5 +1,8 @@
 [project]
-name = "fantastic-minimax-h3-prompt-builder-plus"
+# Registry IDs are lowercase-and-hyphens only, so this is the registry-legal
+# spelling of Fantastic-MiniMax-H3-PromptStudio. DisplayName below carries the
+# cased form users actually see.
+name = "fantastic-minimax-h3-promptstudio"
 # 2.0.0 broke saved workflows twice over, deliberately, in one release rather
 # than spending two: it dropped the standalone Prompt Builder / Media Loader /
 # Reference Splitter / Filename Prefix nodes in favour of Prompt Studio alone,
@@ -35,5 +38,5 @@ Repository = "https://github.com/StylusEcho/ComfyUI-Fantastic-MiniMaxH3-PromptBu
 
 [tool.comfy]
 PublisherId = "adudeguyman"
-DisplayName = "MiniMax H3 Prompt Studio"
+DisplayName = "Fantastic MiniMax H3 Prompt Studio"
 requires-comfyui = ">=0.30.0"

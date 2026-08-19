@@ -8,7 +8,7 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { LOADER_NAME, computeTags, viewURL as loaderViewURL,
   safeCanvasFocus, openLoaderModal, isOn, TrimModal,
-  fileCount, MODE_CAPACITY } from "./medialoader.js";
+  fileCount, MODE_CAPACITY, hasCrop } from "./medialoader.js";
 
 // Private drag type: marks a drag as "reorder the rail" so a drop on another
 // card moves media, while a drop on a textarea still inserts the tag.
@@ -1242,8 +1242,9 @@ const CSS = `
 /* Header-sized: the standard .mmh3p-btn padding is built for a footer row and
    makes the heading much taller than the ones without buttons. Written as a
    descendant selector so it outranks .mmh3p-btn regardless of which is
-   declared later in this sheet. */
-.mmh3p-secact .mmh3p-btn{padding:1px 7px;font-size:calc(10px * var(--mmh3-fs, 1));line-height:1.5;}
+   declared later in this sheet. Padding and line-height only — the text
+   itself stays the one button size the rest of the pack uses. */
+.mmh3p-secact .mmh3p-btn{padding:1px 7px;line-height:1.5;}
 /* .off strikes the heading through — that must not carry into its buttons. */
 .mmh3p-sec>label.off .mmh3p-secact{text-decoration:none;}
 .mmh3p-sec .hint{font-size:calc(11px * var(--mmh3-fs, 1));color:#6b7484;margin-top:4px;line-height:1.4;}
@@ -2240,7 +2241,16 @@ class Editor {
           this.modeBar,
           el("button", { class: "mmh3p-btn",
             title: "Open the full media loader window",
-            onclick: () => openLoaderModal(this.node, "MiniMax H3 \u2014 media") },
+            onclick: () => {
+              // Hand over rather than stack: the two are alternate views of
+              // the same node, so one replaces the other. requestClose()
+              // still gets to raise the unsaved-changes prompt \u2014 when it
+              // does it defers instead of closing, and the handover waits
+              // for the user to answer rather than opening over the top.
+              this.requestClose();
+              if (!this.closePending)
+                openLoaderModal(this.node, "MiniMax H3 \u2014 media");
+            } },
             "\u2750 Media Loader"),
           el("button", { class: "mmh3p-x",
             onclick: () => this.requestClose() }, "\u2715"),
@@ -2993,7 +3003,11 @@ class Editor {
     if (s.item && s.panel && !s.joinRight) {
       const still = s.item.kind === "picture";
       tools.push(el("span", {
-        class: "mmh3p-cardtool" + (s.item.trim || s.item.crop || s.item.rotate
+        // hasCrop() rather than s.item.crop: a full-frame or placeholder
+        // rect is truthy but crops nothing, and used to light this orange on
+        // pictures that were never edited. Same test the loader's own edit
+        // button uses, so the two can't disagree.
+        class: "mmh3p-cardtool" + (s.item.trim || hasCrop(s.item) || s.item.rotate
           || s.item.mirror || s.item.resize ? " on" : ""),
         title: still ? "Crop, rotate or mirror this picture"
                      : "Trim this clip, or crop the frame",
