@@ -297,6 +297,9 @@ const PREF_DEFAULTS = {
   // Window and text scale, 100%-300%. A 4K monitor makes the default window
   // small; these are per user, so they follow you into every workflow.
   windowScale: 1.0, textScale: 1.0,
+  // Chips can be switched off for a plain text field. The mirror still
+  // renders (invisibly), so hover previews keep working.
+  highlightTags: true,
 };
 const SCALE_MIN = 1.0;
 const SCALE_MAX = 3.0;          // window
@@ -588,7 +591,7 @@ function slotsFromBundle(node) {
     // the two are pushed video-then-audio and flagged as a joined pair. Only
     // the display order changes \u2014 `tag` still carries the numbering H3 was
     // given, so nothing downstream sees a different sequence.
-    const paired = extra.has(i) && (i.audio_mode || "off") === "paired";
+    const paired = extra.has(i) && (i.audio_mode || "paired") === "paired";
     const vid = push(tags.get(i), "Video", i, null, "video");
     if (paired) {
       const aud = push(extra.get(i), "Audio", i,
@@ -1498,6 +1501,20 @@ const CSS = `
    box-shadow spread, which paints beyond the box without occupying space.
    Anything that changes the advance shifts wrap points, and the error
    compounds line after line. */
+/* Plain mode. Nothing here changes metrics — the mirror still lays the text
+   out exactly as before, it just paints nothing, and the textarea shows its
+   own text instead. The tag spans stay in place, so hover previews still
+   find them. */
+.mmh3p-chipwrap.plain textarea.mmh3p-chiptext{color:#dde2ea;}
+.mmh3p-chipwrap.plain textarea.mmh3p-chiptext::selection{
+  background:rgba(96,140,210,.45);color:#fff;}
+.mmh3p-chipwrap.plain .mmh3p-chipmirror{color:transparent;}
+.mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-reftag,
+.mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-dblock,
+.mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-dmark,
+.mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-dlang,
+.mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-dtext{
+  color:transparent;background:none;box-shadow:none;}
 .mmh3p-reftag{border-radius:3px;background:rgba(224,169,76,.18);color:#e0a94c;
   box-shadow:0 0 0 2px rgba(224,169,76,.18), inset 0 0 0 1px rgba(224,169,76,.45);
   -webkit-box-decoration-break:clone;box-decoration-break:clone;}
@@ -1515,7 +1532,13 @@ const CSS = `
    chip: every other tag is a translucent tint. The weight does the work, which
    also means the hue doesn't have to compete with audio's violet or the red
    that means "undefined tag". */
-.mmh3p-reftag.shot{background:#a34b7d;color:#ffe9f4;font-weight:700;
+/* No font-weight here, ever: bold widens the glyphs, so the mirror's [Shot N]
+   advanced further than the textarea's invisible regular-weight copy — a few
+   px of caret drift on that line, or a whole word once the widened line
+   wrapped earlier than the real one. The double text-shadow fakes the weight
+   without touching a single glyph advance. */
+.mmh3p-reftag.shot{background:#a34b7d;color:#ffe9f4;
+  text-shadow:0.02em 0 currentColor,-0.02em 0 currentColor;
   box-shadow:0 0 0 2px #a34b7d, inset 0 0 0 1px rgba(255,255,255,.18);}
 /* Spoken lines. The band shows how much of a paragraph is actually speech;
    the markers dim because they're syntax, not words the model will say.
@@ -1572,7 +1595,11 @@ async function libApi(path, body) {
     : {};
   const resp = await api.fetchApi("/minimax_h3_plus/prompts" + path, opts);
   const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(data.error || `request failed (${resp.status})`);
+  if (!resp.ok) {
+    const err = new Error(data.error || `request failed (${resp.status})`);
+    if (data.exists) err.exists = true;   // 409: name collision on a new save
+    throw err;
+  }
   return data;
 }
 
@@ -1603,7 +1630,6 @@ class Library {
     injectCSS();
     this.build();
     document.body.append(this.overlay);
-    this.applyScale();
     this.refresh();
   }
 
@@ -1664,10 +1690,19 @@ class Library {
           `Library unavailable: ${err.message}. Restart ComfyUI if you just updated.`));
       return;
     }
+    // A filter pointing at a category that no longer exists (its last prompt
+    // deleted, renamed away, or lost to a save elsewhere) showed an empty
+    // list under a dropdown reading "All categories" — the classic
+    // "my prompts are missing" report. Reset the filter instead.
+    if (this.category && !this.categories.includes(this.category)) {
+      this.category = "";
+      this.catEdit = false;
+    }
     this.catEl.replaceChildren(
       el("option", { value: "" }, "All categories"),
       ...this.categories.map((c) =>
         el("option", { value: c, selected: c === this.category }, c)));
+    this.catEl.value = this.category;   // displayed value === active filter, always
     this.paint();
   }
 
@@ -1707,37 +1742,75 @@ class Library {
     const fav = el("input", { type: "checkbox" });
     const err = el("span", { class: "mmh3p-saveerr" });
 
-    const commit = async () => {
+    // Saving under a different name used to be treated as a rename, which
+    // DELETED the loaded prompt — "save a variant" quietly ate the original.
+    // The ambiguity is now the user's call: "Save as new" never deletes, and
+    // renaming is its own, clearly-labelled button.
+    const doSave = async ({ rename = false, overwrite = false } = {}) => {
       const value = name.value.trim();
       if (!value) { err.textContent = "Give it a name first."; name.focus(); return; }
+      const inPlace = ed.libraryId && value === ed.libraryName;
+      const body = {
+        name: value,
+        category: categoryValue(),
+        favorite: fav.checked,
+        mode: ed.state.mode,
+        refs: ed.slots.filter((s) => s.tag).length,
+        prompt: generate(ed.state),
+        state: ed.state,
+      };
+      if (rename) { body.rename_from = ed.libraryId; body.rename = true; }
+      else if (!inPlace && !overwrite) body.expect_new = true;
       try {
-        const res = await libApi("/save", {
-          name: value,
-          rename_from: ed.libraryId,
-          category: categoryValue(),
-          favorite: fav.checked,
-          mode: ed.state.mode,
-          refs: ed.slots.filter((s) => s.tag).length,
-          prompt: generate(ed.state),
-          state: ed.state,
-        });
+        const res = await libApi("/save", body);
         ed.libraryId = res.id;
         ed.libraryName = res.name;
         ed.libraryCategory = categoryValue();
         this.saveOpen = false;
         toast(`Saved "${res.name}"`);
         this.refresh();
-      } catch (e2) { err.textContent = e2.message; }
+      } catch (e2) {
+        if (e2.exists) {
+          // Name collision on a new save: confirm inline, never silently.
+          err.replaceChildren(
+            `A prompt named "${value}" already exists. `,
+            el("button", { class: "mmh3p-btn",
+              onclick: () => doSave({ overwrite: true }) },
+              "Overwrite it"));
+        } else err.textContent = e2.message;
+      }
     };
-    name.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); });
-    catNew.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); });
+
+    const saveBtn = el("button", { class: "mmh3p-btn primary",
+      onclick: () => doSave() }, "Save");
+    const renameBtn = el("button", { class: "mmh3p-btn ghost",
+      style: { display: "none" },
+      onclick: () => doSave({ rename: true }) }, "");
+    const syncButtons = () => {
+      const value = name.value.trim();
+      const renaming = ed.libraryId && ed.libraryName
+        && value && value !== ed.libraryName;
+      saveBtn.textContent = renaming ? "Save as new" : "Save";
+      renameBtn.style.display = renaming ? "" : "none";
+      if (renaming) {
+        renameBtn.textContent = `Rename "${ed.libraryName}"`;
+        renameBtn.title = `"${ed.libraryName}" becomes "${value}" — ` +
+          "no second copy is kept";
+      }
+      err.textContent = "";        // typing resets a stale collision notice
+    };
+    name.addEventListener("input", syncButtons);
+    syncButtons();
+
+    name.addEventListener("keydown", (e) => { if (e.key === "Enter") doSave(); });
+    catNew.addEventListener("keydown", (e) => { if (e.key === "Enter") doSave(); });
     setTimeout(() => { name.focus(); name.select(); }, 0);
 
     return el("div", { class: "mmh3p-saveform" },
       el("div", { class: "mmh3p-saverow" },
         name, category, catNew,
         el("label", { class: "mmh3p-savefav" }, fav, "favourite"),
-        el("button", { class: "mmh3p-btn primary", onclick: commit }, "Save"),
+        saveBtn, renameBtn,
         el("button", { class: "mmh3p-btn",
           onclick: () => { this.saveOpen = false; this.paint(); } }, "Cancel")),
       err);
@@ -1908,7 +1981,8 @@ class Library {
     try {
       await libApi("/delete", { id: entry.id });
       this.entries = this.entries.filter((x) => x !== entry);
-      this.paint();
+      this.paint();          // the row disappears immediately…
+      this.refresh();        // …and the category list follows the server
     } catch (err) { toast(`Delete failed: ${err.message}`); }
   }
 
@@ -1939,6 +2013,7 @@ class Editor {
     this.render();
     document.body.append(this.overlay);
     this.applyScale();
+    this.applyHighlight();
   }
 
   /* ---------- insertion ---------- */
@@ -2200,6 +2275,7 @@ class Editor {
         onchange: (e) => {
           this.prefs[key] = e.target.checked;
           savePrefs(this.prefs);
+          if (key === "highlightTags") this.applyHighlight();
         } });
       return el("label", { class: "mmh3p-prefitem" }, box,
         el("span", {}, el("span", { class: "mmh3p-preflabel" }, label),
@@ -2218,6 +2294,9 @@ class Editor {
       slider("textScale", "Text size"),
       el("div", { class: "mmh3p-scalefoot" }, scaleReset, scaleApply),
       el("div", { class: "mmh3p-prefsep" }),
+      item("highlightTags", "Highlight tags and dialogue",
+           "Off gives plain text fields; hovering a tag still shows its " +
+           "preview."),
       item("closeOnBackdrop", "Click outside to close",
            "Off means only \u2715, Cancel and Escape close the window."),
       item("warnUnsaved", "Warn about unsaved changes",
@@ -2227,6 +2306,14 @@ class Editor {
     this.prefsCog = el("button", { class: "mmh3p-x", title: "Editor settings",
       onclick: (e) => { e.stopPropagation(); this.togglePrefs(); } }, "\u2699");
     return el("span", { class: "mmh3p-prefwrap" }, this.prefsCog, menu);
+  }
+
+  /** Show or hide the chips without touching layout: in plain mode the
+   *  textarea paints its own text and the mirror goes transparent, so the
+   *  spans are still there to hover even though you can't see them. */
+  applyHighlight() {
+    const plain = !this.prefs.highlightTags;
+    (this._chipWraps || []).forEach((w) => w.classList.toggle("plain", plain));
   }
 
   /** Window scale changes the modal's box; text scale zooms its contents. */
@@ -2323,6 +2410,8 @@ class Editor {
     // of covering them. It's click-through, so the textarea still gets every
     // pointer event.
     const wrap = el("div", { class: "mmh3p-chipwrap" }, box, mirror);
+    (this._chipWraps = this._chipWraps || []).push(wrap);
+    if (!this.prefs?.highlightTags) wrap.classList.add("plain");
     box.classList.add("mmh3p-chiptext");
 
     const paint = () => {
