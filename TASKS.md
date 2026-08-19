@@ -102,18 +102,46 @@ empty, so no task below conflicts with or is made redundant by upstream work.
      header keeps the tally and the worst level's colour while collapsed, so
      nothing is hidden silently. Stored as `issuesCollapsed` — set by clicking
      the header, so deliberately not listed in the settings menu.
-23. don't allow the integrated\_multimodal\_description input box to overlap anything else.
-24. add a setting to do the following: change tag hover-over preview to activate the media strip preview popup instead of at the cursor.
-25. add a setting to hide the help captions ("One line per tracked item. Focus a line, then..." etc)
+23. 🟩 don't allow the integrated\_multimodal\_description input box to overlap anything else.
+   - The field kept `resize:vertical` inside a wrapper whose height is set by
+     flex, so dragging its grip grew the textarea past the wrapper and painted
+     over the sections below. The grip is gone (the field's height is the
+     layout's to decide) and the wrapper clips as a backstop.
+24. 🟩 add a setting to do the following: change tag hover-over preview to activate the media strip preview popup instead of at the cursor.
+   - New `railPeek` pref. `peekFor()`'s hover closure was extracted to
+     `openRailPeek()` so a tag hover opens the very same panel a card hover
+     does, and `refChips()` now records each tag's card to point at. Falls
+     back to the cursor panel when a tag has no card (undefined subject, or a
+     slot the mode leaves out).
+25. 🟩 add a setting to hide the help captions ("One line per tracked item. Focus a line, then..." etc)
 when hiding, makes it a mouse-over caption for the respective section.
-26. in reference mode, the style dropdown only adds its text to detailed\_description fields.
+   - New `hideHints` pref. `applyHints()` hides the captions and copies each
+     onto its section's tooltip. Live readouts — word count, snapped duration,
+     the empty-media line — are marked `.keep` and stay put: they report state
+     rather than explain a field.
+26. 🟩 in reference mode, the style dropdown only adds its text to detailed\_description fields.
+   - `insert()` takes an explicit target and `styleSelect(allowed)` pins the
+     picker to the two detailed_description halves — the caret's field when it
+     is one of them, otherwise the style opening. Previously it wrote to
+     whatever was focused last, so picking a style with the cursor in the
+     soundscape put it in the soundscape.
 27. 🟩 settings gear button should have a frame around it like every other button. going forward, any instance of this button should be styled like this.
    - The cog wore `.mmh3p-x`, the frameless treatment reserved for the close
      ✕, leaving it the one control in the row without a border. Now
      `.mmh3p-btn`. The media loader's Settings button (item 12) already
      matches.
-28. when clicking the audio/music icons on the node's prompt bar, it should open to the quick edit and select the respective field.
-29. reconcile inconsistencies between the final prompt preview colour coding and input boxes colour coding.
+28. 🟩 when clicking the audio/music icons on the node's prompt bar, it should open to the quick edit and select the respective field.
+   - The 🔊/🎵 marks are clickable and pass a focus key through
+     `openQuickEdit(node, key)`; `promptFields()` exposes the two audio
+     textareas as `fieldFor` so the window opens with that one focused and the
+     caret at the end.
+29. 🟩 reconcile inconsistencies between the final prompt preview colour coding and input boxes colour coding.
+   - Five token types disagreed, and `[Shot N]`/`(S1)` were outright swapped:
+     the preview drew a shot blue and a speaker pink while the fields drew a
+     shot pink and a speaker blue. The preview now tracks the chip palette
+     token for token, and — given a resolver — marks undefined tags red as the
+     fields do, which it previously could not do at all. Verified: all nine
+     token types now report the same colour on both sides.
 30. when text size is increased, button titles sometimes overflow into two lines outside the bounds of the button.
 31. colour code Prompt Library's prompt previews
 32. title-case Prompt library's title

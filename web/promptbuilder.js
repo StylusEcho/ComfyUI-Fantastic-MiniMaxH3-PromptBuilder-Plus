@@ -418,6 +418,15 @@ const PREF_DEFAULTS = {
   // Set by clicking the checks header rather than from the settings menu,
   // so it is stored but deliberately not listed there.
   issuesCollapsed: false,
+  // Hovering a tag in a text field opens the small panel at the cursor by
+  // default. On, it opens that tag's media card preview in the strip
+  // instead, which is bigger and sits away from what you are typing.
+  railPeek: false,
+  // Hide the standing help captions under the sections, moving each one to
+  // its section's hover tooltip. Live readouts (word count, snapped
+  // duration) and the empty-state line are marked .keep and stay put —
+  // they report state rather than explain the field.
+  hideHints: false,
 };
 // Breathing room left above and below the editor when tallWindow is on.
 const TALL_MARGIN_VH = 4;
@@ -1262,6 +1271,10 @@ const CSS = `
 /* .off strikes the heading through — that must not carry into its buttons. */
 .mmh3p-sec>label.off .mmh3p-secact{text-decoration:none;}
 .mmh3p-sec .hint{font-size:calc(11px * var(--mmh3-fs, 1));color:#6b7484;margin-top:4px;line-height:1.4;}
+/* Help captions off: each one moves to its section's tooltip (applyHints()).
+   .keep marks the spans that report live state rather than explain a field —
+   word count, the snapped duration, the empty-media line — and those stay. */
+.mmh3p-nohints .mmh3p-form .hint:not(.keep){display:none;}
 .mmh3p-form textarea,.mmh3p-form input[type=text],.mmh3p-form input[type=number],.mmh3p-form select{
   width:100%;box-sizing:border-box;background:#12151b;color:#dde2ea;border:1px solid #2e3440;
   border-radius:6px;padding:7px 9px;font-size:calc(13px * var(--mmh3-fs, 1));font-family:inherit;}
@@ -1474,16 +1487,30 @@ const CSS = `
   font-size:calc(12px * var(--mmh3-fs, 1));line-height:1.55;
   white-space:pre-wrap;word-break:break-word;color:#c4cad5;}
 /* Unscoped: paintTags() output appears in the editor's preview and in the
-   node's prompt bar, and a tag has to read the same colour in both. */
+   node's prompt bar, and a tag has to read the same colour in both.
+
+   These track the .mmh3p-reftag chips the input fields paint (further down),
+   token for token. They used to drift: Subject was a different green, <d> and
+   the language bracket had hues of their own, and [Shot N] and (S1) were
+   outright swapped — the preview drew a shot blue and a speaker pink while
+   the fields drew a shot pink and a speaker blue. The chips are the reference
+   now, since that is where the writing actually happens. */
 .mmh3p-t-pic{color:#e0a94c;} .mmh3p-t-vid{color:#4cc3e0;}
-.mmh3p-t-aud{color:#b48ce8;} .mmh3p-t-subj{color:#7ec87e;}
-.mmh3p-t-shot{color:#7ea7d8;font-weight:600;}
-.mmh3p-t-d{color:#d8c07e;}
-/* Hues picked from what the tag palette wasn't already using: coral for the
-   language bracket, pink for a speaker, and grey for N/A — which marks a
-   section as deliberately empty, so it should read as absent, not as content. */
-.mmh3p-t-lang{color:#e8846a;}
-.mmh3p-t-spk{color:#e58fbf;font-weight:600;}
+.mmh3p-t-aud{color:#b48ce8;} .mmh3p-t-subj{color:#6fbf73;}
+/* Solid, like its chip: a cut marker is the loudest thing in a prompt. Bold
+   is safe here — unlike in a field, nothing has to line up under this text. */
+.mmh3p-t-shot{color:#ffe9f4;background:#a34b7d;border-radius:3px;
+  font-weight:600;-webkit-box-decoration-break:clone;box-decoration-break:clone;}
+.mmh3p-t-d{color:#5f7899;}
+.mmh3p-t-lang{color:#9dc0e4;background:rgba(126,167,216,.16);border-radius:3px;}
+.mmh3p-t-spk{color:#7ea7d8;font-weight:600;}
+/* A tag naming media that isn't loaded, matching .mmh3p-reftag.unknown. The
+   preview could not show this at all before — it is a pure string pass with
+   no idea what is loaded — so a typo'd tag looked correct right up until the
+   prompt ran. */
+.mmh3p-t-unknown{color:#f07070;background:rgba(240,112,112,.16);border-radius:3px;}
+/* N/A marks a section as deliberately empty, so it reads as absent rather
+   than as content. No chip equivalent: the fields never paint it. */
 .mmh3p-t-na{color:#6b7484;font-style:italic;}
 .mmh3p-issuebox{flex:0 0 auto;border-top:1px solid #2a2f3a;display:flex;
   flex-direction:column;min-height:0;}
@@ -1534,7 +1561,8 @@ const CSS = `
   padding:4px 9px;font-size:calc(11px * var(--mmh3-fs, 1));font-family:inherit;cursor:pointer;white-space:nowrap;}
 .mmh3p-sumbtn:hover{background:#333b4d;border-color:#59637a;}
 .mmh3p-summark{flex:0 0 auto;align-self:center;font-size:calc(12px * var(--mmh3-fs, 1));line-height:1;
-  opacity:.85;user-select:none;}
+  opacity:.85;user-select:none;cursor:pointer;}
+.mmh3p-summark:hover{opacity:1;}
 /* Quick edit: smaller than the full builder, same chrome. */
 /* 25% off both axes (was 900x780 capped at 92vw/88vh). The viewport caps come
    down with the pixel sizes, or on a small screen the window would still fill
@@ -1665,9 +1693,16 @@ const CSS = `
    below instead of filling to them. min-height:0 lets it shrink below the
    textarea's intrinsic rows, which is what makes "fill exactly" possible
    rather than "fill, then overflow". */
-.mmh3p-sec.mmh3p-grow>.mmh3p-chipwrap{flex:1 1 auto;min-height:0;display:flex;}
+.mmh3p-sec.mmh3p-grow>.mmh3p-chipwrap{flex:1 1 auto;min-height:0;display:flex;
+  /* Nothing may paint outside this box onto the sections below it. */
+  overflow:hidden;}
 .mmh3p-sec.mmh3p-grow>.mmh3p-chipwrap>textarea.mmh3p-chiptext{
-  flex:1 1 auto;min-height:0;}
+  flex:1 1 auto;min-height:0;
+  /* No drag handle here. This field's height is the flex layout's to decide
+     — it fills to whatever is left above the audio sections — and the
+     wrapper's height does not follow a drag, so dragging the grip only made
+     the textarea outgrow its wrapper and paint over what came next. */
+  resize:none;}
 .mmh3p-chipmirror,
 .mmh3p-chipwrap textarea.mmh3p-chiptext{
   width:100%;box-sizing:border-box;border:1px solid transparent;
@@ -2211,7 +2246,9 @@ class Editor {
   /* opts.newline: start the insert on its own line (for block-level items
      like shot headers), collapsing any trailing whitespace first. */
   insert(text, opts = {}) {
-    const t = this.lastFocus;
+    // opts.target pins the insertion to a specific field, for controls that
+    // belong to one section rather than to wherever the caret happens to be.
+    const t = opts.target || this.lastFocus;
     if (!t || !t.isConnected) { toast("Click into a text field first"); return; }
     const start = t.selectionStart ?? t.value.length;
     const end = t.selectionEnd ?? start;
@@ -2483,6 +2520,7 @@ class Editor {
           if (key === "highlightTags") this.applyHighlight();
           if (key === "classicLayout") this.applySidebarPref();
           if (key === "tallWindow") this.applyScale();
+          if (key === "hideHints") this.applyHints();
         } });
       return el("label", { class: "mmh3p-prefitem" }, box,
         el("span", {}, el("span", { class: "mmh3p-preflabel" }, label),
@@ -2510,6 +2548,12 @@ class Editor {
       item("tallWindow", "Full-height window",
            "Fills the screen top to bottom, less a small margin. Window " +
            "size then only sets the width."),
+      item("railPeek", "Preview tags on the media strip",
+           "Hovering a tag lights up its card's preview in the media " +
+           "strip, instead of a small panel at the cursor."),
+      item("hideHints", "Hide help captions",
+           "Moves the explanatory line under each section onto that " +
+           "section's hover tooltip. Live readouts stay put."),
       item("closeOnBackdrop", "Click outside to close",
            "Off means only \u2715, Cancel and Escape close the window."),
       item("warnUnsaved", "Warn about unsaved changes",
@@ -2716,13 +2760,24 @@ class Editor {
     }
     this._chipOpenFor = tag;
     this._chipTimer = setTimeout(
-      () => this.openChipPeek(hit, slot, tag, subject), 180);
+      () => {
+        // With railPeek on, show the tag's own card preview in the media
+        // strip rather than a second panel over the text being typed. Falls
+        // back to the cursor panel when the tag has no card to point at —
+        // an undefined subject, or a slot the current mode leaves out.
+        const rail = this.prefs.railPeek && this._cardFor?.get(tag);
+        if (rail) this.openRailPeek(rail.card, rail.slot);
+        else this.openChipPeek(hit, slot, tag, subject);
+      }, 180);
   }
 
   chipLeave() {
     clearTimeout(this._chipTimer);
     this._chipOpenFor = null;
     if (this._chipPeek) { this._chipPeek.remove(); this._chipPeek = null; }
+    // Under railPeek the panel that opened is the rail's, not the chip's,
+    // so leaving the tag has to close that one too.
+    if (this.prefs.railPeek) this.closePeek();
   }
 
   /** Small thumbnail beside the chip. Deliberately not interactive: it must
@@ -2885,51 +2940,7 @@ class Editor {
 
   peekFor(card, s) {
     let timer = null;
-    const open = () => {
-      this.closePeek();
-      const box = el("div", { class: "mmh3p-peek" });
-      const media = s.preview?.type === "video"
-        ? el("video", { src: s.preview.url, controls: true, autoplay: true,
-            muted: true, loop: true, class: "mmh3p-peekmedia" })
-        : s.preview?.type === "audio"
-          ? el("div", {}, this.mediaThumb(s, true),
-              el("audio", { src: s.preview.url, controls: true,
-                style: { width: "100%", height: "28px" } }))
-          : el("img", { src: s.preview?.url, class: "mmh3p-peekmedia" });
-      const cites = this.citationCount(s.tag);
-      box.append(peekCrop(media, s.item?.crop),
-        el("div", { class: "mmh3p-peekmeta" },
-          el("div", { class: "mmh3p-peekrow" },
-            el("span", { class: `mmh3p-tagname ${s.cls}` }, s.tag),
-            el("span", { class: "mmh3p-peekcite" + (cites ? "" : " zero") },
-              cites ? `cited ${cites}\u00d7` : "not cited")),
-          el("div", { class: "mmh3p-peeksrc" },
-            s.source + (s.note ? ` \u2022 ${s.note.replace(/[<>]/g, "")}` : ""))));
-
-      const r = card.getBoundingClientRect();
-      // Beside the thumbnail in the sidebar view, below it otherwise. Both
-      // clamp to the viewport: .mmh3p-peek is up to 540px wide.
-      if (this.sidebar) {
-        // The rail sits at the left edge, so the right is usually the only
-        // side with room — but on a wide enough window (a maximised browser
-        // on a widescreen monitor) there's space on the left too, and that
-        // keeps the peek from drifting far from the cursor. Left wins only
-        // when it can fit without clipping against the viewport edge.
-        const openLeft = r.left - 8 - 540 >= 0;
-        box.style.left = openLeft
-          ? `${Math.max(0, r.left - 8 - 540)}px`
-          : `${Math.max(0, Math.min(r.right + 8, window.innerWidth - 550))}px`;
-        box.style.top = `${Math.max(4, Math.min(r.top,
-          window.innerHeight - box.offsetHeight - 8))}px`;
-      } else {
-        box.style.left = `${Math.max(0, Math.min(r.left, window.innerWidth - 550))}px`;
-        box.style.top = `${r.bottom + 6}px`;
-      }
-      box.addEventListener("mouseenter", () => clearTimeout(this._peekClose));
-      box.addEventListener("mouseleave", () => this.closePeek());
-      document.body.append(box);
-      this._peek = box;
-    };
+    const open = () => this.openRailPeek(card, s);
     card.addEventListener("mouseenter", () => {
       clearTimeout(this._peekClose);
       timer = setTimeout(open, 250);
@@ -2938,6 +2949,55 @@ class Editor {
       clearTimeout(timer);
       this._peekClose = setTimeout(() => this.closePeek(), 220);
     });
+  }
+
+  /** The big preview beside a rail card. Split out of peekFor()'s hover
+   *  closure so a tag hover in a text field can open the very same panel
+   *  (see the railPeek preference), rather than a second, smaller one. */
+  openRailPeek(card, s) {
+    this.closePeek();
+    const box = el("div", { class: "mmh3p-peek" });
+    const media = s.preview?.type === "video"
+      ? el("video", { src: s.preview.url, controls: true, autoplay: true,
+          muted: true, loop: true, class: "mmh3p-peekmedia" })
+      : s.preview?.type === "audio"
+        ? el("div", {}, this.mediaThumb(s, true),
+            el("audio", { src: s.preview.url, controls: true,
+              style: { width: "100%", height: "28px" } }))
+        : el("img", { src: s.preview?.url, class: "mmh3p-peekmedia" });
+    const cites = this.citationCount(s.tag);
+    box.append(peekCrop(media, s.item?.crop),
+      el("div", { class: "mmh3p-peekmeta" },
+        el("div", { class: "mmh3p-peekrow" },
+          el("span", { class: `mmh3p-tagname ${s.cls}` }, s.tag),
+          el("span", { class: "mmh3p-peekcite" + (cites ? "" : " zero") },
+            cites ? `cited ${cites}\u00d7` : "not cited")),
+        el("div", { class: "mmh3p-peeksrc" },
+          s.source + (s.note ? ` \u2022 ${s.note.replace(/[<>]/g, "")}` : ""))));
+
+    const r = card.getBoundingClientRect();
+    // Beside the thumbnail in the sidebar view, below it otherwise. Both
+    // clamp to the viewport: .mmh3p-peek is up to 540px wide.
+    if (this.sidebar) {
+      // The rail sits at the left edge, so the right is usually the only
+      // side with room — but on a wide enough window (a maximised browser
+      // on a widescreen monitor) there's space on the left too, and that
+      // keeps the peek from drifting far from the cursor. Left wins only
+      // when it can fit without clipping against the viewport edge.
+      const openLeft = r.left - 8 - 540 >= 0;
+      box.style.left = openLeft
+        ? `${Math.max(0, r.left - 8 - 540)}px`
+        : `${Math.max(0, Math.min(r.right + 8, window.innerWidth - 550))}px`;
+      box.style.top = `${Math.max(4, Math.min(r.top,
+        window.innerHeight - box.offsetHeight - 8))}px`;
+    } else {
+      box.style.left = `${Math.max(0, Math.min(r.left, window.innerWidth - 550))}px`;
+      box.style.top = `${r.bottom + 6}px`;
+    }
+    box.addEventListener("mouseenter", () => clearTimeout(this._peekClose));
+    box.addEventListener("mouseleave", () => this.closePeek());
+    document.body.append(box);
+    this._peek = box;
   }
 
   closePeek() {
@@ -3024,10 +3084,13 @@ class Editor {
   }
 
   refChips() {
+    // Rebuilt every render, so the lookup is rebuilt with it rather than
+    // holding elements that are no longer in the document.
+    this._cardFor = new Map();
     const live = this.slots.filter((s) => s.tag);
     const tile = this.dropTile();
     if (!live.length) {
-      return [tile, el("span", { class: "hint" },
+      return [tile, el("span", { class: "hint keep" },
         "No reference media on this node yet \u2014 add some in the panel on the "
         + "node, or with the + tile here.")].filter(Boolean);
     }
@@ -3069,6 +3132,9 @@ class Editor {
           : null);
       if (s.item && s.panel) this.railReorder(card, s);
       if (ok) this.peekFor(card, s);
+      // Lets a tag hovered in a text field open this card's own preview
+      // rather than a separate one — see the railPeek preference.
+      this._cardFor.set(s.tag, { card, slot: s });
       return card;
     });
     // Trailing "+" tile. dropTile() returns null once the mode has no room
@@ -3152,12 +3218,21 @@ class Editor {
 
   /** The "(style)" dropdown: picking one inserts it at the caret and resets.
    *  Shared by the toolbar and, in REF, the style-opening heading. */
-  styleSelect() {
+  /** `allowed` pins the picker to a set of fields: the caret's field when it
+   *  is one of them, otherwise the first. Without it the style lands in
+   *  whatever was focused last, which in Reference mode meant picking a style
+   *  with the cursor in the soundscape wrote it into the soundscape. */
+  styleSelect(allowed = null) {
     const sel = el("select", {},
       [el("option", { value: "" }, "(style)"),
         ...STYLES.map((s) => el("option", { value: s }, s))]);
     sel.addEventListener("change", () => {
-      if (sel.value) { this.insert(sel.value + ", "); sel.value = ""; }
+      if (!sel.value) return;
+      const target = allowed
+        ? (allowed.includes(this.lastFocus) ? this.lastFocus : allowed[0])
+        : null;
+      this.insert(sel.value + ", ", target ? { target } : {});
+      sel.value = "";
     });
     // Fitted after its own handler, which resets the value — registering first
     // would measure the style just picked, then miss the reset back to "(style)".
@@ -3618,7 +3693,7 @@ class Editor {
 
   durationRow() {
     const frames = snapLength(this.state.duration);
-    const hint = el("span", { class: "hint" },
+    const hint = el("span", { class: "hint keep" },
       `snaps to ${fmtSS(frames / 24)} s \u2022 ${frames} frames (17k+5 grid @ 24fps) \u2014 ` +
       "use this value for the native node's length");
     const input = el("input", {
@@ -3677,7 +3752,33 @@ class Editor {
       this.formEl.prepend(this.clearStrip());
       this.formEl.scrollTop = 0;
     } else this.formEl.scrollTop = scroll;
+    this.applyHints();
     this.updatePreview();
+  }
+
+  /** Hide the standing help captions, moving each onto its section's
+   *  tooltip so the guidance is still one hover away. Runs after every
+   *  render because render() rebuilds the form from scratch. */
+  applyHints() {
+    const hide = !!this.prefs.hideHints;
+    this.overlay?.querySelector(".mmh3p-modal")
+      ?.classList.toggle("mmh3p-nohints", hide);
+    if (!this.formEl) return;
+    const seen = new Set();
+    for (const h of this.formEl.querySelectorAll(".hint:not(.keep)")) {
+      const sec = h.closest(".mmh3p-sec") || h.parentElement;
+      if (!sec || seen.has(sec)) continue;
+      seen.add(sec);
+      if (!hide) continue;
+      // Every non-live caption in this section, joined — a couple of
+      // sections carry two. Appended to any title the section already has
+      // rather than replacing it.
+      const own = [...sec.querySelectorAll(".hint:not(.keep)")]
+        .map((x) => (x.textContent || "").trim()).filter(Boolean).join("\n\n");
+      const had = sec.getAttribute("data-own-title") ?? sec.title ?? "";
+      sec.setAttribute("data-own-title", had);
+      sec.title = [had, own].filter(Boolean).join("\n\n");
+    }
   }
 
   renderBase() {
@@ -4026,7 +4127,7 @@ class Editor {
         "weak_reference. Audio labels: fully_copy / partially_copy / reference / weak_reference.")));
 
     /* detailed_description --------------------------------------------- */
-    const wcSpan = el("span", { class: "hint" });
+    const wcSpan = el("span", { class: "hint keep" });
     const paintWc = () => {
       const wc = r.detail.trim() ? r.detail.trim().split(/\s+/).length : 0;
       wcSpan.textContent = `${wc} words \u2014 generation tasks normally 350\u2013500. ` +
@@ -4037,12 +4138,18 @@ class Editor {
     const detTa = this.ta(r, "detail", 14,
       "[Shot 1] A medium shot establishes <Subject 1>, ...\n[Shot 2] At 00:03.000, the shot cuts to ...");
     detTa.addEventListener("input", paintWc);
+    const styleWrap = this.ta(r, "styleLine", 2,
+      "The target video is in a realistic multi-camera sitcom style with warm indoor lighting.");
+    // ta() hands back the chip wrapper, so reach through it for the field
+    // itself — the two detailed_description halves are the only places this
+    // picker may write.
+    const detailFields = [styleWrap, detTa]
+      .map((w) => w.querySelector("textarea")).filter(Boolean);
     f.append(el("div", { class: "mmh3p-sec" },
       el("label", { class: "act" },
         "detailed_description \u2014 style opening (before [Shot 1])",
-        el("span", { class: "mmh3p-secact" }, this.styleSelect())),
-      this.ta(r, "styleLine", 2,
-        "The target video is in a realistic multi-camera sitcom style with warm indoor lighting.")));
+        el("span", { class: "mmh3p-secact" }, this.styleSelect(detailFields))),
+      styleWrap));
     f.append(el("div", { class: "mmh3p-sec mmh3p-grow" },
       el("label", {}, "detailed_description \u2014 shots"),
       detTa, wcSpan));
@@ -4117,7 +4224,14 @@ class Editor {
     // by lookahead, so the two can't claim each other's text; every pattern
     // after the first excludes < and > so none can match inside a span this
     // chain has already inserted.
-    this.previewEl.innerHTML = paintTags(text);
+    // Resolved against this editor's own slots and subject definitions, the
+    // same test paintToken() applies in the fields, so a tag that reads red
+    // while typing reads red here too.
+    this.previewEl.innerHTML = paintTags(text, (tag) => {
+      if (tag.startsWith("<Subject")) return this.subjectInfo(tag) ? "subj" : "unknown";
+      const slot = this.slotFor(tag);
+      return slot ? (slot.cls || "pic") : "unknown";
+    });
 
     const rank = { error: 0, warn: 1, info: 2 };
     const icon = { error: "\u26d4 ", warn: "\u26a0 ", info: "\u2139 " };
@@ -4301,6 +4415,9 @@ export function promptFields(node) {
     "Ambience, physical action sounds, non-verbal human sounds.");
   const musicTa = audioBox("non_diegetic_music", "music",
     "Instrumentation, tempo, rhythm, dynamics. No abstract mood words.");
+  // Named so a caller can open straight into one of them — the node bar's
+  // 🔊/🎵 marks do exactly that.
+  const fieldFor = { soundscape: soundTa, music: musicTa };
   root.append(pair);
   linkHeights(soundTa, musicTa);
 
@@ -4319,12 +4436,15 @@ export function promptFields(node) {
   // any of the .mmh3p-quick rules the fields themselves rely on.
   const pics = keyframes();
   const shell = pics ? el("div", { class: "mmh3p-quickwrap" }, pics, root) : root;
-  return { root: shell, save, state };
+  return { root: shell, save, state, fieldFor };
 }
 
 /** The quick-edit window, opened by clicking the node's prompt bar. The bar's
- *  scroll still opens the full builder, so both routes stay available. */
-export function openQuickEdit(node) {
+ *  scroll still opens the full builder, so both routes stay available.
+ *
+ *  `focusKey` names a field to open into ("soundscape" / "music"), used by
+ *  the bar's 🔊/🎵 marks so clicking one lands on the section it stands for. */
+export function openQuickEdit(node, focusKey = null) {
   injectCSS();
   const fields = promptFields(node);
   const mode = fields.state.mode;
@@ -4358,7 +4478,18 @@ export function openQuickEdit(node) {
         } }, "Save to node"))));
   window.addEventListener("keydown", esc);
   document.body.append(overlay);
-  setTimeout(() => fields.root.querySelector("textarea")?.focus(), 0);
+  setTimeout(() => {
+    // Straight into the named field when one was asked for, so the bar's
+    // audio marks land on the section they stand for; the first field
+    // otherwise, as before.
+    const want = focusKey && fields.fieldFor?.[focusKey];
+    const t = want || fields.root.querySelector("textarea");
+    t?.focus();
+    // Caret at the end rather than selecting nothing at position 0 — this
+    // opens on a field that already has text, and typing should extend it.
+    try { t.selectionStart = t.selectionEnd = t.value.length; } catch (e) {}
+    t?.scrollIntoView?.({ block: "nearest" });
+  }, 0);
   return overlay;
 }
 
@@ -4445,10 +4576,17 @@ function peekCrop(media, crop) {
     } }));
 }
 
-function paintTags(text) {
+/** `classFor` optionally resolves a tag against what is actually loaded, so
+ *  the preview can mark an undefined tag red exactly as the input fields do.
+ *  Without it every tag is assumed defined, which is right for the node's
+ *  prompt bar — it has no editor state to check against. */
+function paintTags(text, classFor = null) {
   return escapeHtml(text)
     .replace(/&lt;(Subject|Picture|Video|Audio) (\d+)&gt;/g,
-      (m, k, n) => `<span class="mmh3p-t-${TAG_CLASS[k]}">&lt;${k} ${n}&gt;</span>`)
+      (m, k, n) => {
+        const cls = classFor ? classFor(`<${k} ${n}>`) : TAG_CLASS[k];
+        return `<span class="mmh3p-t-${cls}">&lt;${k} ${n}&gt;</span>`;
+      })
     .replace(/\[(?!Shot\b)([^\]\n<>]{1,24})\]/g,
       '<span class="mmh3p-t-lang">[$1]</span>')
     .replace(/\[Shot (\d+)\]/g, '<span class="mmh3p-t-shot">[Shot $1]</span>')
@@ -4624,10 +4762,18 @@ export function updateSummary(node) {
     return !!v && !/^n\/?a$/i.test(v) && sectionOn(state, section);
   };
   const marks = [];
+  // Clicking a mark opens the quick editor with that section's field focused,
+  // rather than the generic open the rest of the bar does — the icon already
+  // names the field, so it may as well take you to it.
+  const mark = (icon, key, label) => el("span", {
+    class: "mmh3p-summark",
+    title: `${label} has content \u2014 click to edit it`,
+    onclick: (e) => { e.stopPropagation(); openQuickEdit(node, key); },
+  }, icon);
   if (filled("soundscape", "overall_soundscape"))
-    marks.push(el("span", { class: "mmh3p-summark", title: "overall_soundscape has content" }, "\u{1F50A}"));
+    marks.push(mark("\u{1F50A}", "soundscape", "overall_soundscape"));
   if (filled("music", "non_diegetic_music"))
-    marks.push(el("span", { class: "mmh3p-summark", title: "non_diegetic_music has content" }, "\u{1F3B5}"));
+    marks.push(mark("\u{1F3B5}", "music", "non_diegetic_music"));
 
   node._mmh3Summary.title = `${detail}\nClick to open the editor`;
   node._mmh3Summary.replaceChildren(scroll, preview, ...marks, btn);
