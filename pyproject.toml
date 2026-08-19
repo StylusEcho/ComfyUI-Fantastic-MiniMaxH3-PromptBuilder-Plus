@@ -9,7 +9,11 @@ name = "fantastic-minimax-h3-prompt-builder-plus"
 # 2.1.0 folds in upstream 1.5.5/1.5.6 (node/text size controls replacing the
 # old size-preset button, a crop-render crash fix, and the picture "bake"
 # route) — no further breakage.
-version = "2.1.0"
+# 2.2.0 folds in upstream 1.5.8 (atomic writes for presets/prompts, a save
+# collision check and an explicit rename flag for the prompt library, and
+# dimension/duration healing for presets saved before that metadata was
+# stored) — again no breakage of saved workflows.
+version = "2.2.0"
 description = "MiniMax H3 Prompt Studio: a single guided prompt-writing and reference-media node for the H3 video model, with live checking against MiniMax's prompt guide."
 license = { file = "LICENSE" }
 requires-python = ">=3.9"
