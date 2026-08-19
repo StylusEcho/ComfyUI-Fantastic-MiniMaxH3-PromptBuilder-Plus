@@ -23,7 +23,11 @@ console.log("[MiniMaxH3 PromptStudio] module loaded");
 
 const STUDIO_NAME = "MiniMaxH3PromptStudio";
 const SUMMARY_H = 52;   // two clamped preview lines + padding
-const EDITOR_H = 300;   // the bar expanded into the three prompt fields
+// The bar expanded into the three prompt fields. Sized to reclaim roughly
+// what the media panel's old "T2VA sends the prompt only" notice used to
+// cost, now that the panel collapses to just its toolbar in this state —
+// see medialoader.js's mode-shaped layout branch.
+const EDITOR_H = 340;
 /* The prompt bar is the node's last widget, so without this it sits hard
    against the bottom edge while the panel above it is inset left and right.
    Reported as part of the widget's height but not given to the element, so it
@@ -50,6 +54,12 @@ function refreshBar(node) {
       bar.classList.remove("mmh3p-summary-open");
       widget.computedHeight = SUMMARY_H + BOTTOM_GAP;
       widget.computeSize = () => [NODE_W, SUMMARY_H + BOTTOM_GAP];
+      // The widget hints above are what the canvas/Vue layout reads; the
+      // element's own inline height is a separate, actual CSS box that has
+      // to be kept in step by hand, or it stays whatever it was last set to
+      // regardless of what computeSize() now says.
+      bar.style.height = `${SUMMARY_H}px`;
+      bar.style.minHeight = `${SUMMARY_H}px`;
     }
     updateSummary(node);
     return;
@@ -69,6 +79,11 @@ function refreshBar(node) {
   bar.replaceChildren(fields.root);
   widget.computedHeight = EDITOR_H + BOTTOM_GAP;
   widget.computeSize = () => [NODE_W, EDITOR_H + BOTTOM_GAP];
+  // See the comment in the collapse branch above: without this the element
+  // stays locked at its creation-time 52px regardless of what the widget
+  // hints say, and the fields render squeezed into that sliver.
+  bar.style.height = `${EDITOR_H}px`;
+  bar.style.minHeight = `${EDITOR_H}px`;
 }
 
 /** The panel widget's current height, read back off the widget rather than
@@ -173,6 +188,10 @@ app.registerExtension({
         // Media and prompt share this node, so a change to the inventory has
         // to redraw the summary's count. LoaderPanel.commit calls this.
         this._mmlOnCommit = () => refreshBar(this);
+        // Read by the full-size media loader window (medialoader.js) for its
+        // own "open the Prompt Builder" button — a hook rather than an
+        // import, since medialoader.js has no dependency on promptbuilder.js.
+        this._mmh3OpenEditor = () => openEditor(this);
 
         this._mmlPanel = new LoaderPanel(this);
         // The prompt bar mounts flush beneath this panel, so the two square

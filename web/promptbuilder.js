@@ -36,6 +36,114 @@ const PAINT_RE = new RegExp([
 
 const LANG_RE = /^(\s*\[[^\]\n]+\])/;
 
+/* --- reference tags as chips ------------------------------------------ */
+/* Shared by the full editor and the quick prompt editors (the popup and the
+   T2VA inline mount), so a tag reads the same colour wherever it's typed —
+   the full editor also layers hover-preview thumbnails on top via its own
+   chipHover()/chipLeave(), which these deliberately don't know about. */
+
+/** Render one matched token as the spans the chip mirror shows.
+ *  `slotFor`/`subjectInfo` resolve a reference tag to what it points at —
+ *  omit either to treat every tag of that kind as unresolved ("unknown"). */
+function paintToken(tok, { slotFor, subjectInfo } = {}) {
+  if (tok.startsWith("<d>")) {
+    const inner = tok.slice(3, -4);
+    const kids = [el("span", { class: "mmh3p-dmark" }, "<d>")];
+    const lang = inner.match(LANG_RE);
+    const body = lang ? inner.slice(lang[0].length) : inner;
+    if (lang) kids.push(el("span", { class: "mmh3p-dlang" }, lang[1]));
+    kids.push(el("span", { class: "mmh3p-dtext" }, body));
+    kids.push(el("span", { class: "mmh3p-dmark" }, "</d>"));
+    return [el("span", { class: "mmh3p-dblock" }, ...kids)];
+  }
+  if (tok.startsWith("[Shot")) {
+    return [el("span", { class: "mmh3p-reftag shot" }, tok)];
+  }
+  if (tok.startsWith("(")) {
+    return [el("span", { class: "mmh3p-reftag spk", dataset: { tag: tok } }, tok)];
+  }
+  let cls;
+  if (tok.startsWith("<Subject")) {
+    cls = subjectInfo?.(tok) ? "subj" : "unknown";
+  } else {
+    const slot = slotFor?.(tok);
+    cls = slot ? (slot.cls || "pic") : "unknown";
+  }
+  return [el("span", { class: "mmh3p-reftag " + cls, dataset: { tag: tok } }, tok)];
+}
+
+/** Wrap a textarea so <Picture 1> and friends read as chips.
+ *
+ *  A textarea can't contain elements, so a mirror div renders the same
+ *  text underneath with the tags wrapped in spans. The textarea keeps its
+ *  own text transparent, which leaves selection, undo, IME and paste
+ *  exactly as the browser implements them — a contenteditable rewrite
+ *  would put all of that on us.
+ *
+ *  Returns `{ wrap, paint }`: `wrap` is what to mount in place of the bare
+ *  textarea, `paint` lets the caller force a repaint (the full editor calls
+ *  it after a mode switch, when slotFor's answers can change under it). */
+function chipField(box, opts = {}) {
+  const { slotFor, subjectInfo, highlightTags = true, onHover, onLeave } = opts;
+  const mirror = el("div", { class: "mmh3p-chipmirror", "aria-hidden": "true" });
+  // Order matters: the mirror is painted ON TOP of the textarea so the
+  // selection band (drawn by the textarea) sits behind the glyphs instead
+  // of covering them. It's click-through, so the textarea still gets every
+  // pointer event.
+  const wrap = el("div", { class: "mmh3p-chipwrap" }, box, mirror);
+  if (!highlightTags) wrap.classList.add("plain");
+  box.classList.add("mmh3p-chiptext");
+
+  const paint = () => {
+    const text = box.value || "";
+    mirror.replaceChildren();
+    let last = 0;
+    PAINT_RE.lastIndex = 0;
+    let m;
+    while ((m = PAINT_RE.exec(text)) !== null) {
+      if (m.index > last)
+        mirror.append(document.createTextNode(text.slice(last, m.index)));
+      mirror.append(...paintToken(m[0], { slotFor, subjectInfo }));
+      last = m.index + m[0].length;
+    }
+    // The trailing newline keeps the mirror's last line height in step with
+    // the textarea's when the text ends mid-line.
+    mirror.append(document.createTextNode(text.slice(last) + "\n"));
+    syncBox();
+  };
+
+  /* A textarea that overflows grows a scrollbar, which narrows its text
+     column. The mirror has overflow:hidden and keeps full width, so without
+     this its lines wrap later than the real ones and the gap widens down
+     the field — the caret drifting further from the glyphs the more you
+     write. Platforms differ (macOS overlays them, Linux and Windows often
+     don't), so measure rather than assume. */
+  const syncBox = () => {
+    const bw = box.offsetWidth - box.clientWidth
+      - (parseFloat(getComputedStyle(box).borderLeftWidth) || 0)
+      - (parseFloat(getComputedStyle(box).borderRightWidth) || 0);
+    const gutter = Math.max(0, Math.round(bw));
+    const want = `${9 + gutter}px`;
+    if (mirror.style.paddingRight !== want) mirror.style.paddingRight = want;
+    mirror.scrollTop = box.scrollTop;
+    mirror.scrollLeft = box.scrollLeft;
+  };
+
+  box.addEventListener("input", paint);
+  box.addEventListener("scroll", syncBox);
+  // Dragging the resize grip can add or remove the scrollbar.
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(syncBox).observe(box);
+  }
+  // Hover a chip for its thumbnail — optional, since only the full editor
+  // has anywhere to show one.
+  if (onHover) box.addEventListener("mousemove", (e) => onHover(e, mirror));
+  if (onLeave) box.addEventListener("mouseleave", onLeave);
+
+  paint();
+  return { wrap, paint };
+}
+
 const MODE_SENDS = {
   T2VA: "Sends: prompt only \u2014 no reference media leaves the node in this mode.",
   I2VA: "Sends: prompt + picture 1 (first frame). All other media is withheld.",
@@ -300,6 +408,9 @@ const PREF_DEFAULTS = {
   // Chips can be switched off for a plain text field. The mirror still
   // renders (invisibly), so hover previews keep working.
   highlightTags: true,
+  // The media rail moved into a left-edge sidebar by default; this is the
+  // opt-out back to the original strip-across-the-top layout.
+  classicLayout: false,
 };
 const SCALE_MIN = 1.0;
 const SCALE_MAX = 3.0;          // window
@@ -963,6 +1074,10 @@ const CSS = `
   box-shadow:0 24px 64px rgba(0,0,0,.55);overflow:hidden;}
 .mmh3p-head{display:flex;align-items:center;gap:14px;padding:10px 16px;
   border-bottom:1px solid #2a2f3a;background:#1e222a;}
+/* One height for every control here, regardless of which of several
+   differently-padded button styles it happens to use — .mmh3p-btn, .mmh3p-x
+   and the mode switcher's own buttons each disagreed by a couple of px. */
+.mmh3p-head button{height:26px;box-sizing:border-box;}
 .mmh3p-title{font-weight:600;font-size:calc(14px * var(--mmh3-fs, 1));letter-spacing:.02em;}
 .mmh3p-title small{color:#8a93a3;font-weight:400;margin-left:8px;}
 .mmh3p-modesends{padding:4px 14px;font-size:calc(10px * var(--mmh3-fs, 1));color:#7d8698;
@@ -998,8 +1113,11 @@ const CSS = `
    round, so the column carries no dead width; the slack is what stops a
    platform with non-overlay scrollbars clipping the card once the list scrolls. */
 .mmh3p-body.sidebar{grid-template-columns:164px minmax(0,1fr) 440px;}
+/* Top padding matches .mmh3p-chipbar's own (16px, below) so the "media"
+   heading starts at the same Y coordinate whichever view you toggle into —
+   otherwise it visibly jumps a few px on every toggle. */
 .mmh3p-body.sidebar .mmh3p-rail{display:flex;flex-direction:column;gap:6px;
-  min-height:0;overflow-y:auto;padding:10px 8px;background:#15181e;
+  min-height:0;overflow-y:auto;padding:16px 8px 10px;background:#15181e;
   border-right:1px solid #2a2f3a;}
 .mmh3p-railhead{flex:0 0 auto;font-size:calc(10px * var(--mmh3-fs, 1));text-transform:uppercase;
   letter-spacing:.08em;color:#8a93a3;}
@@ -1011,7 +1129,7 @@ const CSS = `
 /* Centred, not stretched: the cards keep the same 128px they have inline, so a
    thumbnail is the same size whichever view you are in. */
 .mmh3p-body.sidebar .mmh3p-rail .mmh3p-chips{flex-direction:column;flex-wrap:nowrap;
-  max-height:none;overflow:visible;align-items:center;}
+  max-height:none;overflow:visible;align-items:center;justify-content:flex-start;}
 .mmh3p-body.sidebar .mmh3p-rail .mmh3p-card.joinR{margin-right:0;margin-bottom:-6px;
   border-radius:7px 7px 0 0;}
 .mmh3p-body.sidebar .mmh3p-rail .mmh3p-card.joinL{border-left-width:1px;
@@ -1088,6 +1206,11 @@ const CSS = `
 .mmh3p-sec.mmh3p-grow{flex:1 1 auto;display:flex;flex-direction:column;
   min-height:220px;}
 .mmh3p-sec.mmh3p-grow textarea{flex:1 1 auto;min-height:140px;}
+/* Only the textarea (with its own explicit floor above) may give up height
+   under pressure — its label and trailing hint must never be squeezed
+   below their real rendered size, or the flex-shrink algorithm silently
+   overflows them past this section's box and onto whatever follows it. */
+.mmh3p-sec.mmh3p-grow>label,.mmh3p-sec.mmh3p-grow>.hint{flex-shrink:0;}
 .mmh3p-side{border-left:1px solid #2a2f3a;display:flex;flex-direction:column;min-height:0;background:#15181e;}
 .mmh3p-sec{margin-bottom:16px;}
 /* The form is a flex column, so margins don't collapse: the last section's own
@@ -1235,7 +1358,7 @@ const CSS = `
    strip you have to drag through, and every reference stays reachable for a
    drag. Caps at roughly three rows before scrolling vertically. */
 .mmh3p-chips{display:flex;flex-wrap:wrap;gap:6px;padding-bottom:3px;
-  align-items:flex-start;align-content:flex-start;
+  align-items:flex-start;align-content:flex-start;justify-content:center;
   max-height:min(46vh,380px);overflow-y:auto;overflow-x:hidden;}
 .mmh3p-chips::-webkit-scrollbar{width:6px;height:6px;}
 .mmh3p-chips::-webkit-scrollbar-thumb{background:#2e3440;border-radius:3px;}
@@ -1320,8 +1443,10 @@ const CSS = `
   margin-bottom:6px;align-items:center;}
 .mmh3p-retrow input,.mmh3p-retrow select{font-size:calc(12px * var(--mmh3-fs, 1));}
 .mmh3p-retnote{grid-column:1/-1;margin-top:-2px;}
-.mmh3p-preview{flex:1;overflow:auto;margin:0;padding:12px 14px;font:12px/1.55 ui-monospace,
-  SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word;color:#c4cad5;}
+.mmh3p-preview{flex:1;overflow:auto;margin:0;padding:12px 14px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:calc(12px * var(--mmh3-fs, 1));line-height:1.55;
+  white-space:pre-wrap;word-break:break-word;color:#c4cad5;}
 /* Unscoped: paintTags() output appears in the editor's preview and in the
    node's prompt bar, and a tag has to read the same colour in both. */
 .mmh3p-t-pic{color:#e0a94c;} .mmh3p-t-vid{color:#4cc3e0;}
@@ -1384,6 +1509,10 @@ const CSS = `
 .mmh3p-quick .mmh3p-sec.mmh3p-grow{flex:1 1 auto;display:flex;flex-direction:column;
   min-height:200px;}
 .mmh3p-quick .mmh3p-sec.mmh3p-grow textarea{flex:1 1 auto;min-height:120px;}
+/* Same guard as the full editor's grow section, ahead of the same class of
+   bug — no hint lives here yet, but the label shouldn't be squeezable. */
+.mmh3p-quick .mmh3p-sec.mmh3p-grow>label,
+.mmh3p-quick .mmh3p-sec.mmh3p-grow>.hint{flex-shrink:0;}
 .mmh3p-quick textarea{width:100%;box-sizing:border-box;background:#12151b;
   color:#dde2ea;border:1px solid #2e3440;border-radius:6px;padding:7px 9px;
   font-size:calc(13px * var(--mmh3-fs, 1));font-family:inherit;resize:vertical;line-height:1.5;}
@@ -1998,13 +2127,16 @@ class Editor {
     this.state = loadState(node);
     this.slots = getRefSlots(node);
     this.lastFocus = null;
-    this.sidebar = !!node._mmh3Sidebar;
     this.libraryId = null;
     this.libraryName = "";
     this.libraryCategory = "";
     this.clearPending = false;
     this.closePending = false;
     this.prefs = loadPrefs();
+    // A global preference now (see PREF_DEFAULTS), not per-node — the
+    // sidebar is the standard layout, so there's no reason for one node to
+    // remember it differently than another.
+    this.sidebar = !this.prefs.classicLayout;
     this.prefsOpen = false;
     // What the node currently holds, to tell "edited" from "just looked".
     this.openedWith = JSON.stringify(this.state);
@@ -2099,29 +2231,22 @@ class Editor {
           el("button", { class: "mmh3p-btn",
             title: "Browse saved prompts",
             onclick: () => new Library(this) }, "\u2630 Library"),
-          el("button", { class: "mmh3p-btn",
+          el("button", { class: "mmh3p-btn mmh3p-danger",
             title: "Clear every field and start over",
             onclick: () => { this.clearPending = !this.clearPending; this.render(); } },
             "Clear"),
-          el("button", { class: "mmh3p-btn" + (this.sidebar ? " primary" : ""),
-            title: "Show reference media as a column down the left edge",
-            onclick: () => {
-              this.sidebar = !this.sidebar;
-              try { this.node._mmh3Sidebar = this.sidebar; } catch (e) { /* not fatal */ }
-              this.overlay.querySelector(".mmh3p-body")
-                .classList.toggle("sidebar", this.sidebar);
-              this.railEl.replaceChildren();
-              this.closePeek();
-              this.render();
-            } }, "\u25e7 Sidebar"),
+          this.prefsButton(),
           guideBtn,
           this.modeBar,
-          this.prefsButton(),
+          el("button", { class: "mmh3p-btn",
+            title: "Open the full media loader window",
+            onclick: () => openLoaderModal(this.node, "MiniMax H3 \u2014 media") },
+            "\u2750 Media Loader"),
           el("button", { class: "mmh3p-x",
             onclick: () => this.requestClose() }, "\u2715"),
         ),
         this.modeSends,
-        el("div", { class: "mmh3p-body" },
+        el("div", { class: "mmh3p-body" + (this.sidebar ? " sidebar" : "") },
           this.railEl,
           this.formEl,
           el("div", { class: "mmh3p-side" },
@@ -2276,6 +2401,7 @@ class Editor {
           this.prefs[key] = e.target.checked;
           savePrefs(this.prefs);
           if (key === "highlightTags") this.applyHighlight();
+          if (key === "classicLayout") this.applySidebarPref();
         } });
       return el("label", { class: "mmh3p-prefitem" }, box,
         el("span", {}, el("span", { class: "mmh3p-preflabel" }, label),
@@ -2297,6 +2423,9 @@ class Editor {
       item("highlightTags", "Highlight tags and dialogue",
            "Off gives plain text fields; hovering a tag still shows its " +
            "preview."),
+      item("classicLayout", "Classic top-strip layout",
+           "Off (default) keeps reference media in a column down the left " +
+           "edge. On puts it back in a strip across the top."),
       item("closeOnBackdrop", "Click outside to close",
            "Off means only \u2715, Cancel and Escape close the window."),
       item("warnUnsaved", "Warn about unsaved changes",
@@ -2314,6 +2443,17 @@ class Editor {
   applyHighlight() {
     const plain = !this.prefs.highlightTags;
     (this._chipWraps || []).forEach((w) => w.classList.toggle("plain", plain));
+  }
+
+  /** Flips the media rail between the sidebar and the classic top strip,
+   *  same as the old Sidebar button used to. */
+  applySidebarPref() {
+    this.sidebar = !this.prefs.classicLayout;
+    this.overlay.querySelector(".mmh3p-body")
+      .classList.toggle("sidebar", this.sidebar);
+    this.railEl.replaceChildren();
+    this.closePeek();
+    this.render();
   }
 
   /** Window scale changes the modal's box; text scale zooms its contents. */
@@ -2396,102 +2536,21 @@ class Editor {
 
   /* --- reference tags as chips ------------------------------------- */
 
-  /** Wrap a textarea so <Picture 1> and friends read as chips.
-   *
-   *  A textarea can't contain elements, so a mirror div renders the same
-   *  text underneath with the tags wrapped in spans. The textarea keeps its
-   *  own text transparent, which leaves selection, undo, IME and paste
-   *  exactly as the browser implements them — a contenteditable rewrite
-   *  would put all of that on us. */
+  /** Instance-aware wrapper over the shared chipField(): resolves tags
+   *  against this editor's own slots/subject defs, applies its highlight
+   *  preference, and wires the hover-preview thumbnails only it has room
+   *  for. */
   chipField(box) {
-    const mirror = el("div", { class: "mmh3p-chipmirror", "aria-hidden": "true" });
-    // Order matters: the mirror is painted ON TOP of the textarea so the
-    // selection band (drawn by the textarea) sits behind the glyphs instead
-    // of covering them. It's click-through, so the textarea still gets every
-    // pointer event.
-    const wrap = el("div", { class: "mmh3p-chipwrap" }, box, mirror);
+    const { wrap, paint } = chipField(box, {
+      slotFor: (t) => this.slotFor(t),
+      subjectInfo: (t) => this.subjectInfo(t),
+      highlightTags: this.prefs?.highlightTags,
+      onHover: (e, mirror) => this.chipHover(e, mirror),
+      onLeave: () => this.chipLeave(),
+    });
     (this._chipWraps = this._chipWraps || []).push(wrap);
-    if (!this.prefs?.highlightTags) wrap.classList.add("plain");
-    box.classList.add("mmh3p-chiptext");
-
-    const paint = () => {
-      const text = box.value || "";
-      mirror.replaceChildren();
-      let last = 0;
-      PAINT_RE.lastIndex = 0;
-      let m;
-      while ((m = PAINT_RE.exec(text)) !== null) {
-        if (m.index > last)
-          mirror.append(document.createTextNode(text.slice(last, m.index)));
-        mirror.append(...this.paintToken(m[0]));
-        last = m.index + m[0].length;
-      }
-      // The trailing newline keeps the mirror's last line height in step with
-      // the textarea's when the text ends mid-line.
-      mirror.append(document.createTextNode(text.slice(last) + "\n"));
-      syncBox();
-    };
-
-    /* A textarea that overflows grows a scrollbar, which narrows its text
-       column. The mirror has overflow:hidden and keeps full width, so without
-       this its lines wrap later than the real ones and the gap widens down
-       the field — the caret drifting further from the glyphs the more you
-       write. Platforms differ (macOS overlays them, Linux and Windows often
-       don't), so measure rather than assume. */
-    const syncBox = () => {
-      const bw = box.offsetWidth - box.clientWidth
-        - (parseFloat(getComputedStyle(box).borderLeftWidth) || 0)
-        - (parseFloat(getComputedStyle(box).borderRightWidth) || 0);
-      const gutter = Math.max(0, Math.round(bw));
-      const want = `${9 + gutter}px`;
-      if (mirror.style.paddingRight !== want) mirror.style.paddingRight = want;
-      mirror.scrollTop = box.scrollTop;
-      mirror.scrollLeft = box.scrollLeft;
-    };
-
-    box.addEventListener("input", paint);
-    box.addEventListener("scroll", syncBox);
-    // Dragging the resize grip can add or remove the scrollbar.
-    if (typeof ResizeObserver === "function") {
-      new ResizeObserver(syncBox).observe(box);
-    }
-    // Hover a chip for its thumbnail. The mirror can't take pointer events
-    // (it sits under the textarea), so hit-test the chip boxes directly.
-    box.addEventListener("mousemove", (e) => this.chipHover(e, mirror));
-    box.addEventListener("mouseleave", () => this.chipLeave());
-
-    this._chipFields = this._chipFields || [];
-    this._chipFields.push(paint);
-    paint();
+    (this._chipFields = this._chipFields || []).push(paint);
     return wrap;
-  }
-
-  /** Render one matched token as the spans the mirror shows. */
-  paintToken(tok) {
-    if (tok.startsWith("<d>")) {
-      const inner = tok.slice(3, -4);
-      const kids = [el("span", { class: "mmh3p-dmark" }, "<d>")];
-      const lang = inner.match(LANG_RE);
-      const body = lang ? inner.slice(lang[0].length) : inner;
-      if (lang) kids.push(el("span", { class: "mmh3p-dlang" }, lang[1]));
-      kids.push(el("span", { class: "mmh3p-dtext" }, body));
-      kids.push(el("span", { class: "mmh3p-dmark" }, "</d>"));
-      return [el("span", { class: "mmh3p-dblock" }, ...kids)];
-    }
-    if (tok.startsWith("[Shot")) {
-      return [el("span", { class: "mmh3p-reftag shot" }, tok)];
-    }
-    if (tok.startsWith("(")) {
-      return [el("span", { class: "mmh3p-reftag spk", dataset: { tag: tok } }, tok)];
-    }
-    let cls;
-    if (tok.startsWith("<Subject")) {
-      cls = this.subjectInfo(tok) ? "subj" : "unknown";
-    } else {
-      const slot = this.slotFor(tok);
-      cls = slot ? (slot.cls || "pic") : "unknown";
-    }
-    return [el("span", { class: "mmh3p-reftag " + cls, dataset: { tag: tok } }, tok)];
   }
 
   /** What a <Subject N> chip should show: the first picture its definition
@@ -2751,7 +2810,15 @@ class Editor {
       // Beside the thumbnail in the sidebar view, below it otherwise. Both
       // clamp to the viewport: .mmh3p-peek is up to 540px wide.
       if (this.sidebar) {
-        box.style.left = `${Math.max(0, Math.min(r.right + 8, window.innerWidth - 550))}px`;
+        // The rail sits at the left edge, so the right is usually the only
+        // side with room — but on a wide enough window (a maximised browser
+        // on a widescreen monitor) there's space on the left too, and that
+        // keeps the peek from drifting far from the cursor. Left wins only
+        // when it can fit without clipping against the viewport edge.
+        const openLeft = r.left - 8 - 540 >= 0;
+        box.style.left = openLeft
+          ? `${Math.max(0, r.left - 8 - 540)}px`
+          : `${Math.max(0, Math.min(r.right + 8, window.innerWidth - 550))}px`;
         box.style.top = `${Math.max(4, Math.min(r.top,
           window.innerHeight - box.offsetHeight - 8))}px`;
       } else {
@@ -3548,12 +3615,13 @@ class Editor {
       L2VA: "plausible preceding state \u2192 action/transition path \u2192 gradual convergence \u2192 last-frame landing",
     };
     f.append(el("div", { class: "mmh3p-sec mmh3p-grow" },
-      el("label", {}, "integrated_multimodal_description"),
+      el("label", {
+        title: "Open [Shot 1] with the overall style and initial composition. " +
+          "Later shots: \"[Shot N] At MM:SS.mmm, the shot cuts to ...\". Write " +
+          "camera moves as natural sentences.",
+      }, "integrated_multimodal_description"),
       this.ta(s, "imd", 12,
-        `[Shot 1] Live-action, cinematic, ...\nRecommended: ${structures[s.mode]}`),
-      el("span", { class: "hint" },
-        "Open [Shot 1] with the overall style and initial composition. Later shots: " +
-        "\"[Shot N] At MM:SS.mmm, the shot cuts to ...\". Write camera moves as natural sentences.")));
+        `[Shot 1] Live-action, cinematic, ...\nRecommended: ${structures[s.mode]}`)));
 
     const soundTa = this.ta(s, "soundscape", 3,
       "1\u20134 sentences: ambience, physical action sounds, non-verbal human sounds.");
@@ -4035,15 +4103,49 @@ export function promptFields(node) {
           sl.item?.crop),
         el("span", { class: `mmh3p-tagname ${sl.cls}` }, sl.tag))));
   };
-  const field = (label, obj, key, rows, placeholder, cls) => {
+  // Same colour coding as the full editor, minus what only it has room for
+  // (hover-preview thumbnails). Slots computed once and reused across every
+  // field the quick editor mounts.
+  let slots = null;
+  const slotFor = (tag) => {
+    if (!slots) { try { slots = getRefSlots(node); } catch (e) { slots = []; } }
+    return slots.find((s) => s.tag === tag);
+  };
+  const highlightTags = loadPrefs().highlightTags;
+
+  const field = (label, obj, key, rows, placeholder, cls, extra) => {
     const t = el("textarea", {
       rows, placeholder, value: obj[key] ?? "",
       oninput: (e) => { obj[key] = e.target.value; },
     });
+    const { wrap } = chipField(t, { slotFor, highlightTags });
+    const labelEl = extra
+      ? el("label", { class: "act" }, label,
+          el("span", { class: "mmh3p-secact" }, extra(t)))
+      : el("label", {}, label);
     root.append(el("div", { class: "mmh3p-sec" + (cls ? ` ${cls}` : "") },
-      el("label", {}, label), t));
+      labelEl, wrap));
     return t;
   };
+
+  // Self-contained: no shared "last focused field" or cut-time stepper to
+  // lean on here, unlike the full editor's toolbar version. Inserts a bare
+  // marker — same as the full editor already does for its own timestamp-less
+  // "appears in..." fields — leaving any "At MM:SS..." phrasing to be typed
+  // by hand.
+  const shotBtn = (t) => el("button", { class: "mmh3p-btn",
+    title: "Insert the next [Shot N]",
+    onclick: () => {
+      const val = t.value || "";
+      const n = Math.max(0, ...[...val.matchAll(/\[Shot (\d+)\]/g)].map((m) => +m[1])) + 1;
+      const pos = t.selectionStart ?? val.length;
+      const before = val.slice(0, pos), after = val.slice(pos);
+      const insert = (before && !before.endsWith("\n") ? "\n" : "") + `[Shot ${n}] `;
+      t.value = before + insert + after;
+      t.selectionStart = t.selectionEnd = before.length + insert.length;
+      t.dispatchEvent(new Event("input", { bubbles: true }));
+      t.focus();
+    } }, "+ Shot");
 
   if (isRef) {
     // Reference mode writes detailed_description instead: its style opening
@@ -4054,7 +4156,7 @@ export function promptFields(node) {
       "[Shot 1] A medium shot establishes <Subject 1>, …", "mmh3p-grow");
   } else {
     field("integrated_multimodal_description", state, "imd", 10,
-      "[Shot 1] Live-action, cinematic, …", "mmh3p-grow");
+      "[Shot 1] Live-action, cinematic, …", "mmh3p-grow", shotBtn);
   }
 
   const pair = el("div", { class: "mmh3p-audiopair" });
@@ -4075,10 +4177,11 @@ export function promptFields(node) {
         t.dispatchEvent(new Event("input", { bubbles: true }));
       },
     }, "N/A");
+    const { wrap } = chipField(t, { slotFor, highlightTags });
     pair.append(el("div", { class: "mmh3p-sec" },
       el("label", { class: "act" }, label,
         el("span", { class: "mmh3p-secact" }, na)),
-      t));
+      wrap));
     return t;
   };
   const soundTa = audioBox("overall_soundscape", "soundscape",
@@ -4362,7 +4465,7 @@ export function updateSummary(node) {
     preview.innerHTML =
       paintTags(text.slice(0, 300)) + (text.length > 300 ? "\u2026" : "");
   } else {
-    preview.textContent = "empty \u2014 click to open the editor";
+    preview.textContent = "click to open the quick editor";
   }
 
   // Everything the old single line used to spell out, kept as a tooltip so

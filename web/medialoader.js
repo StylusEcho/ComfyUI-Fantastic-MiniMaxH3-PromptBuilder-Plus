@@ -322,8 +322,6 @@ const CSS = `
 .mmlp-shape.two{grid-template-columns:1fr 1fr;}
 .mmlp-shape .mmlp-slot{width:auto;height:auto;min-height:0;}
 .mmlp-shape .mmlp-pic{object-fit:contain;}
-.mmlp-shapenone{flex:0 0 auto;padding:10px 8px;border:1px dashed #2e3440;
-  border-radius:7px;color:#6b7484;font-size:11px;text-align:center;}
 .mmlp-panel.mmlp-min{height:auto;min-height:0;}
 /* On the Prompt Studio the prompt bar sits directly under this panel and the
    two stack flush, so squaring off the edge they share makes them read as one
@@ -429,11 +427,13 @@ const CSS = `
   grid-template-rows:repeat(3,minmax(0,1fr));gap:5px;}
 /* flex-grow in the old fixed heights' ratio (46:38) so these sections take
    their share of a taller node instead of the pictures grid eating all of it.
-   min-height keeps them at their original size at 100%. */
+   min-height keeps them at their original size at 100%. No trailing spacer:
+   with only these two growing, they already fill the column exactly, flush
+   with its bottom edge — a spacer after them left a sliver only on this side,
+   never matching the picture grid's own flush bottom. */
 .mmlp-vids{flex:46 1 auto;min-height:148px;display:grid;
   grid-template-rows:repeat(3,1fr);gap:5px;
   grid-template-columns:minmax(0,1fr);}
-.mmlp-spacer{flex:1;min-height:0;}
 .mmlp-auds{flex:38 1 auto;min-height:124px;display:grid;
   grid-template-rows:repeat(3,1fr);gap:5px;
   grid-template-columns:minmax(0,1fr);}
@@ -585,7 +585,7 @@ const CSS = `
   transform:translateX(-50%);pointer-events:none;
   box-shadow:0 0 0 1px rgba(0,0,0,.5);}
 .mmlp-tmcap::after{content:"15s";position:absolute;left:50%;bottom:-13px;
-  transform:translateX(-50%);font-size:9px;line-height:1;color:#e0a94c;
+  transform:translateX(-50%);font-size:calc(9px * var(--mml-fs, 1));line-height:1;color:#e0a94c;
   white-space:nowrap;}
 .mmlp-tmhandle{position:absolute;top:-3px;bottom:-3px;width:9px;background:#4cc3e0;
   border-radius:3px;transform:translateX(-50%);cursor:ew-resize;z-index:2;}
@@ -750,9 +750,22 @@ export class TrimModal {
     this.build();
     document.body.append(this.overlay);
     // Overlays live on <body>, so they don't inherit the node's size; scale
-    // them to match, or a 200% node still opens a 640px editor.
+    // them to match, or a 200% node still opens a 640px editor. Video/still
+    // windows also fit their height to the media's own aspect ratio — at a
+    // fixed stage width, a wide clip no longer opens a mostly-empty tall box
+    // and a tall one no longer opens a squat, heavily letterboxed one.
+    const visual = item.kind === "video" || item.kind === "picture";
+    const baseW = 640;
+    let baseH = 0;
+    if (visual && item.width && item.height) {
+      // Fixed vertical chrome outside the stage: the head bar always, plus
+      // the timeline and its transport row for video only (stills have
+      // neither — see build(), which renders both as null when isStill).
+      const chrome = item.kind === "video" ? 44 + 90 + 44 : 44;
+      baseH = chrome + Math.round(baseW * (item.height / item.width));
+    }
     scaleOverlay(this.panel?.node, [
-      [this.overlay.querySelector(".mmlp-tmmodal"), 640, 0],
+      [this.overlay.querySelector(".mmlp-tmmodal"), baseW, baseH],
     ]);
     window.addEventListener("keydown", this.onKey = (e) => this.key(e));
   }
@@ -831,7 +844,13 @@ export class TrimModal {
         end: this.end >= this.dur - eps ? null : +this.end.toFixed(2) };
     }
     const visual = it.kind === "video" || it.kind === "picture";
-    if (this.crop && visual) it.crop = this.crop;
+    // Same "is this actually a crop" check the crop-mode-off toggle uses:
+    // opening crop mode auto-drops a near-full-frame rect just so the
+    // handles have something to grab, and Apply must not persist that as a
+    // real edit if it was never dragged.
+    const realCrop = this.crop
+      && !(this.cropAuto || (this.crop.w > 0.995 && this.crop.h > 0.995));
+    if (realCrop && visual) it.crop = this.crop;
     else delete it.crop;
     if (this.mirror && visual) it.mirror = true;
     else delete it.mirror;
@@ -2799,9 +2818,9 @@ export class LoaderPanel {
             onclick: () => { this.unloadPrompt = true; this.render(); } },
             "Unload media")
         : null,
-      this.scaleControl(),
       presetGroup,
       el("span", { class: "mmlp-topspace" }),
+      this.scaleControl(),
       ...this.topRight()));
     // The x/12 and audio counters used to sit here. Every state they warned
     // about is already spelled out in the problem line below, in words and in
@@ -2855,12 +2874,17 @@ export class LoaderPanel {
     if (audio > MAX.audio)
       problems.push(`${audio} audio clips in play (limit ${MAX.audio}); split ` +
         "soundtracks count. Switch one to off.");
-    if (dur.video > CLIP.totalPerType)
-      problems.push(`Reference video totals ${dur.video.toFixed(1)}s ` +
-        `(limit ${CLIP.totalPerType}s).`);
-    if (dur.audio > CLIP.totalPerType)
-      problems.push(`Reference audio totals ${dur.audio.toFixed(1)}s ` +
-        `(limit ${CLIP.totalPerType}s).`);
+    // Only Reference mode ever sends loaded video/audio as references at
+    // all (MODE_CAPACITY gives every other mode Video:0/Audio:0), so a
+    // "totals over the limit" error is misleading outside it.
+    if (this.mode() === "REF") {
+      if (dur.video > CLIP.totalPerType)
+        problems.push(`Reference video totals ${dur.video.toFixed(1)}s ` +
+          `(limit ${CLIP.totalPerType}s).`);
+      if (dur.audio > CLIP.totalPerType)
+        problems.push(`Reference audio totals ${dur.audio.toFixed(1)}s ` +
+          `(limit ${CLIP.totalPerType}s).`);
+    }
     const short = this.items.filter((i) => isOn(i) && i.kind !== "picture" &&
       i.duration && effDuration(i) < CLIP.min);
     if (short.length)
@@ -2893,15 +2917,13 @@ export class LoaderPanel {
         kids.push(el("div", {
           class: "mmlp-shape" + (sh.pictures === 1 ? " one" : " two"),
         }, ...cells));
-      } else {
-        // T2VA carries no reference media at all, so the panel steps back and
-        // says why rather than showing slots nothing can go in.
-        kids.push(el("div", { class: "mmlp-shapenone" },
-          `${sh.mode} sends the prompt only — no reference media.`,
-          this.items.length
-            ? el("span", {}, ` ${this.items.length} item(s) stay loaded.`)
-            : null));
       }
+      // T2VA carries no reference media at all (sh.pictures === 0): the
+      // panel collapses to just its toolbar via .mmlp-min below, and the
+      // node's prompt bar (see refreshBar() in promptstudio.js) expands into
+      // the reclaimed space instead of this panel showing a static notice —
+      // the toolbar's own "hidden items" badge already covers what a notice
+      // here used to say.
       this.root.replaceChildren(...kids.filter(Boolean));
       this.root.classList.toggle("mmlp-min", !sh.pictures);
       // .mmlp-min collapses the panel through a class rule, which an inline
@@ -3006,8 +3028,14 @@ export class LoaderPanel {
       vidCells.push(this.emptySlot("video", i + 1));
     right.append(el("div", { class: "mmlp-vids" }, vidCells));
 
+    // A video's audio set to "alone" is a standalone reference in every way
+    // that matters here — it shares the same MAX.audio budget audioCount()
+    // already enforces — so it has to claim one of these slots too, or the
+    // count reads wrong and an empty slot invites a file that won't fit.
+    const aloneVideoAudio = vids.filter((v) =>
+      isOn(v) && v.has_audio && v.audio_mode === "alone").length;
     right.append(el("div", { class: "mmlp-sec" }, "standalone audio",
-      el("span", {}, `${auds.length}/${MAX.audio}`)));
+      el("span", {}, `${auds.length + aloneVideoAudio}/${MAX.audio}`)));
     const audCells = [];
     auds.forEach((it) => {
       const player = miniPlayer(viewURL(it.file));
@@ -3029,10 +3057,9 @@ export class LoaderPanel {
         arow);
       audCells.push(this.reorderable(acell, it));
     });
-    for (let i = auds.length; i < MAX.audio; i++)
+    for (let i = auds.length + aloneVideoAudio; i < MAX.audio; i++)
       audCells.push(this.emptySlot("audio", i + 1));
-    right.append(el("div", { class: "mmlp-auds" }, audCells),
-      el("div", { class: "mmlp-spacer" }));
+    right.append(el("div", { class: "mmlp-auds" }, audCells));
 
     const order = [];
     pics.filter(isOn).forEach((i) => order.push((tags.get(i) || "").slice(1, -1)));
@@ -3149,6 +3176,14 @@ export function openLoaderModal(node, title = "MiniMax H3 Media Loader") {
     onmousedown: (e) => { if (e.target === overlay) close(); } },
     el("div", { class: "mmlp-modal" },
       el("div", { class: "mmlp-modalhead" }, title,
+        // Only meaningful when this modal was opened from Prompt Studio,
+        // which is the only place it's opened from any more \u2014 set by
+        // promptstudio.js, not imported directly, so this file keeps no
+        // dependency on promptbuilder.js.
+        node._mmh3OpenEditor
+          ? el("button", { title: "Open the full Prompt Builder",
+              onclick: () => node._mmh3OpenEditor() }, "\ud83d\udcdc Prompt Builder")
+          : null,
         el("button", { title: "Close", onclick: close }, "\u2715")),
       el("div", { class: "mmlp-modalbody" }, panel.root)));
   window.addEventListener("keydown", esc);
