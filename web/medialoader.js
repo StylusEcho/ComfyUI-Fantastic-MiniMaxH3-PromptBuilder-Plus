@@ -584,9 +584,13 @@ const CSS = `
   background:repeating-linear-gradient(#e0a94c 0 3px,transparent 3px 6px);
   transform:translateX(-50%);pointer-events:none;
   box-shadow:0 0 0 1px rgba(0,0,0,.5);}
-.mmlp-tmcap::after{content:"15s";position:absolute;left:50%;bottom:-13px;
+/* A real element, not ::after, so it can carry its own title tooltip — the
+   line above stays pointer-events:none (it isn't a control), but this label
+   sits below the bar's own box, clear of the drag surface, so it's safe to
+   make hoverable. */
+.mmlp-tmcaplabel{position:absolute;left:50%;bottom:-13px;
   transform:translateX(-50%);font-size:calc(9px * var(--mml-fs, 1));line-height:1;color:#e0a94c;
-  white-space:nowrap;}
+  white-space:nowrap;pointer-events:auto;cursor:help;}
 .mmlp-tmhandle{position:absolute;top:-3px;bottom:-3px;width:9px;background:#4cc3e0;
   border-radius:3px;transform:translateX(-50%);cursor:ew-resize;z-index:2;}
 .mmlp-tmhandle:hover{background:#7fd8ee;box-shadow:0 0 6px rgba(76,195,224,.7);}
@@ -978,9 +982,12 @@ export class TrimModal {
     // measured from wherever the start currently sits. Drawn only when it
     // falls inside the clip — on anything 15s or shorter the whole file is
     // already within budget and the line would just pin to the end.
-    this.capLine = el("div", { class: "mmlp-tmcap",
-      title: `${CLIP.max}s from the start — H3's longest reference clip. `
-        + "Drag the end handle near it to snap." });
+    this.capLine = el("div", { class: "mmlp-tmcap" },
+      el("span", {
+        class: "mmlp-tmcaplabel",
+        title: `${CLIP.max}s from the start — H3's longest reference clip. `
+          + "Drag the end handle near it to snap.",
+      }, `${CLIP.max}s`));
     this.bar = el("div", { class: "mmlp-tmbar",
       onmousedown: (e) => this.barDown(e) },
       this.selEl, this.capLine, this.hStart, this.hEnd, this.playhead);
@@ -1227,6 +1234,7 @@ export class TrimModal {
       [["free", "freeform"], ["1", "1:1"],
        [String(16 / 9), "16:9"], [String(9 / 16), "9:16"],
        [String(4 / 3), "4:3"], [String(3 / 4), "3:4"],
+       [String(5 / 4), "5:4"], [String(4 / 5), "4:5"],
        [String(3 / 2), "3:2"], [String(2 / 3), "2:3"],
        [String(21 / 9), "21:9"], [String(9 / 21), "9:21"],
       ].map(([v, l]) => el("option", { value: v }, l)));
