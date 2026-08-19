@@ -395,11 +395,18 @@ const CSS = `
    23px), which read as a ragged strip; pinning the height here lets each keep
    its own padding and font without setting the row's height. */
 .mmlp-top{display:flex;align-items:center;gap:8px;flex:0 0 auto;min-width:0;}
+/* Scales with the text. A fixed 22px left labels sitting low and clipped
+   once the text size was raised, because the glyphs outgrew a box that
+   stayed put. Buttons additionally centre their own content, which a bare
+   height cannot do. */
 .mmlp-top>button,.mmlp-top button,.mmlp-top select,.mmlp-top input{
-  height:22px;box-sizing:border-box;}
+  height:calc(22px * var(--mml-fs, 1));box-sizing:border-box;}
+.mmlp-top>button,.mmlp-top button{display:inline-flex;align-items:center;
+  justify-content:center;}
 /* Belt and braces for #30: no button label may wrap out of its own box at a
    larger text size, whichever style it wears. */
-.mmlp-panel button,.mmlp-modal button,.mmlp-tmmodal button{white-space:nowrap;}
+.mmlp-panel button,.mmlp-modal button,.mmlp-tmmodal button{white-space:nowrap;
+  display:inline-flex;align-items:center;justify-content:center;}
 .mmlp-top .mmlp-btn,.mmlp-top .mmlp-count{flex:0 0 auto;white-space:nowrap;}
 .mmlp-btn{background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
   padding:4px 10px;font-size:calc(11px * var(--mml-fs, 1));cursor:pointer;
