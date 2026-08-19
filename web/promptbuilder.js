@@ -427,6 +427,11 @@ const PREF_DEFAULTS = {
   // duration) and the empty-state line are marked .keep and stay put —
   // they report state rather than explain the field.
   hideHints: false,
+  // Prompt library display, set from that window's own settings button
+  // rather than the editor's. Previews show what was actually typed instead
+  // of the assembled prompt, and rows can be given room for a second line.
+  libUserPreview: true,
+  libTallRows: false,
 };
 // Breathing room left above and below the editor when tallWindow is on.
 const TALL_MARGIN_VH = 4;
@@ -1096,6 +1101,10 @@ const CSS = `
    differently-padded button styles it happens to use — .mmh3p-btn, .mmh3p-x
    and the mode switcher's own buttons each disagreed by a couple of px. */
 .mmh3p-head button{height:26px;box-sizing:border-box;}
+/* Belt and braces for #30: no button label may wrap out of its own box at a
+   larger text size, whichever of the pack's button styles it wears. */
+.mmh3p-modal button,.mmh3p-quickmodal button,.mmh3p-summary button{
+  white-space:nowrap;}
 .mmh3p-title{font-weight:600;font-size:calc(14px * var(--mmh3-fs, 1));letter-spacing:.02em;}
 .mmh3p-title small{color:#8a93a3;font-weight:400;margin-left:8px;}
 .mmh3p-modesends{padding:4px 14px;font-size:calc(10px * var(--mmh3-fs, 1));color:#7d8698;
@@ -1617,7 +1626,13 @@ const CSS = `
 .mmh3p-modeitem.on{background:#28313f;}
 .mmh3p-modeitem.on b{color:#8fb3ff;}
 .mmh3p-modehint{color:#6b7484;font-size:calc(10px * var(--mmh3-fs, 1));}
-.mmh3p-libmodal{box-sizing:border-box;width:min(1240px,95vw);height:min(1290px,92vh);display:flex;
+/* Width cut 25% (was 1240). Height is no longer fixed: the window sizes to
+   however many entries there are, growing only until it runs out of viewport,
+   so a library holding three prompts is no longer a mostly-empty full-height
+   panel. min-height keeps the head/filter bar from looking cramped when the
+   list is empty. */
+.mmh3p-libmodal{box-sizing:border-box;width:min(930px,95vw);
+  height:auto;max-height:92vh;min-height:min(260px,92vh);display:flex;
   flex-direction:column;background:#191c22;color:#d7dbe2;border:1px solid #303642;
   border-radius:10px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.55);}
 .mmh3p-libbar{display:flex;gap:6px;align-items:center;padding:8px 12px;
@@ -1628,7 +1643,9 @@ const CSS = `
   border-radius:6px;padding:5px 7px;font-size:calc(12px * var(--mmh3-fs, 1));}
 .mmh3p-libbar input:focus,.mmh3p-libbar select:focus{outline:none;border-color:#4a5568;}
 .mmh3p-btn.on{background:#3a2f56;border-color:#7d63b8;color:#e2d6f8;}
-.mmh3p-liblist{flex:1;overflow:auto;padding:6px 8px;}
+/* flex-shrink only, no grow: growing would make the list claim the whole
+   max-height and defeat the height:auto above. */
+.mmh3p-liblist{flex:0 1 auto;min-height:0;overflow:auto;padding:6px 8px;}
 .mmh3p-saveform{background:#1d222b;border:1px solid #3a4252;border-radius:8px;
   padding:8px;margin-bottom:8px;}
 .mmh3p-saverow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
@@ -1665,6 +1682,15 @@ const CSS = `
 .mmh3p-libage{margin-left:auto;font-size:calc(10px * var(--mmh3-fs, 1));color:#5c6472;}
 .mmh3p-libprev{font-size:calc(11px * var(--mmh3-fs, 1));color:#6b7484;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;margin-top:2px;font-family:ui-monospace,monospace;}
+/* Taller rows: two lines of preview instead of one. -webkit-line-clamp is
+   what actually ellipsises a wrapped block, and is supported everywhere the
+   rest of this sheet already assumes. */
+.mmh3p-liblist.tall .mmh3p-libprev{white-space:normal;text-overflow:initial;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  line-height:1.45;}
+/* The 🔊/🎵 marks, matching .mmh3p-summark on the node's prompt bar. */
+.mmh3p-libmark{font-size:calc(11px * var(--mmh3-fs, 1));line-height:1;opacity:.85;
+  user-select:none;}
 .mmh3p-libacts{display:flex;gap:5px;flex-shrink:0;}
 .mmh3p-libempty{padding:26px 12px;text-align:center;color:#6b7484;font-size:calc(12px * var(--mmh3-fs, 1));}
 .mmh3p-toast.bad{background:#3a2020;border-color:#7a3a3a;color:#f0c0c0;
@@ -1837,6 +1863,24 @@ function ago(ts) {
 }
 
 /** Browse, filter, and load saved prompts. `onLoad` receives the saved state. */
+/** The prompt bar's own 🔊/🎵 rules, applied to a library entry. The server
+ *  answers the question (_audio_marks in web_api.py) using the same test the
+ *  bar does — text that isn't "N/A" in a section that isn't switched off —
+ *  because it reads the saved state, and the assembled prompt this listing
+ *  otherwise carries has already resolved both of those away. */
+function libMarks(entry) {
+  const a = entry.audio;
+  if (!a) return [];
+  const out = [];
+  if (a.sound)
+    out.push(el("span", { class: "mmh3p-libmark",
+      title: "overall_soundscape has content" }, "\u{1F50A}"));
+  if (a.music)
+    out.push(el("span", { class: "mmh3p-libmark",
+      title: "non_diegetic_music has content" }, "\u{1F3B5}"));
+  return out;
+}
+
 class Library {
   constructor(editor) {
     this.editor = editor;
@@ -1850,8 +1894,10 @@ class Library {
     this.rowCat = null;       // id of the entry whose category is being set
     this.pending = null;      // { id, action: "load" | "delete" }
     this.formId = `mmh3cat${Math.random().toString(36).slice(2, 8)}`;
+    this.prefs = loadPrefs();
     injectCSS();
     this.build();
+    this.applyPrefs();
     document.body.append(this.overlay);
     this.refresh();
   }
@@ -1883,10 +1929,11 @@ class Library {
     this.overlay = el("div", { class: "mmh3p-overlay mmh3p-libover" },
       el("div", { class: "mmh3p-libmodal" },
         el("div", { class: "mmh3p-head" },
-          el("div", { class: "mmh3p-title" }, "Prompt library"),
+          el("div", { class: "mmh3p-title" }, "Prompt Library"),
           el("button", { class: "mmh3p-btn",
             onclick: () => { this.saveOpen = !this.saveOpen; this.paint(); } },
             "Save current prompt"),
+          this.prefsButton(),
           el("button", { class: "mmh3p-x", onclick: () => this.close() }, "\u2715")),
         el("div", { class: "mmh3p-libbar" },
           this.searchEl, this.catEl, this.catBtn, this.favEl),
@@ -1894,6 +1941,44 @@ class Library {
 
     this.escHandler = (e) => { if (e.key === "Escape") this.close(); };
     window.addEventListener("keydown", this.escHandler);
+  }
+
+  /** This window's own settings, framed and placed like the editor's. Only
+   *  the two preferences that change what this list looks like — the editor's
+   *  own live on its cog and would be noise here. */
+  prefsButton() {
+    const item = (key, label, hint) => {
+      const box = el("input", { type: "checkbox", checked: !!this.prefs[key],
+        onchange: (e) => {
+          this.prefs[key] = e.target.checked;
+          savePrefs(this.prefs);
+          this.applyPrefs();
+          this.paint();
+        } });
+      return el("label", { class: "mmh3p-prefitem" }, box,
+        el("span", {}, el("span", { class: "mmh3p-preflabel" }, label),
+          el("span", { class: "mmh3p-prefhint" }, hint)));
+    };
+    this.prefsMenu = el("div", { class: "mmh3p-prefmenu" },
+      item("libUserPreview", "Preview what you typed",
+           "Off shows the assembled prompt instead, headers and generated " +
+           "lines included."),
+      item("libTallRows", "Taller rows",
+           "Gives each preview a second line."));
+    this.prefsCog = el("button", { class: "mmh3p-btn", title: "Library settings",
+      onclick: (e) => {
+        e.stopPropagation();
+        const open = !this.prefsMenu.classList.contains("on");
+        this.prefsMenu.classList.toggle("on", open);
+        this.prefsCog.classList.toggle("on", open);
+      } }, "\u2699");
+    return el("span", { class: "mmh3p-prefwrap" }, this.prefsCog, this.prefsMenu);
+  }
+
+  /** Row height is a class on the list, so changing it doesn't need a
+   *  rebuild — paint() would lose the scroll position. */
+  applyPrefs() {
+    this.listEl.classList.toggle("tall", !!this.prefs.libTallRows);
   }
 
   close() {
@@ -2163,8 +2248,9 @@ class Library {
           title: "Change this prompt's category",
           onclick: () => { this.rowCat = e.id; this.paint(); } },
           e.category || "+ category"),
+          ...libMarks(e),
           el("span", { class: "mmh3p-libage" }, ago(e.updated))),
-        el("div", { class: "mmh3p-libprev" }, e.preview || "(empty)")),
+        this.previewFor(e)),
       el("div", { class: "mmh3p-libacts" },
         el("button", { class: "mmh3p-btn primary",
           onclick: () => this.askLoad(e) }, "Load"),
@@ -2172,6 +2258,21 @@ class Library {
           onclick: () => { this.pending = { id: e.id, action: "delete" };
             this.paint(); } }, "\u2715")))));
     this.listEl.replaceChildren(...kids);
+  }
+
+  /** The preview line. Coloured with the same pass the editor's own preview
+   *  and the node's prompt bar use, so a tag reads the same everywhere. No
+   *  resolver: this listing has no node to check what is actually loaded, so
+   *  every tag is drawn as defined rather than guessing. */
+  previewFor(entry) {
+    // preview_user is empty on records saved before the raw fields were
+    // stored, so fall back rather than showing an empty row for them.
+    const text = (this.prefs.libUserPreview && entry.preview_user)
+      || entry.preview || "";
+    const box = el("div", { class: "mmh3p-libprev" });
+    if (text) box.innerHTML = paintTags(text);
+    else box.textContent = "(empty)";
+    return box;
   }
 
   askLoad(entry) {
@@ -2975,28 +3076,42 @@ class Editor {
         el("div", { class: "mmh3p-peeksrc" },
           s.source + (s.note ? ` \u2022 ${s.note.replace(/[<>]/g, "")}` : ""))));
 
+    box.addEventListener("mouseenter", () => clearTimeout(this._peekClose));
+    box.addEventListener("mouseleave", () => this.closePeek());
+    // In the document before it is placed: .mmh3p-peek is width:max-content
+    // between 240px and 540px, so its real size depends on the media inside
+    // it and can only be measured once it is laid out. Positioning against
+    // the 540px cap instead is what left a narrow preview floating far to
+    // the left of the chip it belongs to — the gap being exactly the width
+    // the box turned out not to need. Hidden for the measuring frame so the
+    // unplaced box is never painted at 0,0.
+    box.style.visibility = "hidden";
+    document.body.append(box);
+    const bw = box.offsetWidth || 540;
+    const bh = box.offsetHeight || 0;
+    box.style.visibility = "";
+
     const r = card.getBoundingClientRect();
+    const GAP = 8;
     // Beside the thumbnail in the sidebar view, below it otherwise. Both
-    // clamp to the viewport: .mmh3p-peek is up to 540px wide.
+    // clamp to the viewport.
     if (this.sidebar) {
       // The rail sits at the left edge, so the right is usually the only
       // side with room — but on a wide enough window (a maximised browser
       // on a widescreen monitor) there's space on the left too, and that
       // keeps the peek from drifting far from the cursor. Left wins only
       // when it can fit without clipping against the viewport edge.
-      const openLeft = r.left - 8 - 540 >= 0;
+      const openLeft = r.left - GAP - bw >= 0;
       box.style.left = openLeft
-        ? `${Math.max(0, r.left - 8 - 540)}px`
-        : `${Math.max(0, Math.min(r.right + 8, window.innerWidth - 550))}px`;
-      box.style.top = `${Math.max(4, Math.min(r.top,
-        window.innerHeight - box.offsetHeight - 8))}px`;
+        ? `${Math.round(r.left - GAP - bw)}px`
+        : `${Math.max(0, Math.min(r.right + GAP, window.innerWidth - bw - GAP))}px`;
+      box.style.top = `${Math.max(4,
+        Math.min(r.top, window.innerHeight - bh - GAP))}px`;
     } else {
-      box.style.left = `${Math.max(0, Math.min(r.left, window.innerWidth - 550))}px`;
+      box.style.left =
+        `${Math.max(0, Math.min(r.left, window.innerWidth - bw - GAP))}px`;
       box.style.top = `${r.bottom + 6}px`;
     }
-    box.addEventListener("mouseenter", () => clearTimeout(this._peekClose));
-    box.addEventListener("mouseleave", () => this.closePeek());
-    document.body.append(box);
     this._peek = box;
   }
 

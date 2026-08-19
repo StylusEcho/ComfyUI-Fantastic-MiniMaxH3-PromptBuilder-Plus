@@ -397,6 +397,9 @@ const CSS = `
 .mmlp-top{display:flex;align-items:center;gap:8px;flex:0 0 auto;min-width:0;}
 .mmlp-top>button,.mmlp-top button,.mmlp-top select,.mmlp-top input{
   height:22px;box-sizing:border-box;}
+/* Belt and braces for #30: no button label may wrap out of its own box at a
+   larger text size, whichever style it wears. */
+.mmlp-panel button,.mmlp-modal button,.mmlp-tmmodal button{white-space:nowrap;}
 .mmlp-top .mmlp-btn,.mmlp-top .mmlp-count{flex:0 0 auto;white-space:nowrap;}
 .mmlp-btn{background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
   padding:4px 10px;font-size:calc(11px * var(--mml-fs, 1));cursor:pointer;

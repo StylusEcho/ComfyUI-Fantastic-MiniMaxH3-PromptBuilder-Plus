@@ -142,14 +142,48 @@ when hiding, makes it a mouse-over caption for the respective section.
      token for token, and — given a resolver — marks undefined tags red as the
      fields do, which it previously could not do at all. Verified: all nine
      token types now report the same colour on both sides.
-30. when text size is increased, button titles sometimes overflow into two lines outside the bounds of the button.
-31. colour code Prompt Library's prompt previews
-32. title-case Prompt library's title
-33. add a Settings button on the top right
-34. for the prompt previews, only show the user-inputtable text, not what was added on by Prompt Builder. make this a toggleable setting.
-35. use the same rules as the prompt bar on the node for showing the speaker/music emojis.
-36. reduce the width of the window by 25%
-37. height should scale according to the amount entries.
-38. add a setting for the entries to have double height.
-39. on some browsers, when the hover-over preview for the chips sidebar is on the left side, it is very far to the left instead of right next to the chip.
+30. 🟩 when text size is increased, button titles sometimes overflow into two lines outside the bounds of the button.
+   - `white-space:nowrap` on both button bases, plus a catch-all over every
+     button in each window so it holds whichever of the pack's button styles
+     a control happens to wear.
+31. 🟩 colour code Prompt Library's prompt previews
+   - Previews go through the same `paintTags()` pass the editor's preview and
+     the node's bar use. No resolver is passed: this listing has no node to
+     check what is loaded, so tags are drawn as defined rather than guessed
+     red.
+32. 🟩 title-case Prompt library's title
+   - "Prompt library" → "Prompt Library".
+33. 🟩 add a Settings button on the top right
+   - A framed `⚙` in the library head, styled and placed like the editor's
+     (item 27), carrying items 34 and 38. The editor's own preferences stay
+     on the editor — they would be noise here.
+34. 🟩 for the prompt previews, only show the user-inputtable text, not what was added on by Prompt Builder. make this a toggleable setting.
+   - The listing only carried a preview of the *assembled* prompt, so every
+     entry opened with the same generated header. `_user_text()` in
+     `web_api.py` reads the saved `state` and returns just the typed fields
+     (skipping "N/A" sections), sent as `preview_user`. Records saved before
+     `state` was stored return "" and the frontend falls back to the old
+     preview. On by default; `libUserPreview` turns it off.
+35. 🟩 use the same rules as the prompt bar on the node for showing the speaker/music emojis.
+   - `_audio_marks()` applies the bar's exact test — text that isn't "N/A",
+     in a section not switched off, reading `ref.*` in Reference mode — and
+     sends two booleans. Verified against the off-switch, REF, blank-string
+     and old-record cases.
+36. 🟩 reduce the width of the window by 25%
+   - 1240 → 930.
+37. 🟩 height should scale according to the amount entries.
+   - `height:auto` with `max-height:92vh` and a small floor; the list is
+     `flex:0 1 auto` so it can't claim the full height and defeat that.
+38. 🟩 add a setting for the entries to have double height.
+   - `libTallRows` gives each preview a second line (`-webkit-line-clamp:2`).
+     Applied as a class on the list so toggling doesn't rebuild the rows and
+     lose the scroll position.
+39. 🟩 on some browsers, when the hover-over preview for the chips sidebar is on the left side, it is very far to the left instead of right next to the chip.
+   - `.mmh3p-peek` is `width:max-content` between 240px and 540px, but the
+     left placement positioned against the 540px cap — so a narrower preview
+     sat exactly as far from the chip as the width it didn't need. It is now
+     measured after being added to the document (hidden for that frame) and
+     placed against its real size. The vertical clamp had the same bug:
+     `offsetHeight` was read before the box was in the document, so it was
+     always 0.
 

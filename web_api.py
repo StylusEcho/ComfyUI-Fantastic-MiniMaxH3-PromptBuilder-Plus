@@ -166,6 +166,70 @@ def _read_prompt(path):
         return None
 
 
+def _user_text(data):
+    """Just what the person typed, without the scaffolding generate() wraps
+    around it.
+
+    The stored `prompt` is the assembled thing the model receives: section
+    headers, the fixed instruction lines, the mode's boilerplate. For a
+    listing, that means every entry opens with the same words and the part
+    that actually distinguishes one prompt from another is pushed out of the
+    preview. The saved `state` still holds the raw fields, so read those.
+
+    Falls back to "" when a record predates `state` being stored, and the
+    caller keeps the assembled preview in that case.
+    """
+    state = data.get("state")
+    if not isinstance(state, dict):
+        return ""
+    mode = state.get("mode") or data.get("mode") or ""
+    if mode == "REF":
+        ref = state.get("ref")
+        ref = ref if isinstance(ref, dict) else {}
+        parts = [ref.get("styleLine"), ref.get("detail"),
+                 ref.get("soundscape"), ref.get("music")]
+    else:
+        parts = [state.get("imd"), state.get("soundscape"), state.get("music")]
+    out = []
+    for part in parts:
+        if not isinstance(part, str):
+            continue
+        part = " ".join(part.split())
+        # "N/A" marks a section as deliberately empty; it is not something
+        # the person wrote and it reads as noise in a one-line preview.
+        if part and part.upper() != "N/A":
+            out.append(part)
+    return " ".join(out)
+
+
+def _audio_marks(data):
+    """Which of the two audio sections carry content, for the library's
+    speaker/music icons.
+
+    Same rule the node's prompt bar applies: text that isn't "N/A" and isn't
+    switched off. Sent as two booleans rather than the whole state object —
+    the listing only needs the answer, not the material.
+    """
+    state = data.get("state")
+    if not isinstance(state, dict):
+        return {"sound": False, "music": False}
+    mode = state.get("mode") or data.get("mode") or ""
+    src = state.get("ref") if mode == "REF" else state
+    src = src if isinstance(src, dict) else {}
+    off = state.get("off")
+    off = off if isinstance(off, dict) else {}
+
+    def on(key, section):
+        if off.get(section):
+            return False
+        val = src.get(key)
+        return isinstance(val, str) and bool(val.strip()) \
+            and val.strip().upper() != "N/A"
+
+    return {"sound": on("soundscape", "overall_soundscape"),
+            "music": on("music", "non_diegetic_music")}
+
+
 def _preset_path(name):
     safe = re.sub(r"[^A-Za-z0-9 ._-]+", "_", str(name or "")).strip(" ._-")
     if not safe:
@@ -592,6 +656,11 @@ if PromptServer is not None and web is not None:
                 "updated": data.get("updated") or 0,
                 "refs": data.get("refs") or 0,
                 "preview": " ".join(text.split())[:150],
+                # The same line without the generated scaffolding, for the
+                # library's "show only what I typed" setting. Empty on
+                # records saved before `state` was stored.
+                "preview_user": _user_text(data)[:150],
+                "audio": _audio_marks(data),
             })
         entries.sort(key=lambda e: (not e["favorite"], -float(e["updated"] or 0),
                                     e["name"].lower()))
