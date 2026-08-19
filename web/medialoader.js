@@ -518,6 +518,11 @@ const CSS = `
 .mmlp-slot.filled.off{opacity:.42;border-style:dashed;}
 .mmlp-slot.filled.off .mmlp-power{opacity:1;color:#6b7484;}
 .mmlp-slot.filled.off:hover{opacity:.7;}
+/* Loaded fine, but the current prompt mode won't send it to the model — the
+   standard grid shows every slot regardless of mode, so this is the only cue
+   telling the two apart. Covers both filled and empty slots with one rule. */
+.mmlp-slot.unusable{opacity:.4;}
+.mmlp-slot.unusable:hover{opacity:.65;}
 .mmlp-segstack{display:flex;flex-direction:column;align-items:center;gap:2px;
   flex-shrink:0;}
 .mmlp-segtag{font-size:calc(9px * var(--mml-fs, 1));}
@@ -651,6 +656,10 @@ const CSS = `
 .mmlp-order .mmlp-t-pic{color:#e0a94c;} .mmlp-order .mmlp-t-vid{color:#4cc3e0;}
 .mmlp-order .mmlp-t-aud{color:#b48ce8;} .mmlp-order .mmlp-t-subj{color:#7ec87e;}
 .mmlp-orderarrow{color:#4a5568;margin:0 4px;}
+/* Loaded and numbered, but the current mode won't forward this one — see the
+   comment at its call site for why dimming rather than dropping it. */
+.mmlp-order .mmlp-t-unusable{opacity:.4;text-decoration:line-through;
+  text-decoration-color:currentColor;}
 
 .mmlp-light{position:fixed;inset:0;z-index:10050;background:rgba(8,10,14,.75);
   display:flex;align-items:center;justify-content:center;}
@@ -2398,10 +2407,11 @@ export class LoaderPanel {
   /** One filled picture cell. Extracted so the standard grid and the
    *  mode-shaped layout render the identical tile rather than two that
    *  drift apart. */
-  picCell(it, tags, reorder = true) {
+  picCell(it, tags, reorder = true, note = null) {
       const tag = (tags.get(it) || "").slice(1, -1);
       return (this.reorderable(el("div",
-        { class: "mmlp-slot filled pic" + (isOn(it) ? "" : " off") },
+        { class: "mmlp-slot filled pic" + (isOn(it) ? "" : " off")
+            + (note ? " unusable" : "") },
         (() => {
           // Badge and img are SIBLINGS in the slot: .mmlp-pic is absolutely
           // positioned against the slot, so wrapping it breaks its sizing.
@@ -2445,7 +2455,8 @@ export class LoaderPanel {
             title: dimsTitle(it.name, it.width, it.height)
               + (turn ? `\nrotated ${turn}\u00b0` : "")
               + (it.crop ? `\ncropped to ${ow}\u00d7${oh}` : "")
-              + (it.mirror ? "\nmirrored" : ""),
+              + (it.mirror ? "\nmirrored" : "")
+              + (note ? `\n${note}` : ""),
             onload: () => {
               // Items from before dimensions were stored learn them here.
               if (!it.width && img.naturalWidth) {
@@ -2550,6 +2561,24 @@ export class LoaderPanel {
       Math.max(0, this.items.filter((i) => i.kind === kind).length - room);
     return over("picture", sh.pictures) + over("video", sh.videos)
       + over("audio", sh.audios);
+  }
+
+  /** Why a slot of this kind/number in the standard grid won't reach the
+   *  model in the current prompt mode, or null when it will — including when
+   *  there is no mode to restrict by (the standalone loader has none, and
+   *  the mode-shaped layout already only ever offers usable slots). Mirrors
+   *  the editor's own Editor.modeNote() so the wording matches on both sides
+   *  of the pack. */
+  modeNote(kind, idx) {
+    const m = this.mode();
+    if (!m) return null;
+    const label = kind === "picture" ? "Picture" : kind === "video" ? "Video" : "Audio";
+    const limit = MODE_CAPACITY[m][label] || 0;
+    if (idx <= limit) return null;
+    if (limit === 0)
+      return `${m} has no ${kind} references — this is not sent to the model.`;
+    return `${m} uses only ${label} 1` + (limit > 1 ? `–${limit}` : "")
+      + " — this is not sent to the model.";
   }
 
   /** Why this kind can't take another item, or null when there's room.
@@ -2751,10 +2780,10 @@ export class LoaderPanel {
   }
 
   /** An always-present empty slot: click to browse, drop to fill. */
-  emptySlot(kind, index) {
-    const slot = el("div", { class: "mmlp-slot",
+  emptySlot(kind, index, note = null) {
+    const slot = el("div", { class: "mmlp-slot" + (note ? " unusable" : ""),
       title: `Empty ${kind} slot ${index} \u2014 click to browse, drop a file, ` +
-        `or right-click to paste`,
+        `or right-click to paste` + (note ? `\n${note}` : ""),
       onclick: () => this.picker.click() },
       el("span", {}, `${kind} ${index}`));
     slot.addEventListener("contextmenu", (e) => this.slotMenu(e, null));
@@ -2949,9 +2978,17 @@ export class LoaderPanel {
     left.append(el("div", { class: "mmlp-sec" }, "pictures",
       el("span", {}, `${pics.length}/${MAX.picture}`)));
     const picCells = [];
-    pics.forEach((it) => picCells.push(this.picCell(it, tags)));
+    // Filled cells key their mode note off the actual assigned tag number,
+    // not array position — an earlier off item shifts later on-items' real
+    // <Picture N> down, and it's that number the mode's cap is judged against.
+    const tagIdx = (it) => {
+      const t = tags.get(it);
+      return t ? parseInt(t.match(/\d+/)[0], 10) : null;
+    };
+    pics.forEach((it) => picCells.push(this.picCell(it, tags, true,
+      isOn(it) ? this.modeNote("picture", tagIdx(it)) : null)));
     for (let i = pics.length; i < MAX.picture; i++)
-      picCells.push(this.emptySlot("picture", i + 1));
+      picCells.push(this.emptySlot("picture", i + 1, this.modeNote("picture", i + 1)));
     left.append(el("div", { class: "mmlp-pics" }, picCells));
 
     right.append(el("div", { class: "mmlp-sec" }, "videos",
@@ -2963,6 +3000,10 @@ export class LoaderPanel {
     vids.forEach((it) => {
       const mode = it.audio_mode || "off";
       const splitTag = extra.get(it);
+      const vTag = tags.get(it);
+      const note = isOn(it)
+        ? this.modeNote("video", vTag ? parseInt(vTag.match(/\d+/)[0], 10) : null)
+        : null;
       const row = el("div", { class: "mmlp-row" },
         this.powerBtn(it),
         el("video", { class: "mmlp-vthumb",
@@ -3028,12 +3069,13 @@ export class LoaderPanel {
         el("span", { class: "mmlp-drag", title: "Drag to reorder" }, "\u2630"),
         el("span", { class: "mmlp-x", title: "Remove",
           onclick: () => this.remove(it) }, "\u2715"));
-      const vcell = el("div", { class: "mmlp-slot filled vid" + (isOn(it) ? "" : " off") },
+      const vcell = el("div", { class: "mmlp-slot filled vid" + (isOn(it) ? "" : " off")
+          + (note ? " unusable" : ""), ...(note ? { title: note } : {}) },
         row);
       vidCells.push(this.reorderable(vcell, it));
     });
     for (let i = vids.length; i < MAX.video; i++)
-      vidCells.push(this.emptySlot("video", i + 1));
+      vidCells.push(this.emptySlot("video", i + 1, this.modeNote("video", i + 1)));
     right.append(el("div", { class: "mmlp-vids" }, vidCells));
 
     // A video's audio set to "alone" is a standalone reference in every way
@@ -3048,6 +3090,10 @@ export class LoaderPanel {
     auds.forEach((it) => {
       const player = miniPlayer(viewURL(it.file));
       this.players.push(player);
+      const aTag = tags.get(it);
+      const note = isOn(it)
+        ? this.modeNote("audio", aTag ? parseInt(aTag.match(/\d+/)[0], 10) : null)
+        : null;
       const arow = el("div", { class: "mmlp-row" },
           this.powerBtn(it),
           player.btn,
@@ -3061,12 +3107,13 @@ export class LoaderPanel {
           el("span", { class: "mmlp-x", title: "Remove",
             onclick: () => this.remove(it) }, "\u2715"));
       const acell = el("div",
-        { class: "mmlp-slot filled aud" + (isOn(it) ? "" : " off") },
+        { class: "mmlp-slot filled aud" + (isOn(it) ? "" : " off")
+            + (note ? " unusable" : ""), ...(note ? { title: note } : {}) },
         arow);
       audCells.push(this.reorderable(acell, it));
     });
     for (let i = auds.length + aloneVideoAudio; i < MAX.audio; i++)
-      audCells.push(this.emptySlot("audio", i + 1));
+      audCells.push(this.emptySlot("audio", i + 1, this.modeNote("audio", i + 1)));
     right.append(el("div", { class: "mmlp-auds" }, audCells));
 
     const order = [];
@@ -3089,10 +3136,20 @@ export class LoaderPanel {
       : /^\[?Video/.test(t) ? "mmlp-t-vid"
       : /^\[?Audio/.test(t) ? "mmlp-t-aud"
       : /^\[?Subject/.test(t) ? "mmlp-t-subj" : "");
+    // The label above promises "sent to the model" \u2014 a tag the current mode
+    // won't actually forward (an extra picture past the mode's cap, or any
+    // video/audio outside Reference) is dimmed rather than removed, so the
+    // sequence still shows everything loaded but doesn't misstate what goes.
+    const numOf = (t) => {
+      const m = /^\[?(Picture|Video|Audio) (\d+)\]?$/.exec(t);
+      return m ? this.modeNote(m[1].toLowerCase(), parseInt(m[2], 10)) : null;
+    };
     const seq = [];
     order.forEach((t, i) => {
       if (i) seq.push(el("span", { class: "mmlp-orderarrow" }, "\u2192"));
-      seq.push(el("span", { class: tagClass(t) }, t));
+      const note = numOf(t);
+      seq.push(el("span", { class: tagClass(t) + (note ? " mmlp-t-unusable" : ""),
+        ...(note ? { title: note } : {}) }, t));
     });
     kids.push(el("div", { class: "mmlp-order" },
       el("b", {}, "tag order sent to the model"),
