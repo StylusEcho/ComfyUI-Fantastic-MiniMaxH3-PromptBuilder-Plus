@@ -49,26 +49,69 @@ empty, so no task below conflicts with or is made redundant by upstream work.
      Reset button, the crop tool's own highlight, and the editor's card tool
      through it. `apply()` keeps the separate `cropAuto` guard for the
      placeholder rect, which is a real crop geometrically.
-9. the input box for integrated\_multimodal\_description in the quick edit should fill the space up to where the sound/music sections start.
-10. reduce the overall width and height of the quick edit window by 25%
-11. ensure buttons on the trim windows do not overflow to a second line
-12. change instances of the Size button to be a Settings button, bringing it in line with the new Settings button in the prompt editor.
-13. move that Settings button on the node interface to be the rightmost button on the bar.
-14. change "Load files..." to "Load"
-15. change "Unload media" to "Unload All"
-16. move the button for the full size media loader to be the first item on the bar
-17. the "No reference media on this node yet" text, change it to a size consistent with the rest of the interface, and scale with the text size setting.
-18. add a setting for the Prompt Builder to maximise the vertical height of the window, with a reasonable margin on the top and bottom (window size setting then only affects width)
-19. media chips should be aligned to the left in the classic prompt builder layout, like before
-20. make sure the add media 'chip' is aligned with the actual chips in the new layout
-21. the warnings list text should wrap and never be horizontally scrollable.
-22. allow minimizing the warnings section
+9. 🟩 the input box for integrated\_multimodal\_description in the quick edit should fill the space up to where the sound/music sections start.
+   - The `chipField()` wrapper added for tag colouring sits between the
+     section and its textarea, which broke the flex chain: the wrapper had no
+     grow, so it sized to content and the field stopped short. The grow is
+     now handed down through the wrapper to the textarea.
+10. 🟩 reduce the overall width and height of the quick edit window by 25%
+   - 900×780 → 675×585. The viewport caps came down with it (92vw/88vh →
+     69vw/66vh), or on a small screen the window would still have filled
+     almost everything and the reduction would only show on large ones.
+11. 🟩 ensure buttons on the trim windows do not overflow to a second line
+   - `.mmlp-tmfoot` no longer wraps. Buttons give up label width (ellipsised,
+     full text still on the title) rather than the row giving up a place to
+     put them, so Apply/Cancel can't drop onto a cut-off second row.
+12. 🟩 change instances of the Size button to be a Settings button, bringing it in line with the new Settings button in the prompt editor.
+   - "⤡ Size" → "⚙ Settings", already framed as `.mmlp-btn`.
+13. 🟩 move that Settings button on the node interface to be the rightmost button on the bar.
+   - `topRight()` now returns `{shape, window}` instead of one array, so the
+     two controls can be placed independently. Measured bar order:
+     `❐ · Load · Unload All · preset… · spacer · Used/All · ⚙ Settings`.
+14. 🟩 change "Load files..." to "Load"
+   - Done.
+15. 🟩 change "Unload media" to "Unload All"
+   - Done.
+16. 🟩 move the button for the full size media loader to be the first item on the bar
+   - Done — see item 13's measured order.
+17. 🟩 the "No reference media on this node yet" text, change it to a size consistent with the rest of the interface, and scale with the text size setting.
+   - That line sits directly in the chip strip, not inside a `.mmh3p-sec`, so
+     the `.mmh3p-sec .hint` rule never reached it and it rendered at the
+     browser default — the one piece of text in the editor that ignored the
+     text-size setting. Given its own rule matching that one.
+18. 🟩 add a setting for the Prompt Builder to maximise the vertical height of the window, with a reasonable margin on the top and bottom (window size setting then only affects width)
+   - New `tallWindow` pref ("Full-height window"). Height becomes `92vh`
+     (4vh margin top and bottom) and the window-size slider governs width
+     alone — scaling height too would just clamp against the same margin and
+     make the slider look broken.
+19. 🟩 media chips should be aligned to the left in the classic prompt builder layout, like before
+   - `justify-content` back to `flex-start` on the base rule. Centring was
+     only ever wanted in the sidebar, which gets it from `align-items` on its
+     own column rule, so the base rule was overreaching.
+20. 🟩 make sure the add media 'chip' is aligned with the actual chips in the new layout
+   - The + tile carried `align-self:stretch` (right for the inline strip,
+     where it matches row height). In the sidebar column that overrode the
+     centring and spanned the whole rail, leaving it wider than the 128px
+     cards below it. Pinned to the card width there.
+21. 🟩 the warnings list text should wrap and never be horizontally scrollable.
+   - `overflow-x:hidden` plus `overflow-wrap:anywhere` on the entries. A long
+     unbroken run (a file name, a list of tags) used to widen the box and put
+     the whole list on a horizontal scrollbar.
+22. 🟩 allow minimizing the warnings section
+   - The list now sits in a `.mmh3p-issuebox` under a clickable header. The
+     header keeps the tally and the worst level's colour while collapsed, so
+     nothing is hidden silently. Stored as `issuesCollapsed` — set by clicking
+     the header, so deliberately not listed in the settings menu.
 23. don't allow the integrated\_multimodal\_description input box to overlap anything else.
 24. add a setting to do the following: change tag hover-over preview to activate the media strip preview popup instead of at the cursor.
 25. add a setting to hide the help captions ("One line per tracked item. Focus a line, then..." etc)
 when hiding, makes it a mouse-over caption for the respective section.
 26. in reference mode, the style dropdown only adds its text to detailed\_description fields.
-27. settings gear button should have a frame around it like every other button. going forward, any instance of this button should be styled like this.
+27. 🟩 settings gear button should have a frame around it like every other button. going forward, any instance of this button should be styled like this.
+   - The cog wore `.mmh3p-x`, the frameless treatment reserved for the close
+     ✕, leaving it the one control in the row without a border. Now
+     `.mmh3p-btn`. The media loader's Settings button (item 12) already
+     matches.
 28. when clicking the audio/music icons on the node's prompt bar, it should open to the quick edit and select the respective field.
 29. reconcile inconsistencies between the final prompt preview colour coding and input boxes colour coding.
 30. when text size is increased, button titles sometimes overflow into two lines outside the bounds of the button.

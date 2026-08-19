@@ -399,7 +399,10 @@ const CSS = `
   height:22px;box-sizing:border-box;}
 .mmlp-top .mmlp-btn,.mmlp-top .mmlp-count{flex:0 0 auto;white-space:nowrap;}
 .mmlp-btn{background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
-  padding:4px 10px;font-size:calc(11px * var(--mml-fs, 1));cursor:pointer;}
+  padding:4px 10px;font-size:calc(11px * var(--mml-fs, 1));cursor:pointer;
+  /* A label must never wrap inside its own button: at a larger text size
+     that pushed a second line out past the button's own bounds. */
+  white-space:nowrap;}
 .mmlp-btn:hover{background:#333b4d;}
 .mmlp-presetrow{flex:0 0 auto;display:flex;align-items:center;gap:5px;
   min-width:0;flex-wrap:nowrap;}
@@ -663,8 +666,14 @@ const CSS = `
   font-size:calc(9px * var(--mml-fs, 1));color:#8a6a33;text-transform:uppercase;letter-spacing:.06em;}
 .mmlp-tmplaytime{color:#ffb84d;font-family:ui-monospace,monospace;
   text-transform:none;letter-spacing:0;font-size:calc(10px * var(--mml-fs, 1));}
+/* One line, always. This used to wrap, which at a larger text size dropped
+   Apply/Cancel onto a second row that the modal's fixed height then cut off.
+   Nothing wraps now: the row can't grow past its box, and the buttons give up
+   label width (ellipsised, full text still on their title) rather than the
+   row giving up a place to put them. */
 .mmlp-tmfoot{display:flex;align-items:center;gap:5px;padding:8px 12px 0;
-  flex-wrap:wrap;}
+  flex-wrap:nowrap;min-width:0;overflow:hidden;}
+.mmlp-tmfoot>.mmlp-btn{min-width:0;overflow:hidden;text-overflow:ellipsis;}
 .mmlp-tmfoot.act{padding:8px 12px 4px;border-top:1px solid #23272f;margin-top:8px;}
 .mmlp-tmgap{width:8px;}
 .mmlp-tmspace{flex:1;}
@@ -2286,12 +2295,12 @@ export class LoaderPanel {
         applyBtn));
 
     const btn = el("button", { class: "mmlp-btn mmlp-sm",
-      title: "Node and text size",
+      title: this.modal ? "Window and text size" : "Node and text size",
       onclick: (e) => {
         e.stopPropagation();
         const open = menu.classList.toggle("on");
         btn.classList.toggle("on", open);
-      } }, "\u2921 Size");
+      } }, "\u2699 Settings");
     this._scaleMenu = menu;
     this._scaleBtn = btn;
     return el("span", { class: "mmlp-scalewrap" }, btn, menu);
@@ -2562,11 +2571,12 @@ export class LoaderPanel {
             onclick: () => this.remove(it) }, "\u2715"))), it, reorder));
   }
 
-  /** Top-right controls: the layout toggle, and a way into the full-size
-   *  window. Neither belongs in the modal — it is already the full-size
-   *  window, and it always shows the standard layout. */
+  /** The layout toggle and the way into the full-size window, returned
+   *  separately because they no longer sit together: the window button opens
+   *  the bar and the shape toggle closes it. Neither belongs in the modal —
+   *  it is already the full-size window, and always shows every slot. */
   topRight() {
-    if (this.modal) return [];
+    if (this.modal) return { shape: null, window: null };
     const out = [];
     const m = this.mode();
     if (m && m !== "REF") {
@@ -2585,15 +2595,15 @@ export class LoaderPanel {
       }, this.compact ? "\u25f0 Used" : "\u25f1 All"));
     }
     const hidden = this.hiddenCount();
-    out.push(el("button", {
+    const win = el("button", {
       class: "mmlp-btn mmlp-sm mmlp-winbtn" + (hidden ? " mmlp-hasHidden" : ""),
       title: hidden
         ? `${hidden} item(s) loaded but not shown in this layout \u2014 open the `
           + `full window to reach them`
         : "Open the media loader in a window",
       onclick: () => openLoaderModal(this.node, "MiniMax H3 \u2014 media"),
-    }, "\u2750", hidden ? el("span", { class: "mmlp-badge" }, String(hidden)) : null));
-    return out;
+    }, "\u2750", hidden ? el("span", { class: "mmlp-badge" }, String(hidden)) : null);
+    return { shape: out[0] || null, window: win };
   }
 
   /** The prompt mode this node is set to, or null when there is none — the
@@ -2911,22 +2921,27 @@ export class LoaderPanel {
           this.render();
         } }, "Delete"));
 
+    // Bar order: the way into the full-size window first, then the load
+    // controls, then the preset group, then everything mode- and
+    // display-related pushed to the right-hand end, with Settings last.
+    const modeCtl = this.topRight();
     kids.push(el("div", { class: "mmlp-top" },
+      modeCtl.window,
       el("button", { class: "mmlp-btn", onclick: () => this.picker.click(),
         title: `Load reference files. You can also drop them on any slot, or ` +
           `paste with Ctrl+V.\n${total}/${MAX.total} files, ` +
           `${audioCount(this.items)}/${MAX.audio} audio in play.` },
-        this.busy ? `uploading ${this.busy}\u2026` : "Load files\u2026"),
+        this.busy ? `uploading ${this.busy}\u2026` : "Load"),
       this.items.length
         ? el("button", { class: "mmlp-btn mmlp-sm",
             title: "Remove every loaded reference from this node",
             onclick: () => { this.unloadPrompt = true; this.render(); } },
-            "Unload media")
+            "Unload All")
         : null,
       presetGroup,
       el("span", { class: "mmlp-topspace" }),
-      this.scaleControl(),
-      ...this.topRight()));
+      modeCtl.shape,
+      this.scaleControl()));
     // The x/12 and audio counters used to sit here. Every state they warned
     // about is already spelled out in the problem line below, in words and in
     // red, so they were spending prime space to repeat it \u2014 the running

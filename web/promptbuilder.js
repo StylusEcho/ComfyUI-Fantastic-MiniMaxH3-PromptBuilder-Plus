@@ -411,7 +411,16 @@ const PREF_DEFAULTS = {
   // The media rail moved into a left-edge sidebar by default; this is the
   // opt-out back to the original strip-across-the-top layout.
   classicLayout: false,
+  // Take the full height of the screen, less a margin top and bottom. With
+  // this on, the window-size slider only governs width — the height is the
+  // viewport's to decide.
+  tallWindow: false,
+  // Set by clicking the checks header rather than from the settings menu,
+  // so it is stored but deliberately not listed there.
+  issuesCollapsed: false,
 };
+// Breathing room left above and below the editor when tallWindow is on.
+const TALL_MARGIN_VH = 4;
 const SCALE_MIN = 1.0;
 const SCALE_MAX = 3.0;          // window
 const TEXT_SCALE_MAX = 2.0;     // type gets unwieldy past this
@@ -1130,6 +1139,11 @@ const CSS = `
    thumbnail is the same size whichever view you are in. */
 .mmh3p-body.sidebar .mmh3p-rail .mmh3p-chips{flex-direction:column;flex-wrap:nowrap;
   max-height:none;overflow:visible;align-items:center;justify-content:flex-start;}
+/* align-self:stretch on the + tile is for the inline strip, where it matches
+   the row's height. In this column it overrides the centring above and makes
+   the tile span the whole rail, leaving it wider than the cards under it. */
+.mmh3p-body.sidebar .mmh3p-rail .mmh3p-card.mmh3p-drop{align-self:center;
+  width:128px;}
 .mmh3p-body.sidebar .mmh3p-rail .mmh3p-card.joinR{margin-right:0;margin-bottom:-6px;
   border-radius:7px 7px 0 0;}
 .mmh3p-body.sidebar .mmh3p-rail .mmh3p-card.joinL{border-left-width:1px;
@@ -1359,8 +1373,16 @@ const CSS = `
    strip you have to drag through, and every reference stays reachable for a
    drag. Caps at roughly three rows before scrolling vertically. */
 .mmh3p-chips{display:flex;flex-wrap:wrap;gap:6px;padding-bottom:3px;
-  align-items:flex-start;align-content:flex-start;justify-content:center;
+  align-items:flex-start;align-content:flex-start;justify-content:flex-start;
   max-height:min(46vh,380px);overflow-y:auto;overflow-x:hidden;}
+/* The "no reference media yet" line. It sits directly in the chip strip, not
+   inside a .mmh3p-sec, so the .mmh3p-sec .hint rule never reached it and it
+   fell back to the browser's default size — the one piece of text in the
+   editor that ignored the text-size setting. Matched to that rule. */
+.mmh3p-chips>.hint{flex:1 1 100%;min-width:0;
+  font-size:calc(11px * var(--mmh3-fs, 1));color:#6b7484;line-height:1.4;
+  text-align:center;}
+.mmh3p-body.sidebar .mmh3p-rail .mmh3p-chips>.hint{text-align:left;}
 .mmh3p-chips::-webkit-scrollbar{width:6px;height:6px;}
 .mmh3p-chips::-webkit-scrollbar-thumb{background:#2e3440;border-radius:3px;}
 .mmh3p-card.mmh3p-dropinto{outline:2px solid #6f86b8;outline-offset:1px;}
@@ -1416,7 +1438,10 @@ const CSS = `
   border:1px solid #2e3440;border-radius:6px;padding:4px 6px;font-size:calc(12px * var(--mmh3-fs, 1));}
 .mmh3p-tools input[type=number]:focus{outline:none;border-color:#4a5568;}
 .mmh3p-btn{background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
-  padding:5px 12px;font-size:calc(12px * var(--mmh3-fs, 1));cursor:pointer;}
+  padding:5px 12px;font-size:calc(12px * var(--mmh3-fs, 1));cursor:pointer;
+  /* A label must never wrap inside its own button: at a larger text size
+     that pushed a second line out past the button's own bounds. */
+  white-space:nowrap;}
 .mmh3p-btn:hover{background:#333b4d;}
 .mmh3p-btn.primary{background:#3f5a86;border-color:#4d6ea6;color:#fff;}
 .mmh3p-btn.primary:hover{background:#48679a;}
@@ -1460,7 +1485,27 @@ const CSS = `
 .mmh3p-t-lang{color:#e8846a;}
 .mmh3p-t-spk{color:#e58fbf;font-weight:600;}
 .mmh3p-t-na{color:#6b7484;font-style:italic;}
-.mmh3p-issues{max-height:180px;overflow:auto;border-top:1px solid #2a2f3a;padding:8px 14px;font-size:calc(12px * var(--mmh3-fs, 1));}
+.mmh3p-issuebox{flex:0 0 auto;border-top:1px solid #2a2f3a;display:flex;
+  flex-direction:column;min-height:0;}
+.mmh3p-issuehead{display:flex;align-items:center;gap:7px;width:100%;
+  box-sizing:border-box;background:none;border:0;padding:6px 14px;
+  color:#8a93a3;font-family:inherit;font-size:calc(10px * var(--mmh3-fs, 1));
+  text-transform:uppercase;letter-spacing:.08em;cursor:pointer;text-align:left;}
+.mmh3p-issuehead:hover{color:#c9cfda;}
+.mmh3p-issuecaret{display:inline-block;transition:transform .15s ease;
+  font-size:calc(9px * var(--mmh3-fs, 1));}
+.mmh3p-issuebox.collapsed .mmh3p-issuecaret{transform:rotate(-90deg);}
+.mmh3p-issuebox.collapsed .mmh3p-issues{display:none;}
+.mmh3p-issuecount{margin-left:auto;font-variant-numeric:tabular-nums;
+  letter-spacing:0;}
+.mmh3p-issuecount.error{color:#f07070;} .mmh3p-issuecount.warn{color:#e0a94c;}
+.mmh3p-issuecount.info{color:#8a93a3;} .mmh3p-issuecount.ok{color:#7ec87e;}
+/* Wraps, never scrolls sideways. A long unbroken run — a file name, a list of
+   tags — used to widen the content box and put the whole list on a horizontal
+   scrollbar, pushing the text of every other line out of view with it. */
+.mmh3p-issues{max-height:180px;overflow-y:auto;overflow-x:hidden;
+  padding:0 14px 8px;font-size:calc(12px * var(--mmh3-fs, 1));min-width:0;}
+.mmh3p-issues>div{overflow-wrap:anywhere;word-break:normal;}
 .mmh3p-issues .error{color:#f07070;margin:3px 0;font-weight:500;}
 .mmh3p-issues .warn{color:#e0a94c;margin:3px 0;}
 .mmh3p-issues .info{color:#8a93a3;margin:3px 0;}
@@ -1491,7 +1536,10 @@ const CSS = `
 .mmh3p-summark{flex:0 0 auto;align-self:center;font-size:calc(12px * var(--mmh3-fs, 1));line-height:1;
   opacity:.85;user-select:none;}
 /* Quick edit: smaller than the full builder, same chrome. */
-.mmh3p-quickmodal{box-sizing:border-box;width:min(900px,92vw);height:min(780px,88vh);
+/* 25% off both axes (was 900x780 capped at 92vw/88vh). The viewport caps come
+   down with the pixel sizes, or on a small screen the window would still fill
+   almost the whole viewport and the reduction would only show on large ones. */
+.mmh3p-quickmodal{box-sizing:border-box;width:min(675px,69vw);height:min(585px,66vh);
   display:flex;flex-direction:column;background:#191c22;color:#d7dbe2;
   border:1px solid #303642;border-radius:10px;overflow:hidden;
   box-shadow:0 24px 64px rgba(0,0,0,.55);}
@@ -1610,6 +1658,16 @@ const CSS = `
 /* Those two sections put the field in a flex row beside an N/A button; the
    wrapper has to claim the space the bare textarea used to. */
 .mmh3p-row .mmh3p-chipwrap{flex:1;min-width:0;}
+/* Same problem one level up, in the growing sections. The section is a flex
+   column whose textarea is meant to absorb all the slack, but the wrapper now
+   sits between the two — so the grow has to be handed down through it, or the
+   wrapper sizes to its content and the field stops short of the sections
+   below instead of filling to them. min-height:0 lets it shrink below the
+   textarea's intrinsic rows, which is what makes "fill exactly" possible
+   rather than "fill, then overflow". */
+.mmh3p-sec.mmh3p-grow>.mmh3p-chipwrap{flex:1 1 auto;min-height:0;display:flex;}
+.mmh3p-sec.mmh3p-grow>.mmh3p-chipwrap>textarea.mmh3p-chiptext{
+  flex:1 1 auto;min-height:0;}
 .mmh3p-chipmirror,
 .mmh3p-chipwrap textarea.mmh3p-chiptext{
   width:100%;box-sizing:border-box;border:1px solid transparent;
@@ -2186,6 +2244,18 @@ class Editor {
     this.railEl = el("div", { class: "mmh3p-rail" });
     this.previewEl = el("pre", { class: "mmh3p-preview" });
     this.issuesEl = el("div", { class: "mmh3p-issues" });
+    // Collapsible: on a long prompt the list can crowd out the preview above
+    // it, and once you have read a warning you mostly want the room back.
+    // The count stays on the header while collapsed, so nothing disappears
+    // silently. Remembered per user, like the editor's other preferences.
+    this.issuesCount = el("span", { class: "mmh3p-issuecount" });
+    this.issuesHead = el("button", { class: "mmh3p-issuehead",
+      title: "Show or hide the checks",
+      onclick: () => this.toggleIssues() },
+      el("span", { class: "mmh3p-issuecaret" }, "\u25be"),
+      el("span", {}, "checks"), this.issuesCount);
+    this.issuesBox = el("div", { class: "mmh3p-issuebox" },
+      this.issuesHead, this.issuesEl);
     this.statsEl = el("span", { class: "stats" });
 
     this.modeBar = el("div", { class: "mmh3p-modes" },
@@ -2260,7 +2330,7 @@ class Editor {
           this.railEl,
           this.formEl,
           el("div", { class: "mmh3p-side" },
-            this.previewEl, this.issuesEl,
+            this.previewEl, this.issuesBox,
             el("div", { class: "mmh3p-foot" }, this.statsEl, copyBtn, cancelBtn, saveBtn),
           ),
         ),
@@ -2412,6 +2482,7 @@ class Editor {
           savePrefs(this.prefs);
           if (key === "highlightTags") this.applyHighlight();
           if (key === "classicLayout") this.applySidebarPref();
+          if (key === "tallWindow") this.applyScale();
         } });
       return el("label", { class: "mmh3p-prefitem" }, box,
         el("span", {}, el("span", { class: "mmh3p-preflabel" }, label),
@@ -2436,13 +2507,19 @@ class Editor {
       item("classicLayout", "Classic top-strip layout",
            "Off (default) keeps reference media in a column down the left " +
            "edge. On puts it back in a strip across the top."),
+      item("tallWindow", "Full-height window",
+           "Fills the screen top to bottom, less a small margin. Window " +
+           "size then only sets the width."),
       item("closeOnBackdrop", "Click outside to close",
            "Off means only \u2715, Cancel and Escape close the window."),
       item("warnUnsaved", "Warn about unsaved changes",
            "Off means \u2715, Cancel and Escape discard your edits silently."),
       version);
     this.prefsMenu = menu;
-    this.prefsCog = el("button", { class: "mmh3p-x", title: "Editor settings",
+    // Framed like every other button in the bar. It used to wear .mmh3p-x,
+    // the frameless treatment reserved for the close ✕, which left it the one
+    // control in the row without a border.
+    this.prefsCog = el("button", { class: "mmh3p-btn", title: "Editor settings",
       onclick: (e) => { e.stopPropagation(); this.togglePrefs(); } }, "\u2699");
     return el("span", { class: "mmh3p-prefwrap" }, this.prefsCog, menu);
   }
@@ -2473,10 +2550,23 @@ class Editor {
     const w = clampScale(this.prefs.windowScale);
     const t = clampScale(this.prefs.textScale, TEXT_SCALE_MAX);
     modal.style.width = `min(${Math.round(1240 * w)}px, 95vw)`;
-    modal.style.height = `min(${Math.round(860 * w)}px, 92vh)`;
+    // Tall mode hands the height to the viewport, so the slider governs
+    // width alone — scaling the height as well would immediately clamp back
+    // against the same margin and make the slider look broken.
+    modal.style.height = this.prefs.tallWindow
+      ? `${100 - TALL_MARGIN_VH * 2}vh`
+      : `min(${Math.round(860 * w)}px, 92vh)`;
     // Font size only. zoom scaled the layout as well, which changed how much
     // fitted rather than how readable it was.
     document.documentElement.style.setProperty("--mmh3-fs", String(t));
+  }
+
+  /** Show or hide the checks list, remembering the choice. */
+  toggleIssues(force) {
+    const shut = force === undefined ? !this.prefs.issuesCollapsed : !!force;
+    this.prefs.issuesCollapsed = shut;
+    savePrefs(this.prefs);
+    this.issuesBox?.classList.toggle("collapsed", shut);
   }
 
   togglePrefs(force) {
@@ -4036,6 +4126,15 @@ class Editor {
     this.issuesEl.replaceChildren(...(issues.length
       ? issues.map((i) => el("div", { class: i.level }, icon[i.level] + i.msg))
       : [el("div", { class: "ok" }, "\u2713 No issues found")]));
+    // The header carries the tally so a collapsed list still reports what it
+    // is hiding, and the worst level it holds so the colour still warns.
+    const worst = issues.length
+      ? issues.reduce((w, i) => rank[i.level] < rank[w] ? i.level : w, "info")
+      : "ok";
+    this.issuesCount.textContent = issues.length
+      ? `${issues.length}` : "\u2713";
+    this.issuesCount.className = `mmh3p-issuecount ${worst}`;
+    this.issuesBox.classList.toggle("collapsed", !!this.prefs.issuesCollapsed);
 
     let stats = `${text.length} chars`;
     if (this.state.mode === "FL2VA" || this.state.mode === "L2VA") {
