@@ -28,6 +28,31 @@ export function audioCount(all) {
   }, 0);
 }
 
+/** Whether an item carries a crop that actually removes something.
+ *
+ *  The single answer to "is this cropped", because asking `item.crop` on its
+ *  own is not the same question: opening the crop tool drops a placeholder
+ *  rect in so the handles have something to grab, dragging one out to the
+ *  frame edge leaves a full-frame rect behind, and older saves and presets
+ *  carry both. Every one of those is truthy and none of them crops anything,
+ *  which is what lit the edit button orange on untouched pictures.
+ *
+ *  The half-percent tolerance matches the decoder's own conclusion:
+ *  media_io.load_image() compares the pixel rect against the whole image and
+ *  skips the crop entirely when they come out equal, so anything this call
+ *  reports as uncropped is genuinely sent whole.
+ */
+export function hasCrop(item) {
+  const c = item && item.crop;
+  if (!c) return false;
+  const n = (v, dflt) => {
+    const f = Number(v);
+    return Number.isFinite(f) ? f : dflt;
+  };
+  const x = n(c.x, 0), y = n(c.y, 0), w = n(c.w, 1), h = n(c.h, 1);
+  return x > 0.005 || y > 0.005 || w < 0.995 || h < 0.995;
+}
+
 /** Duration actually sent: the trimmed span when a trim is set. */
 export function effDuration(it) {
   const full = it.duration || 0;
@@ -196,8 +221,12 @@ export const MODE_CAPACITY = {
   REF: { Picture: 9, Video: 3, Audio: 3, total: 12, roles: {} },
 };
 
-export const PANEL_H = 476;
-export const NODE_W = 660;
+// The node's floor. Both were cut 10% from the original 476/660 — the panel
+// was sized for the old top-strip layout and had room to give back. The CSS
+// below interpolates PANEL_H rather than repeating the number, which is what
+// let the two drift apart before.
+export const PANEL_H = 428;
+export const NODE_W = 594;
 
 /* Copied media, shared across every loader on the page so a reference can be
    carried from one node to another. Holds the item, not the file: the upload
@@ -312,7 +341,7 @@ const CSS = `
 .mmlp-panel{font-family:system-ui,sans-serif;color:#d7dbe2;font-size:calc(12px * var(--mml-fs, 1));
   background:#191c22;border:1px solid #2a2f3a;border-radius:8px;padding:8px;
   display:flex;flex-direction:column;gap:6px;box-sizing:border-box;
-  width:100%;height:476px;min-height:476px;overflow:hidden;}
+  width:100%;height:${PANEL_H}px;min-height:${PANEL_H}px;overflow:hidden;}
 .mmlp-cols{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:9px;}
 /* Mode-shaped layout: one big slot for a single keyframe, two side by side
    for first+last. The slots grow to the panel instead of the fixed tile size,
@@ -341,9 +370,24 @@ const CSS = `
 .mmlp-modalhead{display:flex;align-items:center;gap:10px;padding:9px 13px;
   background:#1e222a;border-bottom:1px solid #2a2f3a;font-size:calc(13px * var(--mml-fs, 1));
   font-weight:500;color:#d7dbe2;font-family:system-ui,sans-serif;}
-.mmlp-modalhead button{margin-left:auto;background:none;border:0;color:#8a93a3;
+/* One margin-left:auto on the group, not on each button. Setting it per
+   button gave every one its own elastic gap, which spread them across the
+   header instead of grouping them at the right-hand end. */
+.mmlp-modalacts{margin-left:auto;display:flex;align-items:center;gap:8px;
+  flex:0 0 auto;}
+.mmlp-modalhead button{background:none;border:0;color:#8a93a3;
   font-size:calc(17px * var(--mml-fs, 1));cursor:pointer;}
 .mmlp-modalhead button:hover{color:#fff;}
+/* The same pill the node's prompt bar uses for its own way into the editor
+   (.mmh3p-sumbtn in promptbuilder.js) — the two are the same action, so they
+   look the same. Restated rather than shared: this file deliberately carries
+   no dependency on promptbuilder.js. */
+.mmlp-modalhead button.mmlp-pbbtn{display:inline-flex;align-items:center;gap:5px;
+  background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
+  padding:4px 9px;font-size:calc(11px * var(--mml-fs, 1));font-family:inherit;
+  white-space:nowrap;}
+.mmlp-modalhead button.mmlp-pbbtn:hover{background:#333b4d;border-color:#59637a;
+  color:#d7dbe2;}
 .mmlp-modalbody{flex:1;min-height:0;padding:8px;overflow:auto;}
 .mmlp-panel.drop{border-color:#6f86b8;background:#1d2330;}
 /* One height for everything in the top row. The controls come from three
@@ -353,9 +397,15 @@ const CSS = `
 .mmlp-top{display:flex;align-items:center;gap:8px;flex:0 0 auto;min-width:0;}
 .mmlp-top>button,.mmlp-top button,.mmlp-top select,.mmlp-top input{
   height:22px;box-sizing:border-box;}
+/* Belt and braces for #30: no button label may wrap out of its own box at a
+   larger text size, whichever style it wears. */
+.mmlp-panel button,.mmlp-modal button,.mmlp-tmmodal button{white-space:nowrap;}
 .mmlp-top .mmlp-btn,.mmlp-top .mmlp-count{flex:0 0 auto;white-space:nowrap;}
 .mmlp-btn{background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
-  padding:4px 10px;font-size:calc(11px * var(--mml-fs, 1));cursor:pointer;}
+  padding:4px 10px;font-size:calc(11px * var(--mml-fs, 1));cursor:pointer;
+  /* A label must never wrap inside its own button: at a larger text size
+     that pushed a second line out past the button's own bounds. */
+  white-space:nowrap;}
 .mmlp-btn:hover{background:#333b4d;}
 .mmlp-presetrow{flex:0 0 auto;display:flex;align-items:center;gap:5px;
   min-width:0;flex-wrap:nowrap;}
@@ -375,7 +425,11 @@ const CSS = `
 .mmlp-presetlbl{flex:0 0 auto;white-space:nowrap;
   font-size:calc(10px * var(--mml-fs, 1));text-transform:uppercase;letter-spacing:.07em;
   color:#6b7484;}
-.mmlp-btn.mmlp-sm{padding:3px 9px;font-size:calc(10px * var(--mml-fs, 1));}
+/* Tighter padding only. This used to drop to 10px as well, which put two
+   different button text sizes side by side in the same toolbar — "Load"
+   at 11px next to Save/Delete/Settings at 10px. Size is the button base's
+   to set, so every button in the pack reads at one size. */
+.mmlp-btn.mmlp-sm{padding:3px 9px;}
 .mmlp-btn.mmlp-on{border-color:#4a6fa5;background:#22304a;color:#c9dcf5;}
 .mmlp-winbtn{position:relative;}
 .mmlp-winbtn.mmlp-hasHidden{border-color:#7a5a2a;color:#e0a94c;}
@@ -392,18 +446,23 @@ const CSS = `
   text-overflow:ellipsis;white-space:nowrap;}
 .mmlp-topspace{flex:1;}
 .mmlp-scalewrap{position:relative;display:inline-block;}
-/* The size popover must never scale with the text setting: at 200% its own
-   controls would be unreadable and unclickable, leaving no way back. */
-.mmlp-scalemenu{--mml-fs:1;position:absolute;right:0;top:100%;margin-top:6px;
-  z-index:30;display:none;width:268px;background:#1e222a;border:1px solid #3a4252;
+/* This popover scales with the text setting like everything else, so the box
+   and its fixed columns scale with it rather than only the glyphs — text
+   growing inside a 268px shell would overflow its own controls at 300%. The
+   width is capped against the viewport so it can never grow off-screen and
+   strand the control that would shrink it back. */
+.mmlp-scalemenu{position:absolute;right:0;top:100%;margin-top:6px;
+  z-index:30;display:none;width:min(calc(268px * var(--mml-fs, 1)), 92vw);
+  background:#1e222a;border:1px solid #3a4252;
   border-radius:9px;padding:8px;box-shadow:0 16px 40px rgba(0,0,0,.55);}
 .mmlp-scalemenu.on{display:block;}
 .mmlp-scalerow{display:flex;align-items:center;gap:8px;padding:5px 4px;}
 .mmlp-scalelabel{font-size:calc(10px * var(--mml-fs, 1));color:#8a93a3;
-  width:62px;flex:0 0 auto;white-space:nowrap;}
+  width:calc(62px * var(--mml-fs, 1));flex:0 0 auto;white-space:nowrap;}
 .mmlp-scalerange{flex:1;min-width:0;}
 .mmlp-scaleval{font-size:calc(10px * var(--mml-fs, 1));color:#d7dbe2;
-  font-family:ui-monospace,monospace;width:58px;text-align:right;flex:0 0 auto;
+  font-family:ui-monospace,monospace;width:calc(58px * var(--mml-fs, 1));
+  text-align:right;flex:0 0 auto;
   background:#12151b;border:1px solid #2e3440;border-radius:5px;padding:2px 4px;}
 .mmlp-scaleval:focus{outline:none;border-color:#4a5568;}
 .mmlp-scalepct{font-size:calc(10px * var(--mml-fs, 1));color:#6b7484;
@@ -518,6 +577,11 @@ const CSS = `
 .mmlp-slot.filled.off{opacity:.42;border-style:dashed;}
 .mmlp-slot.filled.off .mmlp-power{opacity:1;color:#6b7484;}
 .mmlp-slot.filled.off:hover{opacity:.7;}
+/* Loaded fine, but the current prompt mode won't send it to the model — the
+   standard grid shows every slot regardless of mode, so this is the only cue
+   telling the two apart. Covers both filled and empty slots with one rule. */
+.mmlp-slot.unusable{opacity:.4;}
+.mmlp-slot.unusable:hover{opacity:.65;}
 .mmlp-segstack{display:flex;flex-direction:column;align-items:center;gap:2px;
   flex-shrink:0;}
 .mmlp-segtag{font-size:calc(9px * var(--mml-fs, 1));}
@@ -605,8 +669,14 @@ const CSS = `
   font-size:calc(9px * var(--mml-fs, 1));color:#8a6a33;text-transform:uppercase;letter-spacing:.06em;}
 .mmlp-tmplaytime{color:#ffb84d;font-family:ui-monospace,monospace;
   text-transform:none;letter-spacing:0;font-size:calc(10px * var(--mml-fs, 1));}
+/* One line, always. This used to wrap, which at a larger text size dropped
+   Apply/Cancel onto a second row that the modal's fixed height then cut off.
+   Nothing wraps now: the row can't grow past its box, and the buttons give up
+   label width (ellipsised, full text still on their title) rather than the
+   row giving up a place to put them. */
 .mmlp-tmfoot{display:flex;align-items:center;gap:5px;padding:8px 12px 0;
-  flex-wrap:wrap;}
+  flex-wrap:nowrap;min-width:0;overflow:hidden;}
+.mmlp-tmfoot>.mmlp-btn{min-width:0;overflow:hidden;text-overflow:ellipsis;}
 .mmlp-tmfoot.act{padding:8px 12px 4px;border-top:1px solid #23272f;margin-top:8px;}
 .mmlp-tmgap{width:8px;}
 .mmlp-tmspace{flex:1;}
@@ -651,6 +721,10 @@ const CSS = `
 .mmlp-order .mmlp-t-pic{color:#e0a94c;} .mmlp-order .mmlp-t-vid{color:#4cc3e0;}
 .mmlp-order .mmlp-t-aud{color:#b48ce8;} .mmlp-order .mmlp-t-subj{color:#7ec87e;}
 .mmlp-orderarrow{color:#4a5568;margin:0 4px;}
+/* Loaded and numbered, but the current mode won't forward this one — see the
+   comment at its call site for why dimming rather than dropping it. */
+.mmlp-order .mmlp-t-unusable{opacity:.4;text-decoration:line-through;
+  text-decoration-color:currentColor;}
 
 .mmlp-light{position:fixed;inset:0;z-index:10050;background:rgba(8,10,14,.75);
   display:flex;align-items:center;justify-content:center;}
@@ -848,12 +922,11 @@ export class TrimModal {
         end: this.end >= this.dur - eps ? null : +this.end.toFixed(2) };
     }
     const visual = it.kind === "video" || it.kind === "picture";
-    // Same "is this actually a crop" check the crop-mode-off toggle uses:
-    // opening crop mode auto-drops a near-full-frame rect just so the
-    // handles have something to grab, and Apply must not persist that as a
-    // real edit if it was never dragged.
-    const realCrop = this.crop
-      && !(this.cropAuto || (this.crop.w > 0.995 && this.crop.h > 0.995));
+    // Never persist a rect that isn't a crop. cropAuto covers the
+    // placeholder the tool drops in for the handles' sake; hasCrop() covers
+    // every other way of ending up with a full-frame rect, and is the same
+    // test the thumbnails use to decide whether to light up.
+    const realCrop = !this.cropAuto && hasCrop({ crop: this.crop });
     if (realCrop && visual) it.crop = this.crop;
     else delete it.crop;
     if (this.mirror && visual) it.mirror = true;
@@ -1217,8 +1290,7 @@ export class TrimModal {
           this.cropAuto = true;
         }
         if (!this.cropMode && this.crop
-            && (this.cropAuto
-                || (this.crop.w > 0.995 && this.crop.h > 0.995))) {
+            && (this.cropAuto || !hasCrop({ crop: this.crop }))) {
           this.crop = null;
           this.cropAuto = false;
         }
@@ -1420,7 +1492,9 @@ export class TrimModal {
     this.cropWrap.style.display = show ? "" : "none";
     this.cropWrap.style.pointerEvents = this.cropMode ? "" : "none";
     this.cropRect.classList.toggle("locked", !this.cropMode);
-    this.cropBtn.classList.toggle("on", !!this.crop);
+    // Lit only for a rect that actually cuts something, matching the
+    // thumbnails' edit button rather than disagreeing with it.
+    this.cropBtn.classList.toggle("on", hasCrop({ crop: this.crop }));
     this.aspectEl.style.display = this.cropMode ? "" : "none";
     if (this.crop && this.cropRect) {
       const c = this.crop;
@@ -1645,7 +1719,7 @@ export class TrimModal {
                 onclick: () => this.useAudio() }, "\u{1F3B5} Use audio")
             : null,
           el("span", { class: "mmlp-tmspace" }),
-          (this.item.trim || this.item.crop)
+          (this.item.trim || hasCrop(this.item))
             ? el("button", { class: "mmlp-btn mmlp-sm",
                 title: "Whole clip, no crop",
                 onclick: () => { this.start = 0; this.end = this.dur;
@@ -2200,7 +2274,11 @@ export class LoaderPanel {
       outs.text.value = String(Math.round(t * 100));
       saveScalePrefs(prefs);
       applyTextScale(this, t);
-      applyNodeSize(this.node, n);       // last: this moves the popover
+      // Same stored factor either way, but it has to land on whatever this
+      // panel actually lives in: resizing the node from inside the full-size
+      // window would change something the user can't even see right now.
+      if (this.modal) this.resizeWindow();
+      else applyNodeSize(this.node, n);  // last: this moves the popover
       applyBtn.classList.remove("primary");
     };
 
@@ -2209,7 +2287,9 @@ export class LoaderPanel {
       "Apply");
 
     const menu = el("div", { class: "mmlp-scalemenu" },
-      slider("node", "Node size"),
+      // In the full-size window there is no node on screen to size, so the
+      // same factor is presented as what it actually drives here.
+      slider("node", this.modal ? "Window size" : "Node size"),
       slider("text", "Text size"),
       el("div", { class: "mmlp-scalefoot" },
         el("span", {}, "Remembered for new nodes"),
@@ -2218,12 +2298,12 @@ export class LoaderPanel {
         applyBtn));
 
     const btn = el("button", { class: "mmlp-btn mmlp-sm",
-      title: "Node and text size",
+      title: this.modal ? "Window and text size" : "Node and text size",
       onclick: (e) => {
         e.stopPropagation();
         const open = menu.classList.toggle("on");
         btn.classList.toggle("on", open);
-      } }, "\u2921 Size");
+      } }, "\u2699 Settings");
     this._scaleMenu = menu;
     this._scaleBtn = btn;
     return el("span", { class: "mmlp-scalewrap" }, btn, menu);
@@ -2232,6 +2312,14 @@ export class LoaderPanel {
   closeScaleMenu() {
     this._scaleMenu?.classList.remove("on");
     this._scaleBtn?.classList.remove("on");
+  }
+
+  /** Re-apply the stored size factor to the window this panel is mounted in.
+   *  The base dimensions match openLoaderModal()'s own call, so the slider
+   *  reaches exactly the sizes opening the window fresh would produce. */
+  resizeWindow() {
+    const box = this.root?.closest?.(".mmlp-modal");
+    if (box) scaleOverlay(this.node, [[box, 1140, 780]]);
   }
 
   /** Preset picker the pack owns. This was a native <select>, and it was the
@@ -2328,10 +2416,11 @@ export class LoaderPanel {
   trimBtn(item) {
     const still = item.kind === "picture";
     if (!still && !item.duration) return null;
+    const cropped = hasCrop(item);
     const active = (item.trim && (item.trim.start || item.trim.end))
-      || item.crop || item.mirror || item.rotate;
+      || cropped || item.mirror || item.rotate;
     const what = [];
-    if (item.crop) what.push("cropped");
+    if (cropped) what.push("cropped");
     if (item.rotate) what.push(`${item.rotate}\u00b0`);
     if (item.resize) what.push(`max ${item.resize}px`);
     if (item.mirror) what.push("mirrored");
@@ -2398,15 +2487,16 @@ export class LoaderPanel {
   /** One filled picture cell. Extracted so the standard grid and the
    *  mode-shaped layout render the identical tile rather than two that
    *  drift apart. */
-  picCell(it, tags, reorder = true) {
+  picCell(it, tags, reorder = true, note = null) {
       const tag = (tags.get(it) || "").slice(1, -1);
       return (this.reorderable(el("div",
-        { class: "mmlp-slot filled pic" + (isOn(it) ? "" : " off") },
+        { class: "mmlp-slot filled pic" + (isOn(it) ? "" : " off")
+            + (note ? " unusable" : "") },
         (() => {
           // Badge and img are SIBLINGS in the slot: .mmlp-pic is absolutely
           // positioned against the slot, so wrapping it breaks its sizing.
           const [ow, oh] = outSize(it);
-          const badge = el("span", { class: "mmlp-dims" + (it.crop ? " cut" : "") },
+          const badge = el("span", { class: "mmlp-dims" + (hasCrop(it) ? " cut" : "") },
             dimsLabel(ow, oh));
           // Declared before the crop block below, which reads both. As const
           // they sit in the temporal dead zone until this point, so leaving
@@ -2417,7 +2507,7 @@ export class LoaderPanel {
           // with everything outside the crop dimmed — you can see what was
           // dropped, not just what's left.
           let marquee = null;
-          if (it.crop) {
+          if (hasCrop(it)) {
             const box = el("div", { class: "mmlp-cropbox" },
               el("div", { class: "mmlp-cropmark", style: {
                 left: `${(it.crop.x ?? 0) * 100}%`,
@@ -2444,8 +2534,9 @@ export class LoaderPanel {
               : {},
             title: dimsTitle(it.name, it.width, it.height)
               + (turn ? `\nrotated ${turn}\u00b0` : "")
-              + (it.crop ? `\ncropped to ${ow}\u00d7${oh}` : "")
-              + (it.mirror ? "\nmirrored" : ""),
+              + (hasCrop(it) ? `\ncropped to ${ow}\u00d7${oh}` : "")
+              + (it.mirror ? "\nmirrored" : "")
+              + (note ? `\n${note}` : ""),
             onload: () => {
               // Items from before dimensions were stored learn them here.
               if (!it.width && img.naturalWidth) {
@@ -2483,11 +2574,12 @@ export class LoaderPanel {
             onclick: () => this.remove(it) }, "\u2715"))), it, reorder));
   }
 
-  /** Top-right controls: the layout toggle, and a way into the full-size
-   *  window. Neither belongs in the modal — it is already the full-size
-   *  window, and it always shows the standard layout. */
+  /** The layout toggle and the way into the full-size window, returned
+   *  separately because they no longer sit together: the window button opens
+   *  the bar and the shape toggle closes it. Neither belongs in the modal —
+   *  it is already the full-size window, and always shows every slot. */
   topRight() {
-    if (this.modal) return [];
+    if (this.modal) return { shape: null, window: null };
     const out = [];
     const m = this.mode();
     if (m && m !== "REF") {
@@ -2506,15 +2598,15 @@ export class LoaderPanel {
       }, this.compact ? "\u25f0 Used" : "\u25f1 All"));
     }
     const hidden = this.hiddenCount();
-    out.push(el("button", {
+    const win = el("button", {
       class: "mmlp-btn mmlp-sm mmlp-winbtn" + (hidden ? " mmlp-hasHidden" : ""),
       title: hidden
         ? `${hidden} item(s) loaded but not shown in this layout \u2014 open the `
           + `full window to reach them`
         : "Open the media loader in a window",
       onclick: () => openLoaderModal(this.node, "MiniMax H3 \u2014 media"),
-    }, "\u2750", hidden ? el("span", { class: "mmlp-badge" }, String(hidden)) : null));
-    return out;
+    }, "\u2750", hidden ? el("span", { class: "mmlp-badge" }, String(hidden)) : null);
+    return { shape: out[0] || null, window: win };
   }
 
   /** The prompt mode this node is set to, or null when there is none — the
@@ -2550,6 +2642,24 @@ export class LoaderPanel {
       Math.max(0, this.items.filter((i) => i.kind === kind).length - room);
     return over("picture", sh.pictures) + over("video", sh.videos)
       + over("audio", sh.audios);
+  }
+
+  /** Why a slot of this kind/number in the standard grid won't reach the
+   *  model in the current prompt mode, or null when it will — including when
+   *  there is no mode to restrict by (the standalone loader has none, and
+   *  the mode-shaped layout already only ever offers usable slots). Mirrors
+   *  the editor's own Editor.modeNote() so the wording matches on both sides
+   *  of the pack. */
+  modeNote(kind, idx) {
+    const m = this.mode();
+    if (!m) return null;
+    const label = kind === "picture" ? "Picture" : kind === "video" ? "Video" : "Audio";
+    const limit = MODE_CAPACITY[m][label] || 0;
+    if (idx <= limit) return null;
+    if (limit === 0)
+      return `${m} has no ${kind} references — this is not sent to the model.`;
+    return `${m} uses only ${label} 1` + (limit > 1 ? `–${limit}` : "")
+      + " — this is not sent to the model.";
   }
 
   /** Why this kind can't take another item, or null when there's room.
@@ -2751,10 +2861,10 @@ export class LoaderPanel {
   }
 
   /** An always-present empty slot: click to browse, drop to fill. */
-  emptySlot(kind, index) {
-    const slot = el("div", { class: "mmlp-slot",
+  emptySlot(kind, index, note = null) {
+    const slot = el("div", { class: "mmlp-slot" + (note ? " unusable" : ""),
       title: `Empty ${kind} slot ${index} \u2014 click to browse, drop a file, ` +
-        `or right-click to paste`,
+        `or right-click to paste` + (note ? `\n${note}` : ""),
       onclick: () => this.picker.click() },
       el("span", {}, `${kind} ${index}`));
     slot.addEventListener("contextmenu", (e) => this.slotMenu(e, null));
@@ -2814,22 +2924,27 @@ export class LoaderPanel {
           this.render();
         } }, "Delete"));
 
+    // Bar order: the way into the full-size window first, then the load
+    // controls, then the preset group, then everything mode- and
+    // display-related pushed to the right-hand end, with Settings last.
+    const modeCtl = this.topRight();
     kids.push(el("div", { class: "mmlp-top" },
+      modeCtl.window,
       el("button", { class: "mmlp-btn", onclick: () => this.picker.click(),
         title: `Load reference files. You can also drop them on any slot, or ` +
           `paste with Ctrl+V.\n${total}/${MAX.total} files, ` +
           `${audioCount(this.items)}/${MAX.audio} audio in play.` },
-        this.busy ? `uploading ${this.busy}\u2026` : "Load files\u2026"),
+        this.busy ? `uploading ${this.busy}\u2026` : "Load"),
       this.items.length
         ? el("button", { class: "mmlp-btn mmlp-sm",
             title: "Remove every loaded reference from this node",
             onclick: () => { this.unloadPrompt = true; this.render(); } },
-            "Unload media")
+            "Unload All")
         : null,
       presetGroup,
       el("span", { class: "mmlp-topspace" }),
-      this.scaleControl(),
-      ...this.topRight()));
+      modeCtl.shape,
+      this.scaleControl()));
     // The x/12 and audio counters used to sit here. Every state they warned
     // about is already spelled out in the problem line below, in words and in
     // red, so they were spending prime space to repeat it \u2014 the running
@@ -2949,9 +3064,17 @@ export class LoaderPanel {
     left.append(el("div", { class: "mmlp-sec" }, "pictures",
       el("span", {}, `${pics.length}/${MAX.picture}`)));
     const picCells = [];
-    pics.forEach((it) => picCells.push(this.picCell(it, tags)));
+    // Filled cells key their mode note off the actual assigned tag number,
+    // not array position — an earlier off item shifts later on-items' real
+    // <Picture N> down, and it's that number the mode's cap is judged against.
+    const tagIdx = (it) => {
+      const t = tags.get(it);
+      return t ? parseInt(t.match(/\d+/)[0], 10) : null;
+    };
+    pics.forEach((it) => picCells.push(this.picCell(it, tags, true,
+      isOn(it) ? this.modeNote("picture", tagIdx(it)) : null)));
     for (let i = pics.length; i < MAX.picture; i++)
-      picCells.push(this.emptySlot("picture", i + 1));
+      picCells.push(this.emptySlot("picture", i + 1, this.modeNote("picture", i + 1)));
     left.append(el("div", { class: "mmlp-pics" }, picCells));
 
     right.append(el("div", { class: "mmlp-sec" }, "videos",
@@ -2963,6 +3086,10 @@ export class LoaderPanel {
     vids.forEach((it) => {
       const mode = it.audio_mode || "off";
       const splitTag = extra.get(it);
+      const vTag = tags.get(it);
+      const note = isOn(it)
+        ? this.modeNote("video", vTag ? parseInt(vTag.match(/\d+/)[0], 10) : null)
+        : null;
       const row = el("div", { class: "mmlp-row" },
         this.powerBtn(it),
         el("video", { class: "mmlp-vthumb",
@@ -3028,12 +3155,13 @@ export class LoaderPanel {
         el("span", { class: "mmlp-drag", title: "Drag to reorder" }, "\u2630"),
         el("span", { class: "mmlp-x", title: "Remove",
           onclick: () => this.remove(it) }, "\u2715"));
-      const vcell = el("div", { class: "mmlp-slot filled vid" + (isOn(it) ? "" : " off") },
+      const vcell = el("div", { class: "mmlp-slot filled vid" + (isOn(it) ? "" : " off")
+          + (note ? " unusable" : ""), ...(note ? { title: note } : {}) },
         row);
       vidCells.push(this.reorderable(vcell, it));
     });
     for (let i = vids.length; i < MAX.video; i++)
-      vidCells.push(this.emptySlot("video", i + 1));
+      vidCells.push(this.emptySlot("video", i + 1, this.modeNote("video", i + 1)));
     right.append(el("div", { class: "mmlp-vids" }, vidCells));
 
     // A video's audio set to "alone" is a standalone reference in every way
@@ -3048,6 +3176,10 @@ export class LoaderPanel {
     auds.forEach((it) => {
       const player = miniPlayer(viewURL(it.file));
       this.players.push(player);
+      const aTag = tags.get(it);
+      const note = isOn(it)
+        ? this.modeNote("audio", aTag ? parseInt(aTag.match(/\d+/)[0], 10) : null)
+        : null;
       const arow = el("div", { class: "mmlp-row" },
           this.powerBtn(it),
           player.btn,
@@ -3061,12 +3193,13 @@ export class LoaderPanel {
           el("span", { class: "mmlp-x", title: "Remove",
             onclick: () => this.remove(it) }, "\u2715"));
       const acell = el("div",
-        { class: "mmlp-slot filled aud" + (isOn(it) ? "" : " off") },
+        { class: "mmlp-slot filled aud" + (isOn(it) ? "" : " off")
+            + (note ? " unusable" : ""), ...(note ? { title: note } : {}) },
         arow);
       audCells.push(this.reorderable(acell, it));
     });
     for (let i = auds.length + aloneVideoAudio; i < MAX.audio; i++)
-      audCells.push(this.emptySlot("audio", i + 1));
+      audCells.push(this.emptySlot("audio", i + 1, this.modeNote("audio", i + 1)));
     right.append(el("div", { class: "mmlp-auds" }, audCells));
 
     const order = [];
@@ -3089,10 +3222,20 @@ export class LoaderPanel {
       : /^\[?Video/.test(t) ? "mmlp-t-vid"
       : /^\[?Audio/.test(t) ? "mmlp-t-aud"
       : /^\[?Subject/.test(t) ? "mmlp-t-subj" : "");
+    // The label above promises "sent to the model" \u2014 a tag the current mode
+    // won't actually forward (an extra picture past the mode's cap, or any
+    // video/audio outside Reference) is dimmed rather than removed, so the
+    // sequence still shows everything loaded but doesn't misstate what goes.
+    const numOf = (t) => {
+      const m = /^\[?(Picture|Video|Audio) (\d+)\]?$/.exec(t);
+      return m ? this.modeNote(m[1].toLowerCase(), parseInt(m[2], 10)) : null;
+    };
     const seq = [];
     order.forEach((t, i) => {
       if (i) seq.push(el("span", { class: "mmlp-orderarrow" }, "\u2192"));
-      seq.push(el("span", { class: tagClass(t) }, t));
+      const note = numOf(t);
+      seq.push(el("span", { class: tagClass(t) + (note ? " mmlp-t-unusable" : ""),
+        ...(note ? { title: note } : {}) }, t));
     });
     kids.push(el("div", { class: "mmlp-order" },
       el("b", {}, "tag order sent to the model"),
@@ -3184,15 +3327,20 @@ export function openLoaderModal(node, title = "MiniMax H3 Media Loader") {
     onmousedown: (e) => { if (e.target === overlay) close(); } },
     el("div", { class: "mmlp-modal" },
       el("div", { class: "mmlp-modalhead" }, title,
-        // Only meaningful when this modal was opened from Prompt Studio,
-        // which is the only place it's opened from any more \u2014 set by
-        // promptstudio.js, not imported directly, so this file keeps no
-        // dependency on promptbuilder.js.
-        node._mmh3OpenEditor
-          ? el("button", { title: "Open the full Prompt Builder",
-              onclick: () => node._mmh3OpenEditor() }, "\ud83d\udcdc Prompt Builder")
-          : null,
-        el("button", { title: "Close", onclick: close }, "\u2715")),
+        el("div", { class: "mmlp-modalacts" },
+          // Only meaningful when this modal was opened from Prompt Studio,
+          // which is the only place it's opened from any more \u2014 set by
+          // promptstudio.js, not imported directly, so this file keeps no
+          // dependency on promptbuilder.js.
+          node._mmh3OpenEditor
+            ? el("button", { class: "mmlp-pbbtn",
+                title: "Open the full Prompt Builder",
+                // Hand over rather than stack \u2014 the editor's own Media
+                // Loader button does the same in the other direction.
+                onclick: () => { close(); node._mmh3OpenEditor(); } },
+                "\ud83d\udcdc Prompt Builder")
+            : null,
+          el("button", { title: "Close", onclick: close }, "\u2715"))),
       el("div", { class: "mmlp-modalbody" }, panel.root)));
   window.addEventListener("keydown", esc);
   document.body.append(overlay);
