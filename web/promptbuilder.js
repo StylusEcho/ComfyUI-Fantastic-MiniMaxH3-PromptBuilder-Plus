@@ -427,17 +427,22 @@ const PREF_DEFAULTS = {
   // duration) and the empty-state line are marked .keep and stay put —
   // they report state rather than explain the field.
   hideHints: false,
+  // Media card size in the strip, independent of window and text scale so
+  // the thumbnails can be made bigger without enlarging everything else.
+  chipScale: 1.0,
   // Prompt library display, set from that window's own settings button
-  // rather than the editor's. Previews show what was actually typed instead
-  // of the assembled prompt, and rows can be given room for a second line.
-  libUserPreview: true,
-  libTallRows: false,
+  // rather than the editor's.
+  libFullPrompt: false,
+  // How many preview lines each library row shows.
+  libPreviewRows: 1,
 };
 // Breathing room left above and below the editor when tallWindow is on.
 const TALL_MARGIN_VH = 4;
 const SCALE_MIN = 1.0;
 const SCALE_MAX = 3.0;          // window
 const TEXT_SCALE_MAX = 2.0;     // type gets unwieldy past this
+// Cards past double width stop being thumbnails and start crowding the form.
+const CHIP_SCALE_MAX = 2.0;
 
 function clampScale(v, max = SCALE_MAX) {
   const n = Number(v);
@@ -450,6 +455,9 @@ function loadPrefs() {
     const v = { ...PREF_DEFAULTS,
       ...JSON.parse(localStorage.getItem(PREF_KEY) || "{}") };
     v.windowScale = clampScale(v.windowScale);
+    v.chipScale = clampScale(v.chipScale, CHIP_SCALE_MAX);
+    v.libPreviewRows = Math.max(1, Math.min(6,
+      Math.round(Number(v.libPreviewRows) || 1)));
     v.textScale = clampScale(v.textScale, TEXT_SCALE_MAX);
     return v;
   } catch (e) {
@@ -1100,11 +1108,16 @@ const CSS = `
 /* One height for every control here, regardless of which of several
    differently-padded button styles it happens to use — .mmh3p-btn, .mmh3p-x
    and the mode switcher's own buttons each disagreed by a couple of px. */
-.mmh3p-head button{height:26px;box-sizing:border-box;}
+/* Scales with the text, and centres it. A fixed 26px is what pushed labels
+   off-centre once the text size was raised: the glyphs outgrew a box that
+   stayed put, so they sat low and clipped rather than staying centred. */
+.mmh3p-head button{height:calc(26px * var(--mmh3-fs, 1));box-sizing:border-box;
+  display:inline-flex;align-items:center;justify-content:center;}
 /* Belt and braces for #30: no button label may wrap out of its own box at a
    larger text size, whichever of the pack's button styles it wears. */
 .mmh3p-modal button,.mmh3p-quickmodal button,.mmh3p-summary button{
-  white-space:nowrap;}
+  white-space:nowrap;display:inline-flex;align-items:center;
+  justify-content:center;}
 .mmh3p-title{font-weight:600;font-size:calc(14px * var(--mmh3-fs, 1));letter-spacing:.02em;}
 .mmh3p-title small{color:#8a93a3;font-weight:400;margin-left:8px;}
 .mmh3p-modesends{padding:4px 14px;font-size:calc(10px * var(--mmh3-fs, 1));color:#7d8698;
@@ -1145,7 +1158,10 @@ const CSS = `
    otherwise it visibly jumps a few px on every toggle. */
 .mmh3p-body.sidebar .mmh3p-rail{display:flex;flex-direction:column;gap:6px;
   min-height:0;overflow-y:auto;padding:16px 8px 10px;background:#15181e;
-  border-right:1px solid #2a2f3a;}
+  border-right:1px solid #2a2f3a;
+  /* Wide enough for a card at the current chip scale plus this padding, or
+     larger cards would be clipped by the column holding them. */
+  flex:0 0 auto;min-width:calc(128px * var(--mmh3-chip, 1) + 16px);}
 .mmh3p-railhead{flex:0 0 auto;font-size:calc(10px * var(--mmh3-fs, 1));text-transform:uppercase;
   letter-spacing:.08em;color:#8a93a3;}
 /* In the sidebar the column's own gap spaces this; inline it is a block, so it
@@ -1161,24 +1177,28 @@ const CSS = `
    the row's height. In this column it overrides the centring above and makes
    the tile span the whole rail, leaving it wider than the cards under it. */
 .mmh3p-body.sidebar .mmh3p-rail .mmh3p-card.mmh3p-drop{align-self:center;
-  width:128px;}
+  width:calc(128px * var(--mmh3-chip, 1));}
 .mmh3p-body.sidebar .mmh3p-rail .mmh3p-card.joinR{margin-right:0;margin-bottom:-6px;
   border-radius:7px 7px 0 0;}
 .mmh3p-body.sidebar .mmh3p-rail .mmh3p-card.joinL{border-left-width:1px;
   border-top-width:0;border-radius:0 0 7px 7px;}
 @media (max-width:980px){.mmh3p-body{grid-template-columns:1fr;}}
 
-.mmh3p-card{position:relative;width:128px;flex:0 0 auto;border:1px solid #2e3440;
+/* --mmh3-chip scales the cards on their own, so the strip can be made
+   easier to read without enlarging the rest of the editor with it. */
+.mmh3p-card{position:relative;width:calc(128px * var(--mmh3-chip, 1));
+  flex:0 0 auto;border:1px solid #2e3440;
   border-radius:7px;overflow:hidden;background:#12151b;cursor:pointer;
   user-select:none;}
 .mmh3p-card:hover{border-color:#59637a;}
 .mmh3p-card.pic{border-color:#6d5527;} .mmh3p-card.vid{border-color:#255c6b;}
 .mmh3p-card.aud{border-color:#4c3d6e;}
-.mmh3p-card .mmh3p-thumb{width:100%;height:80px;object-fit:cover;display:block;
-  background:#0d1015;}
+.mmh3p-card .mmh3p-thumb{width:100%;height:calc(80px * var(--mmh3-chip, 1));
+  object-fit:cover;display:block;background:#0d1015;}
 /* #41: the window onto a cropped reference. The media inside is oversized and
    offset so the kept rect fills this box. */
-.mmh3p-cropwrap{position:relative;width:100%;height:80px;overflow:hidden;
+.mmh3p-cropwrap{position:relative;width:100%;
+  height:calc(80px * var(--mmh3-chip, 1));overflow:hidden;
   background:#0d1015;}
 .mmh3p-cropwrap .mmh3p-cropped{position:absolute;height:auto;}
 /* #42: the hover preview keeps the whole frame and outlines what is kept, so
@@ -1415,10 +1435,18 @@ const CSS = `
   margin-right:-6px;}
 .mmh3p-card.joinL{border-top-left-radius:0;border-bottom-left-radius:0;
   border-left-width:0;}
-.mmh3p-card.mmh3p-drop{display:flex;flex-direction:column;align-items:center;
-  justify-content:center;gap:3px;align-self:stretch;min-height:97px;
+/* Three rows, the outer two equal: that puts the + on the tile's exact
+   vertical centre (rows 1 and 3 balance around it) and leaves the kinds label
+   centred in the space between the + and the bottom edge. Stacking the two as
+   one centred flex group instead, as before, put neither where it belongs —
+   the pair straddled the middle and the label sat just under the +. */
+.mmh3p-card.mmh3p-drop{display:grid;grid-template-rows:1fr auto 1fr;
+  justify-items:center;align-items:center;gap:0;
+  align-self:stretch;min-height:97px;
   border-style:dashed;
   border-color:#2b313d;background:#141820;color:#5c6472;cursor:pointer;}
+.mmh3p-card.mmh3p-drop>.mmh3p-dropplus{grid-row:2;}
+.mmh3p-card.mmh3p-drop>.mmh3p-dropkinds{grid-row:3;}
 .mmh3p-card.mmh3p-drop:hover{border-color:#59637a;color:#8a93a3;}
 .mmh3p-card.mmh3p-drop.hot{border-color:#6f86b8;background:#1b2230;color:#9db4dc;}
 .mmh3p-dropplus{font-size:calc(18px * var(--mmh3-fs, 1));line-height:1;}
@@ -1469,6 +1497,12 @@ const CSS = `
 .mmh3p-btn.primary:hover{background:#48679a;}
 .mmh3p-btn.ghost{background:none;border-color:transparent;color:#8a93a3;}
 .mmh3p-btn.ghost:hover{color:#e05a5a;}
+/* Row delete. Framed, unlike .ghost, so it reads as a button sitting in the
+   row rather than a loose glyph — .ghost drops the border entirely, which is
+   right for a footer but leaves this one unbounded next to bordered fields. */
+.mmh3p-btn.rowx{background:#20242d;border-color:#3a4252;color:#8a93a3;
+  padding:3px 8px;line-height:1;}
+.mmh3p-btn.rowx:hover{background:#3a2020;border-color:#7a3a3a;color:#f0a0a0;}
 .mmh3p-defrow{display:flex;gap:6px;margin-bottom:6px;align-items:flex-start;}
 .mmh3p-defrow textarea{flex:1;min-height:38px;}
 .mmh3p-minitags{display:flex;gap:4px;flex-wrap:wrap;margin:-2px 0 8px 2px;min-height:14px;}
@@ -1487,8 +1521,13 @@ const CSS = `
 .mmh3p-ttypes{display:flex;flex-wrap:wrap;gap:4px 12px;margin-bottom:6px;}
 .mmh3p-ttypes label{display:flex;gap:5px;align-items:center;font-size:calc(12px * var(--mmh3-fs, 1));color:#c9cfda;
   text-transform:none;letter-spacing:0;cursor:pointer;}
-.mmh3p-retrow{display:grid;grid-template-columns:14px auto 1fr auto 26px;gap:6px;
-  margin-bottom:6px;align-items:center;}
+/* Each entry is its own boxed card: these rows wrap onto two lines (the note
+   spans the full width underneath), so without a frame it was hard to see
+   where one entry ended and the next began. */
+.mmh3p-retrow{display:grid;grid-template-columns:14px auto 1fr auto auto;gap:6px;
+  margin-bottom:8px;align-items:center;
+  background:#161a21;border:1px solid #2b313d;border-radius:7px;padding:7px 8px;}
+.mmh3p-retrow.off{opacity:.55;}
 .mmh3p-retrow input,.mmh3p-retrow select{font-size:calc(12px * var(--mmh3-fs, 1));}
 .mmh3p-retnote{grid-column:1/-1;margin-top:-2px;}
 .mmh3p-preview{flex:1;overflow:auto;margin:0;padding:12px 14px;
@@ -1682,12 +1721,12 @@ const CSS = `
 .mmh3p-libage{margin-left:auto;font-size:calc(10px * var(--mmh3-fs, 1));color:#5c6472;}
 .mmh3p-libprev{font-size:calc(11px * var(--mmh3-fs, 1));color:#6b7484;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;margin-top:2px;font-family:ui-monospace,monospace;}
-/* Taller rows: two lines of preview instead of one. -webkit-line-clamp is
-   what actually ellipsises a wrapped block, and is supported everywhere the
-   rest of this sheet already assumes. */
-.mmh3p-liblist.tall .mmh3p-libprev{white-space:normal;text-overflow:initial;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
-  line-height:1.45;}
+/* Preview line count, from the library's own slider. At one line the
+   single-line rule above already ellipsises; past that -webkit-line-clamp is
+   what actually ellipsises a wrapped block. */
+.mmh3p-liblist .mmh3p-libprev{white-space:normal;text-overflow:initial;
+  display:-webkit-box;-webkit-line-clamp:var(--mmh3-librows, 1);
+  -webkit-box-orient:vertical;line-height:1.45;}
 /* The 🔊/🎵 marks, matching .mmh3p-summark on the node's prompt bar. */
 .mmh3p-libmark{font-size:calc(11px * var(--mmh3-fs, 1));line-height:1;opacity:.85;
   user-select:none;}
@@ -1959,12 +1998,30 @@ class Library {
         el("span", {}, el("span", { class: "mmh3p-preflabel" }, label),
           el("span", { class: "mmh3p-prefhint" }, hint)));
     };
+    // Preview line count, which replaces the old on/off "taller rows"
+    // toggle — that was just this set to 2, so it has nothing left to say.
+    const rowsOut = el("input", { type: "number", class: "mmh3p-scaleval",
+      min: "1", max: "6", step: "1", value: String(this.prefs.libPreviewRows),
+      onchange: (e) => setRows(e.target.value) });
+    const rowsIn = el("input", { type: "range", class: "mmh3p-scalerange",
+      min: "1", max: "6", step: "1", value: String(this.prefs.libPreviewRows),
+      oninput: (e) => setRows(e.target.value) });
+    const setRows = (v) => {
+      const n = Math.max(1, Math.min(6, Math.round(Number(v) || 1)));
+      this.prefs.libPreviewRows = n;
+      rowsIn.value = String(n);
+      rowsOut.value = String(n);
+      savePrefs(this.prefs);
+      this.applyPrefs();
+    };
     this.prefsMenu = el("div", { class: "mmh3p-prefmenu" },
-      item("libUserPreview", "Preview what you typed",
-           "Off shows the assembled prompt instead, headers and generated " +
-           "lines included."),
-      item("libTallRows", "Taller rows",
-           "Gives each preview a second line."));
+      el("label", { class: "mmh3p-scalerow" },
+        el("span", { class: "mmh3p-scalelabel" }, "Preview rows"),
+        rowsIn, rowsOut),
+      el("div", { class: "mmh3p-prefsep" }),
+      item("libFullPrompt", "Show full prompt",
+           "Off previews just what you typed. On shows the assembled " +
+           "prompt, headers and generated lines included."));
     this.prefsCog = el("button", { class: "mmh3p-btn", title: "Library settings",
       onclick: (e) => {
         e.stopPropagation();
@@ -1975,10 +2032,11 @@ class Library {
     return el("span", { class: "mmh3p-prefwrap" }, this.prefsCog, this.prefsMenu);
   }
 
-  /** Row height is a class on the list, so changing it doesn't need a
-   *  rebuild — paint() would lose the scroll position. */
+  /** Row height rides on a CSS variable rather than a rebuild, so dragging
+   *  the slider doesn't tear down the list and lose its scroll position. */
   applyPrefs() {
-    this.listEl.classList.toggle("tall", !!this.prefs.libTallRows);
+    this.listEl.style.setProperty("--mmh3-librows",
+      String(this.prefs.libPreviewRows || 1));
   }
 
   close() {
@@ -2267,7 +2325,7 @@ class Library {
   previewFor(entry) {
     // preview_user is empty on records saved before the raw fields were
     // stored, so fall back rather than showing an empty row for them.
-    const text = (this.prefs.libUserPreview && entry.preview_user)
+    const text = (!this.prefs.libFullPrompt && entry.preview_user)
       || entry.preview || "";
     const box = el("div", { class: "mmh3p-libprev" });
     if (text) box.innerHTML = paintTags(text);
@@ -2558,14 +2616,17 @@ class Editor {
     // Deliberately not live: resizing the window moves this menu with it, so
     // the slider would slide out from under the pointer mid-drag.
     const pending = { windowScale: this.prefs.windowScale,
-                      textScale: this.prefs.textScale };
+                      textScale: this.prefs.textScale,
+                      chipScale: this.prefs.chipScale };
     const inputs = {};
     const outs = {};
     const dirty = () => scaleApply.classList.toggle("primary",
       pending.windowScale !== this.prefs.windowScale ||
-      pending.textScale !== this.prefs.textScale);
+      pending.textScale !== this.prefs.textScale ||
+      pending.chipScale !== this.prefs.chipScale);
 
-    const maxFor = (key) => key === "textScale" ? TEXT_SCALE_MAX : SCALE_MAX;
+    const maxFor = (key) => key === "textScale" ? TEXT_SCALE_MAX
+      : key === "chipScale" ? CHIP_SCALE_MAX : SCALE_MAX;
 
     const slider = (key, label) => {
       const out = el("input", { type: "number", class: "mmh3p-scaleval",
@@ -2596,22 +2657,25 @@ class Editor {
         el("span", { class: "mmh3p-scalelabel" }, label), input, out,
         el("span", { class: "mmh3p-scalepct" }, "%"));
     };
-    const setScale = (w, t) => {
+    const setScale = (w, t, c) => {
       this.prefs.windowScale = w;
       this.prefs.textScale = t;
-      pending.windowScale = w; pending.textScale = t;
-      inputs.windowScale.value = String(Math.round(w * 100));
-      inputs.textScale.value = String(Math.round(t * 100));
-      outs.windowScale.value = String(Math.round(w * 100));
-      outs.textScale.value = String(Math.round(t * 100));
+      this.prefs.chipScale = c;
+      pending.windowScale = w; pending.textScale = t; pending.chipScale = c;
+      for (const [key, v] of [["windowScale", w], ["textScale", t],
+                              ["chipScale", c]]) {
+        inputs[key].value = String(Math.round(v * 100));
+        outs[key].value = String(Math.round(v * 100));
+      }
       savePrefs(this.prefs);
       this.applyScale();
       scaleApply.classList.remove("primary");
     };
     const scaleApply = el("button", { class: "mmh3p-btn",
-      onclick: () => setScale(pending.windowScale, pending.textScale) }, "Apply");
+      onclick: () => setScale(pending.windowScale, pending.textScale,
+        pending.chipScale) }, "Apply");
     const scaleReset = el("button", { class: "mmh3p-btn",
-      onclick: () => setScale(1, 1) }, "Reset");
+      onclick: () => setScale(1, 1, 1) }, "Reset");
 
     const item = (key, label, hint) => {
       const box = el("input", { type: "checkbox", checked: !!this.prefs[key],
@@ -2638,6 +2702,7 @@ class Editor {
     const menu = el("div", { class: "mmh3p-prefmenu" },
       slider("windowScale", "Window size"),
       slider("textScale", "Text size"),
+      slider("chipScale", "Chip size"),
       el("div", { class: "mmh3p-scalefoot" }, scaleReset, scaleApply),
       el("div", { class: "mmh3p-prefsep" }),
       item("highlightTags", "Highlight tags and dialogue",
@@ -2704,6 +2769,8 @@ class Editor {
     // Font size only. zoom scaled the layout as well, which changed how much
     // fitted rather than how readable it was.
     document.documentElement.style.setProperty("--mmh3-fs", String(t));
+    document.documentElement.style.setProperty("--mmh3-chip",
+      String(clampScale(this.prefs.chipScale, CHIP_SCALE_MAX)));
   }
 
   /** Show or hide the checks list, remembering the choice. */
@@ -2865,8 +2932,14 @@ class Editor {
         // With railPeek on, show the tag's own card preview in the media
         // strip rather than a second panel over the text being typed. Falls
         // back to the cursor panel when the tag has no card to point at —
-        // an undefined subject, or a slot the current mode leaves out.
-        const rail = this.prefs.railPeek && this._cardFor?.get(tag);
+        // a subject with no media attached, or a slot the mode leaves out.
+        //
+        // A <Subject N> has no card of its own: the strip holds media, and
+        // what a subject points at is its slot. Looking the subject's tag up
+        // directly always missed, which is why subjects ignored this setting
+        // and always opened the cursor panel.
+        const key = subject ? slot?.tag : tag;
+        const rail = this.prefs.railPeek && key && this._cardFor?.get(key);
         if (rail) this.openRailPeek(rail.card, rail.slot);
         else this.openChipPeek(hit, slot, tag, subject);
       }, 180);
@@ -2919,13 +2992,29 @@ class Editor {
           el("span", {}, slot.source || ""));
     const box = el("div", { class: "mmh3p-chippeek" }, media, caption);
     const r = chip.getBoundingClientRect();
-    box.style.left = `${Math.min(r.left, window.innerWidth - 240)}px`;
-    box.style.top = `${r.bottom + 6}px`;
+    box.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - 240))}px`;
+    box.style.visibility = "hidden";
     document.body.append(box);
-    // Flip above the chip when there's no room below.
-    const bb = box.getBoundingClientRect();
-    if (bb.bottom > window.innerHeight - 8)
-      box.style.top = `${Math.max(8, r.top - bb.height - 6)}px`;
+
+    // Above the chip, not below: a panel under the tag covers the line you
+    // are about to type into. Flips below only when it cannot fit above.
+    const place = () => {
+      const bh = box.offsetHeight || 0;
+      const above = r.top - bh - 6;
+      box.style.top = above >= 8
+        ? `${above}px`
+        : `${Math.min(r.bottom + 6, window.innerHeight - bh - 8)}px`;
+      box.style.visibility = "";
+    };
+    place();
+    // Same as the rail peek: media has no size until it loads, so a box
+    // placed before that would sit as if it were empty.
+    const m = box.querySelector("img, video");
+    if (m) {
+      m.addEventListener("load", place, { once: true });
+      m.addEventListener("loadedmetadata", place, { once: true });
+      if (m.complete || m.readyState >= 1) place();
+    }
     this._chipPeek = box;
   }
 
@@ -3083,34 +3172,51 @@ class Editor {
     // it and can only be measured once it is laid out. Positioning against
     // the 540px cap instead is what left a narrow preview floating far to
     // the left of the chip it belongs to — the gap being exactly the width
-    // the box turned out not to need. Hidden for the measuring frame so the
+    // the box turned out not to need. Hidden for the first measure so the
     // unplaced box is never painted at 0,0.
     box.style.visibility = "hidden";
     document.body.append(box);
-    const bw = box.offsetWidth || 540;
-    const bh = box.offsetHeight || 0;
-    box.style.visibility = "";
 
-    const r = card.getBoundingClientRect();
     const GAP = 8;
-    // Beside the thumbnail in the sidebar view, below it otherwise. Both
-    // clamp to the viewport.
-    if (this.sidebar) {
-      // The rail sits at the left edge, so the right is usually the only
-      // side with room — but on a wide enough window (a maximised browser
-      // on a widescreen monitor) there's space on the left too, and that
-      // keeps the peek from drifting far from the cursor. Left wins only
-      // when it can fit without clipping against the viewport edge.
-      const openLeft = r.left - GAP - bw >= 0;
-      box.style.left = openLeft
-        ? `${Math.round(r.left - GAP - bw)}px`
-        : `${Math.max(0, Math.min(r.right + GAP, window.innerWidth - bw - GAP))}px`;
-      box.style.top = `${Math.max(4,
-        Math.min(r.top, window.innerHeight - bh - GAP))}px`;
-    } else {
-      box.style.left =
-        `${Math.max(0, Math.min(r.left, window.innerWidth - bw - GAP))}px`;
-      box.style.top = `${r.bottom + 6}px`;
+    const place = () => {
+      const bw = box.offsetWidth || 540;
+      const bh = box.offsetHeight || 0;
+      const r = card.getBoundingClientRect();
+      // Beside the thumbnail in the sidebar view, below it otherwise. Both
+      // clamp to the viewport on each axis, so a box larger than the screen
+      // still lands inside it rather than off an edge.
+      if (this.sidebar) {
+        // The rail sits at the left edge, so the right is usually the only
+        // side with room — but on a wide enough window (a maximised browser
+        // on a widescreen monitor) there's space on the left too, and that
+        // keeps the peek from drifting far from the cursor. Left wins only
+        // when it can fit without clipping against the viewport edge.
+        const openLeft = r.left - GAP - bw >= 0;
+        box.style.left = openLeft
+          ? `${Math.round(r.left - GAP - bw)}px`
+          : `${Math.max(GAP, Math.min(r.right + GAP, window.innerWidth - bw - GAP))}px`;
+        box.style.top = `${Math.max(4,
+          Math.min(r.top, window.innerHeight - bh - GAP))}px`;
+      } else {
+        box.style.left =
+          `${Math.max(GAP, Math.min(r.left, window.innerWidth - bw - GAP))}px`;
+        box.style.top = `${r.bottom + 6}px`;
+      }
+      box.style.visibility = "";
+    };
+    place();
+    // An <img>/<video> has no intrinsic size until it loads, so the first
+    // measure above is of a box that hasn't grown yet. A large image then
+    // finished loading into a box already positioned for a small one and
+    // spilled off the edge of the screen — which read as the preview simply
+    // not appearing. Measure again when the media settles.
+    const media2 = box.querySelector("img, video");
+    if (media2) {
+      media2.addEventListener("load", place, { once: true });
+      media2.addEventListener("loadedmetadata", place, { once: true });
+      // A cached image can be complete before the listener is attached, in
+      // which case neither event will ever fire.
+      if (media2.complete || media2.readyState >= 1) place();
     }
     this._peek = box;
   }
@@ -4085,7 +4191,7 @@ class Editor {
         paintMini();
         const row = el("div", { class: "mmh3p-defrow" + (d.off ? " off" : "") },
           this.rowPower(d, drawDefs), ta,
-          el("button", { class: "mmh3p-btn ghost", title: "Remove line",
+          el("button", { class: "mmh3p-btn rowx", title: "Remove line",
             onclick: () => { r.subjectDefs.splice(i, 1); drawDefs(); this.updatePreview(); },
           }, "\u2715"));
         defsWrap.append(row, mini, roleRow);
@@ -4183,7 +4289,7 @@ class Editor {
           autoFitSelect(el("select", {
             onchange: (e) => { row.marker = e.target.value; this.updatePreview(); } },
             markers.map((m) => el("option", { value: m, selected: m === row.marker }, m)))),
-          el("button", { class: "mmh3p-btn ghost",
+          el("button", { class: "mmh3p-btn rowx", title: "Remove entry",
             onclick: () => { r.retention.splice(i, 1); drawRet(); this.updatePreview(); } },
             "\u2715"),
           el("input", { class: "mmh3p-retnote", type: "text", value: row.note,

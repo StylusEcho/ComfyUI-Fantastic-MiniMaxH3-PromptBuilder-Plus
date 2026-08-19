@@ -187,3 +187,50 @@ when hiding, makes it a mouse-over caption for the respective section.
      `offsetHeight` was read before the box was in the document, so it was
      always 0.
 
+
+---
+
+## Follow-up round
+
+40. 🟩 add-media chip: `+` centred in the tile, PICTURE / VIDEO / AUDIO centred
+    between the `+` and the bottom edge
+    - Three grid rows with equal outer rows puts the `+` on the tile's exact
+      centre line and leaves the label centred in the space below it. The two
+      were previously one centred flex group, so the pair straddled the middle
+      and neither sat where it belonged.
+41. 🟩 with "Preview tags" on, the popup doesn't appear when the image is large
+    or the window is narrow
+    - An `<img>`/`<video>` has no intrinsic size until it loads, so the box was
+      measured while still empty and then positioned as if it were small. A
+      large image finished loading into that placement and spilled off-screen,
+      which read as the preview not appearing. It re-measures on
+      `load`/`loadedmetadata` (and immediately for an already-cached image,
+      where neither event fires), and both axes clamp into the viewport.
+42. 🟩 tag previews for Subjects don't respect that setting
+    - The card lookup is keyed by media tag, and a `<Subject N>` has no card of
+      its own — what it points at is its slot — so the lookup always missed and
+      subjects fell through to the cursor panel. Keyed off the subject's slot.
+43. 🟩 with the setting off, the popup should go above the text
+    - Prefers above, flipping below only when it cannot fit. Same
+      measure-after-load fix as 41, since it had the same bug.
+44. 🟩 add a third slider for chips size
+    - `chipScale` (100–200%) drives `--mmh3-chip`, which scales the card, its
+      thumbnail and the crop window. Independent of window and text scale. The
+      sidebar rail's min-width tracks it so larger cards aren't clipped.
+45. 🟩 frame the X on subject definition and retention lines; frame and
+    background every retention entry
+    - Those used `.ghost`, which removes the border outright — right for a
+      footer, but it left the control unbounded beside bordered fields. New
+      framed `.rowx`. Retention entries are boxed, which matters because they
+      wrap onto a second line for the note.
+46. 🟩 at larger text sizes, button labels are not vertically centred
+    - The bar heights were fixed pixels (26px / 22px) that didn't scale, so
+      raised text outgrew a box that stayed put and sat low. Both scale now,
+      and buttons centre their own content.
+47. 🟩 prompt library: slider for previewed rows, remove the double-row
+    setting, invert and rename "Preview what you typed"
+    - `libPreviewRows` (1–6) drives `-webkit-line-clamp` through a CSS
+      variable, so dragging it doesn't rebuild the list and lose its scroll
+      position. The old toggle was just this set to 2 and is gone. The preview
+      source is now "Show full prompt", off by default — same behaviour as
+      before, stated the other way round.
