@@ -308,3 +308,40 @@ when hiding, makes it a mouse-over caption for the respective section.
       into one was only ever exercising whichever handler was attached
       second. Now dispatches to every listener, same as a real element.
       `prepend()` was also missing (used by the unsaved-changes strip).
+
+---
+
+## Follow-up round 4
+
+51. 🟩 quick edit: full-aspect keyframe previews down the left in
+    I2VA / FL2VA / L2VA, per the supplied layout
+    - The preview column was a fixed 132px strip of 80px `object-fit:cover`
+      thumbnails — chips, not views. It is now a proportional column (44% of
+      the window, full body height): one picture fills it in I2VA/L2VA, two
+      split it evenly in FL2VA, first frame above last. Images are
+      `object-fit:contain`, so a 9:16 keyframe letterboxes rather than being
+      centre-cropped.
+    - Cropped pictures needed more than `contain`. `cropFrame()` shows the
+      kept region by scaling the image to the window's width and letting the
+      window's own height do the clipping — so the window has to carry the
+      region's aspect ratio or the crop lands wrong. New `shownAspect()`
+      computes what a picture actually shows after rotation and cropping
+      (mirroring is deliberately ignored: it flips the frame without changing
+      its proportions), passed to the CSS as `--ar`.
+    - Containing a fixed-aspect box turned out to have no naive CSS answer:
+      clamping one axis with `max-width`/`max-height` does not re-derive the
+      other, so a box wider than its tile came out stretched. Measured four
+      candidate rules across three aspects and confirmed each fails somewhere.
+      Container-query units (`min(100cqw, calc(100cqh * var(--ar)))`) express
+      it exactly — verified across 15 tile/aspect combinations, all with exact
+      aspect, fitting inside, and filling one axis.
+    - **Window widened 675 → 900px.** The previews are additive, so the width
+      comes from the window rather than from the fields: measured, the prompt
+      fields keep 505px against 499px before, i.e. unchanged. This does undo
+      the earlier 25% width reduction (item 10), which was made when the
+      preview strip was 132px; the height stays at the reduced 585px. Say if
+      you would rather keep 675 and let the fields take the reduction instead.
+    - Measured in a real Chromium: column 42.3% of window width and 93.5% of
+      body height, FL2VA tiles split evenly (224.5px each), a 9:16 picture
+      drawn undistorted, and a middle-half crop of a 16:9 source rendering at
+      exactly 0.889 (=160/180) inside its tile.

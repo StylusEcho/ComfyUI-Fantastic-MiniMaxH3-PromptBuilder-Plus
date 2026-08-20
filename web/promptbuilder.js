@@ -1624,21 +1624,45 @@ const CSS = `
 /* 25% off both axes (was 900x780 capped at 92vw/88vh). The viewport caps come
    down with the pixel sizes, or on a small screen the window would still fill
    almost the whole viewport and the reduction would only show on large ones. */
-.mmh3p-quickmodal{box-sizing:border-box;width:min(675px,69vw);height:min(585px,66vh);
+.mmh3p-quickmodal{box-sizing:border-box;width:min(900px,88vw);height:min(585px,66vh);
   display:flex;flex-direction:column;background:#191c22;color:#d7dbe2;
   border:1px solid #303642;border-radius:10px;overflow:hidden;
   box-shadow:0 24px 64px rgba(0,0,0,.55);}
 .mmh3p-quickbody{flex:1;min-height:0;overflow-y:auto;padding:14px 16px 18px;}
 .mmh3p-quick{display:flex;flex-direction:column;min-height:100%;}
-/* #46: keyframes on the left, fields on the right. */
+/* #46: keyframes on the left, fields on the right. The keyframes are what
+   you are writing against, so they get real estate — a proportional column,
+   full body height — rather than the 132px thumbnail strip they used to be.
+   One picture (I2VA/L2VA) fills the column; two (FL2VA) split it evenly,
+   first frame above last. */
 .mmh3p-quickwrap{display:flex;gap:12px;align-items:stretch;min-height:100%;}
 .mmh3p-quickwrap>.mmh3p-quick{flex:1 1 auto;min-width:0;}
-.mmh3p-quickpics{flex:0 0 auto;width:132px;display:flex;flex-direction:column;gap:8px;}
-.mmh3p-quickpic{border:1px solid #2e3440;border-radius:7px;overflow:hidden;
-  background:#12151b;}
-.mmh3p-quickpic .mmh3p-thumb{width:100%;height:80px;object-fit:cover;display:block;
-  background:#0d1015;}
-.mmh3p-quickpic .mmh3p-tagname{display:block;padding:3px 5px;}
+.mmh3p-quickpics{flex:0 0 auto;width:44%;min-width:0;align-self:stretch;
+  display:flex;flex-direction:column;gap:8px;}
+.mmh3p-quickpic{flex:1 1 0;min-height:0;position:relative;
+  border:1px solid #2e3440;border-radius:7px;overflow:hidden;background:#12151b;
+  /* Sizes the crop window below in cqw/cqh — see .mmh3p-quickcrop. */
+  container-type:size;}
+/* contain, not cover: the whole frame, undistorted. Showing what the model
+   actually receives is the point of these. */
+.mmh3p-quickpic>.mmh3p-quickimg{width:100%;height:100%;object-fit:contain;
+  display:block;background:#0d1015;}
+/* A cropped picture is shown through cropFrame()'s offset window, which fills
+   its box by width and leaves the box's own height to do the clipping — so
+   the box has to carry the kept region's aspect ratio for the crop to land
+   exactly. --ar is set per picture in keyframes().
+
+   Container-query units rather than max-width/max-height: clamping one axis
+   with max-* does not re-derive the other, so a box wider than its tile came
+   out stretched. min() against both cq axes is exact containment — measured
+   across 15 tile/aspect combinations. */
+.mmh3p-quickpic>.mmh3p-quickcrop{position:absolute;left:50%;top:50%;
+  transform:translate(-50%,-50%);
+  width:min(100cqw, calc(100cqh * var(--ar)));
+  height:min(100cqh, calc(100cqw / var(--ar)));}
+.mmh3p-quickpic .mmh3p-tagname{position:absolute;left:6px;bottom:6px;
+  padding:2px 7px;border-radius:5px;background:rgba(8,10,14,.78);
+  pointer-events:none;}
 .mmh3p-quick>*{flex:0 0 auto;}
 .mmh3p-quick .mmh3p-sec.mmh3p-grow{flex:1 1 auto;display:flex;flex-direction:column;
   min-height:200px;}
@@ -4586,10 +4610,25 @@ export function promptFields(node) {
     } catch (e) { return null; }
     if (!pics.length) return null;
     return el("div", { class: "mmh3p-quickpics" },
-      ...pics.map((sl) => el("div", { class: "mmh3p-quickpic" },
-        cropFrame(el("img", { class: "mmh3p-thumb", src: sl.preview?.url }),
-          sl.item?.crop),
-        el("span", { class: `mmh3p-tagname ${sl.cls}` }, sl.tag))));
+      ...pics.map((sl) => {
+        const img = el("img", { class: "mmh3p-quickimg", src: sl.preview?.url });
+        let view = img;
+        if (hasCrop(sl.item)) {
+          // cropFrame() gives back a window onto the kept region. It fills
+          // that window by width and lets the window's height clip, so the
+          // window needs the region's own aspect for the crop to land right
+          // — the CSS reads it from --ar.
+          view = cropFrame(img, sl.item.crop);
+          view.classList.add("mmh3p-quickcrop");
+          const ar = shownAspect(sl.item);
+          // No recorded dimensions: fall back to filling the tile, which is
+          // how this looked before these previews were enlarged.
+          view.style.setProperty("--ar", String(ar || 1));
+          if (!ar) { view.style.width = "100%"; view.style.height = "100%"; }
+        }
+        return el("div", { class: "mmh3p-quickpic" }, view,
+          el("span", { class: `mmh3p-tagname ${sl.cls}` }, sl.tag));
+      }));
   };
   // Same colour coding as the full editor, minus what only it has room for
   // (hover-preview thumbnails). Slots computed once and reused across every
@@ -4810,6 +4849,24 @@ function autoFitSelect(sel) {
  *  rect lands on it, which is the same mapping the decoder applies — so the
  *  card shows what the model receives. Returns the node untouched when there
  *  is no crop, so uncropped media keeps the plain element the cache holds. */
+/** The aspect ratio a picture actually shows once its rotation and crop are
+ *  applied — what the model receives, not what is on disk. Null when the item
+ *  never recorded its dimensions (older saves), which callers treat as "lay it
+ *  out without an aspect hint". Mirroring is left out on purpose: it flips the
+ *  frame without changing its proportions. */
+function shownAspect(item) {
+  if (!item) return null;
+  let w = Number(item.width), h = Number(item.height);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
+  const turn = ((parseInt(item.rotate, 10) || 0) % 360 + 360) % 360;
+  if (turn === 90 || turn === 270) { const t = w; w = h; h = t; }
+  if (hasCrop(item)) {
+    w *= Number(item.crop.w) || 1;
+    h *= Number(item.crop.h) || 1;
+  }
+  return w > 0 && h > 0 ? w / h : null;
+}
+
 function cropFrame(node, crop) {
   if (!crop) return node;
   const w = crop.w || 1, h = crop.h || 1;
