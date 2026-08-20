@@ -423,3 +423,26 @@ when hiding, makes it a mouse-over caption for the respective section.
       rows start overflowing just under 380px — and `label.act` now wraps
       rather than overflows, so a larger text scale degrades gracefully
       instead of spilling out of any fixed px threshold.
+
+---
+
+## Follow-up round 7
+
+54. 🟩 all instances of the Settings button should only have a gear on it
+    - The media loader's read "⚙ Settings"; the rest were already bare gears.
+      All four now match, with the wording kept on the tooltip.
+55. 🟩 add a settings button to the quick editor with window size and image
+    size
+    - A gear in the quick editor's header, matching the editor's and the
+      library's. Window size scales its 900×585 base; image size moves the
+      split between the keyframe pane and the fields beside it. Both persist
+      per user like the pack's other scales.
+    - `clampScale()` gained a `min` parameter. It floored everything at 100%
+      via a shared `SCALE_MIN`, which is right for the window and text scales
+      but wrong here: turning the pane's share *down* to give the fields more
+      room is the useful direction, and it was unreachable — measured, a 50%
+      setting was silently clamped back to 100% and the slider did nothing.
+      Image size runs 40–200%.
+    - Measured: window 100%→150% takes the modal 900×585 → 1350×726; image
+      size 50% → 200% takes the pane 428px → 888px, the top end capped by the
+      fields' own floor rather than squeezing them out. Reset returns both.

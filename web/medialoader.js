@@ -2310,7 +2310,7 @@ export class LoaderPanel {
         e.stopPropagation();
         const open = menu.classList.toggle("on");
         btn.classList.toggle("on", open);
-      } }, "\u2699 Settings");
+      } }, "\u2699");
     this._scaleMenu = menu;
     this._scaleBtn = btn;
     return el("span", { class: "mmlp-scalewrap" }, btn, menu);

@@ -430,6 +430,10 @@ const PREF_DEFAULTS = {
   // Media card size in the strip, independent of window and text scale so
   // the thumbnails can be made bigger without enlarging everything else.
   chipScale: 1.0,
+  // Quick-edit window, set from its own settings button. The window scales
+  // its 900x585 base; the picture scale moves the split between the keyframe
+  // pane and the fields beside it.
+  quickScale: 1.0, quickPicScale: 1.0,
   // Prompt library display, set from that window's own settings button
   // rather than the editor's.
   libFullPrompt: false,
@@ -443,11 +447,21 @@ const SCALE_MAX = 3.0;          // window
 const TEXT_SCALE_MAX = 2.0;     // type gets unwieldy past this
 // Cards past double width stop being thumbnails and start crowding the form.
 const CHIP_SCALE_MAX = 2.0;
+// The keyframe pane's share of the quick editor. Past 2x the fields floor
+// takes over anyway, so there is nothing above it left to give — and below
+// 40% the previews stop being readable.
+const PIC_SCALE_MAX = 2.0;
+const PIC_SCALE_MIN = 0.4;
 
-function clampScale(v, max = SCALE_MAX) {
+/** `min` is a parameter because not every scale floors at 100%: the window
+ *  and text scales only ever grow (shrinking them below the design size is
+ *  what the window's own dimensions are for), but the keyframe pane's share
+ *  is genuinely two-way — turning it *down* to give the fields more room is
+ *  the useful direction, and the shared SCALE_MIN made that unreachable. */
+function clampScale(v, max = SCALE_MAX, min = SCALE_MIN) {
   const n = Number(v);
   if (!Number.isFinite(n)) return 1.0;
-  return Math.min(max, Math.max(SCALE_MIN, Math.round(n * 100) / 100));
+  return Math.min(max, Math.max(min, Math.round(n * 100) / 100));
 }
 
 function loadPrefs() {
@@ -456,6 +470,8 @@ function loadPrefs() {
       ...JSON.parse(localStorage.getItem(PREF_KEY) || "{}") };
     v.windowScale = clampScale(v.windowScale);
     v.chipScale = clampScale(v.chipScale, CHIP_SCALE_MAX);
+    v.quickScale = clampScale(v.quickScale);
+    v.quickPicScale = clampScale(v.quickPicScale, PIC_SCALE_MAX, PIC_SCALE_MIN);
     v.libPreviewRows = Math.max(1, Math.min(6,
       Math.round(Number(v.libPreviewRows) || 1)));
     v.textScale = clampScale(v.textScale, TEXT_SCALE_MAX);
@@ -4705,6 +4721,8 @@ export function promptFields(node) {
       const out = keyframePaneLayout(entries, {
         width: (body.clientWidth || 0) - pad.left - pad.right,
         height: (body.clientHeight || 0) - pad.top - pad.bottom,
+        picScale: clampScale(loadPrefs().quickPicScale,
+          PIC_SCALE_MAX, PIC_SCALE_MIN),
       });
       if (!out) return;
       pane.style.flexDirection = out.dir;
@@ -4830,6 +4848,85 @@ export function promptFields(node) {
  *
  *  `focusKey` names a field to open into ("soundscape" / "music"), used by
  *  the bar's 🔊/🎵 marks so clicking one lands on the section it stands for. */
+/** The quick editor's own settings: how big this window is, and how it
+ *  splits between the keyframe pane and the fields. Deliberately just these
+ *  two — the editor's own preferences live on its cog and would be noise
+ *  here, the same call the Prompt Library's settings make.
+ *
+ *  `onApply` re-lays-out the window; the sliders are not live for the same
+ *  reason the other windows' are not — resizing moves the menu out from under
+ *  the pointer mid-drag. */
+function quickPrefsButton(onApply) {
+  const prefs = loadPrefs();
+  const pending = { quickScale: prefs.quickScale,
+                    quickPicScale: prefs.quickPicScale };
+  const inputs = {}, outs = {};
+  const maxFor = (k) => k === "quickPicScale" ? PIC_SCALE_MAX : SCALE_MAX;
+  const minFor = (k) => k === "quickPicScale" ? PIC_SCALE_MIN : SCALE_MIN;
+  const dirty = () => applyBtn.classList.toggle("primary",
+    pending.quickScale !== prefs.quickScale
+    || pending.quickPicScale !== prefs.quickPicScale);
+
+  const slider = (key, label) => {
+    const out = el("input", { type: "number", class: "mmh3p-scaleval",
+      min: String(Math.round(minFor(key) * 100)),
+      max: String(Math.round(maxFor(key) * 100)), step: "5",
+      value: String(Math.round(pending[key] * 100)),
+      onchange: (e) => {
+        pending[key] = clampScale(Number(e.target.value) / 100,
+          maxFor(key), minFor(key));
+        const shown = Math.round(pending[key] * 100);
+        e.target.value = String(shown); inputs[key].value = String(shown);
+        dirty();
+      },
+      onkeydown: (e) => { if (e.key === "Enter") { e.stopPropagation();
+        e.target.blur(); } } });
+    const input = el("input", { type: "range", class: "mmh3p-scalerange",
+      min: String(Math.round(minFor(key) * 100)),
+      max: String(Math.round(maxFor(key) * 100)), step: "5",
+      value: String(Math.round(pending[key] * 100)),
+      oninput: (e) => {
+        pending[key] = clampScale(Number(e.target.value) / 100,
+          maxFor(key), minFor(key));
+        out.value = String(Math.round(pending[key] * 100));
+        dirty();
+      } });
+    inputs[key] = input; outs[key] = out;
+    return el("label", { class: "mmh3p-scalerow" },
+      el("span", { class: "mmh3p-scalelabel" }, label), input, out,
+      el("span", { class: "mmh3p-scalepct" }, "%"));
+  };
+
+  const set = (w, p) => {
+    prefs.quickScale = w; prefs.quickPicScale = p;
+    pending.quickScale = w; pending.quickPicScale = p;
+    for (const [k, v] of [["quickScale", w], ["quickPicScale", p]]) {
+      inputs[k].value = String(Math.round(v * 100));
+      outs[k].value = String(Math.round(v * 100));
+    }
+    savePrefs(prefs);
+    onApply();
+    applyBtn.classList.remove("primary");
+  };
+  const applyBtn = el("button", { class: "mmh3p-btn",
+    onclick: () => set(pending.quickScale, pending.quickPicScale) }, "Apply");
+  const resetBtn = el("button", { class: "mmh3p-btn",
+    onclick: () => set(1, 1) }, "Reset");
+
+  const menu = el("div", { class: "mmh3p-prefmenu" },
+    slider("quickScale", "Window size"),
+    slider("quickPicScale", "Image size"),
+    el("div", { class: "mmh3p-scalefoot" }, resetBtn, applyBtn));
+  const cog = el("button", { class: "mmh3p-btn", title: "Quick edit settings",
+    onclick: (e) => {
+      e.stopPropagation();
+      const open = !menu.classList.contains("on");
+      menu.classList.toggle("on", open);
+      cog.classList.toggle("on", open);
+    } }, "\u2699");
+  return el("span", { class: "mmh3p-prefwrap" }, cog, menu);
+}
+
 export function openQuickEdit(node, focusKey = null) {
   injectCSS();
   const fields = promptFields(node);
@@ -4853,6 +4950,7 @@ export function openQuickEdit(node, focusKey = null) {
           // this everything typed here since opening was dropped on the way.
           onclick: () => { fields.save(); close(); openEditor(node); } },
           "📜 Prompt Builder"),
+        quickPrefsButton(() => applyQuickScale()),
         el("button", { class: "mmh3p-x", onclick: close }, "✕")),
       el("div", { class: "mmh3p-quickbody" }, fields.root),
       el("div", { class: "mmh3p-foot" },
@@ -4864,6 +4962,19 @@ export function openQuickEdit(node, focusKey = null) {
         } }, "Save to node"))));
   window.addEventListener("keydown", esc);
   document.body.append(overlay);
+  // Window size is a preference rather than a fixed box, so it is applied
+  // here and re-applied whenever the setting changes. The pane follows,
+  // since its own size is measured against this window.
+  const applyQuickScale = () => {
+    const box = overlay.querySelector(".mmh3p-quickmodal");
+    if (!box) return;
+    const w = clampScale(loadPrefs().quickScale);
+    box.style.width = `min(${Math.round(900 * w)}px, 88vw)`;
+    box.style.height = `min(${Math.round(585 * w)}px, 66vh)`;
+    fields.relayoutPics?.();
+  };
+  applyQuickScale();
+
   // The keyframe pane sizes itself to the pictures, which needs the window's
   // real measurements — so it runs once mounted, and again whenever the
   // window it sits in changes size.
@@ -4987,8 +5098,11 @@ function keyframePaneLayout(entries, avail) {
   if (!availW || !availH || !entries.length) return null;
   // Wide pictures at full height can want more width than the whole window,
   // so the pane is capped and the pictures shrink to suit.
+  // picScale moves the split between the pane and the fields. The fields'
+  // own floor still wins, so turning this up can never squeeze them out.
+  const picScale = Number(avail?.picScale) > 0 ? Number(avail.picScale) : 1;
   const budget = Math.max(160,
-    Math.min(availW * 0.65, availW - PANE_GAP - PANE_FIELDS_MIN));
+    Math.min(availW * 0.65 * picScale, availW - PANE_GAP - PANE_FIELDS_MIN));
   // 16:9 stands in for a picture whose dimensions were never recorded; the
   // caller replaces it and re-runs once the image reports its own.
   const ars = entries.map((e) => (Number(e.ar) > 0 ? Number(e.ar) : 16 / 9));
