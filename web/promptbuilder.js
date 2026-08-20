@@ -2518,13 +2518,13 @@ class Editor {
             title: "Open the full media loader window",
             onclick: () => {
               // Hand over rather than stack: the two are alternate views of
-              // the same node, so one replaces the other. requestClose()
-              // still gets to raise the unsaved-changes prompt \u2014 when it
-              // does it defers instead of closing, and the handover waits
-              // for the user to answer rather than opening over the top.
-              this.requestClose();
-              if (!this.closePending)
-                openLoaderModal(this.node, "MiniMax H3 \u2014 media");
+              // the same node, so one replaces the other. requestClose()'s
+              // `then` runs once the editor actually closes, however that
+              // gets resolved \u2014 immediately, or via Save/Discard on the
+              // unsaved-changes strip \u2014 so the handover happens exactly
+              // once and never races the strip waiting for an answer.
+              this.requestClose(
+                () => openLoaderModal(this.node, "MiniMax H3 \u2014 media"));
             } },
             "\u2750 Media Loader"),
           el("button", { class: "mmh3p-x",
@@ -2613,8 +2613,15 @@ class Editor {
     catch (e) { return false; }
   }
 
-  /** Close, but ask first if there's unsaved work. */
-  requestClose() {
+  /** Close, but ask first if there's unsaved work. `then`, when given,
+   *  runs once the close actually happens — however it gets resolved (an
+   *  immediate close, or Save/Discard on the unsaved-changes strip) — so a
+   *  caller that wants to close-and-then-do-something doesn't have to know
+   *  which path the close took. Used by the Media Loader button: closing
+   *  this editor to switch views is one action, whether or not there was
+   *  something to save on the way out. */
+  requestClose(then = null) {
+    this._closeThen = then;
     if (!this.prefs.warnUnsaved || !this.isDirty()) { this.close(); return; }
     this.closePending = true;
     this.render();
@@ -2819,7 +2826,15 @@ class Editor {
           onclick: () => { this.state = JSON.parse(this.openedWith);
             this.closePending = false; this.close(); } }, "Discard"),
         el("button", { class: "mmh3p-btn",
-          onclick: () => { this.closePending = false; this.render(); } },
+          onclick: () => {
+            // Keep editing abandons the close attempt entirely, so any
+            // pending follow-up (e.g. "then open the media loader") has to
+            // go with it — otherwise a later, unrelated close would still
+            // fire it.
+            this.closePending = false;
+            this._closeThen = null;
+            this.render();
+          } },
           "Keep editing")));
   }
 
@@ -2835,6 +2850,12 @@ class Editor {
     // warning switched off there was no moment where you chose either way.
     this.node._mmh3Draft = null;
     this.overlay.remove();
+    // Run and clear rather than just run: this instance is done either way,
+    // but clearing rules out a second, stale firing if close() were ever
+    // reached again from somewhere else.
+    const then = this._closeThen;
+    this._closeThen = null;
+    then?.();
   }
 
   save() {

@@ -274,3 +274,37 @@ when hiding, makes it a mouse-over caption for the respective section.
       past 6 rows' worth with margin. Verified with a realistic 780-character
       prompt: rows 1/2/3/4/6 each now show visibly more text than the last,
       where before only rows 1-2 differed and 3-6 were identical to 2.
+
+---
+
+## Follow-up round 3
+
+50. 🟩 unsaved changes: Save on the media-loader handover closed the editor
+    but never opened the media loader
+    - `requestClose()` deferred to the unsaved-changes strip and the button's
+      own handler raced it: it checked `this.closePending` and only opened
+      the media loader when that was still false, i.e. only on the
+      already-saved path. Once the strip appeared, its own "Save to node"
+      (and "Discard") buttons just called `save()`/`close()` directly, with
+      no idea a media-loader handover was waiting — so closing that way lost
+      the follow-up action entirely.
+      `requestClose()` now takes an optional `then`, run once by `close()`
+      itself however the close is actually resolved — immediately, or via
+      either button on the strip — so the handover fires exactly once
+      regardless of path. "Keep editing" clears it, since abandoning the
+      close attempt has to abandon anything queued to run after it too, or a
+      later, unrelated close would fire a stale handover.
+      Verified with a real end-to-end run: Save-then-handover and
+      Discard-then-handover both now show `.mmlp-overlay` actually mounted,
+      not just the editor closing; Keep-editing-then-close-again shows the
+      strip a second time (still dirty, correctly) and resolving it doesn't
+      open a stray media loader; the not-dirty immediate path (no
+      regression) still opens straight away.
+    - Surfaced two real gaps in the DOM stub while writing that test, fixed
+      alongside it: `addEventListener` only ever kept the *last* listener
+      registered for an event type, silently dropping earlier ones — a
+      chip-tagged textarea genuinely carries two ("input" for the state
+      update, "input" again for chipField's repaint), so any test typing
+      into one was only ever exercising whichever handler was attached
+      second. Now dispatches to every listener, same as a real element.
+      `prepend()` was also missing (used by the unsaved-changes strip).
