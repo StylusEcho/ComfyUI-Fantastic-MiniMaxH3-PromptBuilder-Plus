@@ -166,6 +166,16 @@ def _read_prompt(path):
         return None
 
 
+# The library's row-height slider goes up to 6 lines; measured against its
+# actual column width and font (11px monospace, ~785px wide), 6 lines holds
+# roughly 680 characters of ordinary prose. 150 was sized for the old
+# single-line ellipsis and left the slider showing nothing past ~2 lines,
+# since there was never more text to reveal. This is comfortably past 6
+# lines' worth with margin for narrower windows and denser text; the CSS
+# line-clamp still does the honest visual truncation for anything longer.
+PREVIEW_CHARS = 2000
+
+
 def _user_text(data):
     """Just what the person typed, without the scaffolding generate() wraps
     around it.
@@ -655,11 +665,11 @@ if PromptServer is not None and web is not None:
                 "mode": data.get("mode") or "",
                 "updated": data.get("updated") or 0,
                 "refs": data.get("refs") or 0,
-                "preview": " ".join(text.split())[:150],
+                "preview": " ".join(text.split())[:PREVIEW_CHARS],
                 # The same line without the generated scaffolding, for the
                 # library's "show only what I typed" setting. Empty on
                 # records saved before `state` was stored.
-                "preview_user": _user_text(data)[:150],
+                "preview_user": _user_text(data)[:PREVIEW_CHARS],
                 "audio": _audio_marks(data),
             })
         entries.sort(key=lambda e: (not e["favorite"], -float(e["updated"] or 0),

@@ -234,3 +234,43 @@ when hiding, makes it a mouse-over caption for the respective section.
       position. The old toggle was just this set to 2 and is gone. The preview
       source is now "Show full prompt", off by default — same behaviour as
       before, stated the other way round.
+
+---
+
+## Follow-up round 2
+
+48. 🟩 when chip size is increased, widen the media pane instead of squeezing
+    the form
+    - `.mmh3p-body.sidebar`'s rail column was a fixed `164px` grid track,
+      chip-scaled or not — the `min-width` I'd put on the rail element in
+      item 44 did nothing, since a fixed-length track doesn't grow for
+      content (that min-width was silently dead). The rail column is now a
+      `--mmh3-railw` custom property driven by `--mmh3-chip`, and
+      `applyScale()` grows the modal by exactly the rail's extra width, so
+      the form and reference-preview columns keep their own size instead of
+      shrinking every time the slider moves. `applySidebarPref()` also
+      recomputes it, since the extra only applies in sidebar mode.
+      Measured in a real Chromium via Playwright once the CSS transition on
+      `grid-template-columns` settles: rail 164px→292px at 2x chip scale,
+      form and side columns unchanged (634px / 440px) at both scales, modal
+      grew by exactly the rail's own growth (128px). Found and fixed a
+      companion bug while measuring this: the rail had no `box-sizing`, so
+      its content-box `width` plus its own padding and border rendered
+      wider than the grid track and forced the track to grow past its
+      declared size — set to `border-box` to match what `--mmh3-railw`
+      actually represents.
+      (The modal is centred by the overlay, so this growth is symmetric
+      about the screen's centre, not literally left-edge-only — matching
+      how the existing window-size slider has always grown the same modal.)
+49. 🟩 prompt library: rows beyond 2 did nothing, and the preview didn't
+    fill the space it had
+    - Root cause was server-side: `web_api.py` truncated every preview to
+      150 characters, a leftover from when this was a single ellipsised
+      line. Measured against the library's actual column width and font
+      (Playwright again): 6 rows holds roughly 680 characters, so a
+      150-character preview never has enough text to reach past ~1-2 lines
+      regardless of the client-side rows setting — the slider had nothing
+      left to reveal. Raised the cap (`PREVIEW_CHARS`) to 2000, comfortably
+      past 6 rows' worth with margin. Verified with a realistic 780-character
+      prompt: rows 1/2/3/4/6 each now show visibly more text than the last,
+      where before only rows 1-2 differed and 3-6 were identical to 2.

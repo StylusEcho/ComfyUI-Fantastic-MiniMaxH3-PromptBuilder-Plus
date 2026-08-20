@@ -1148,20 +1148,29 @@ const CSS = `
    DOM so the grid's track count only changes with the class, never with what
    happens to be rendered. */
 .mmh3p-rail{display:none;}
-/* 164px = the 130px card + the rail's 16px padding and 1px border, plus ~17px
-   of slack for a classic scrollbar. Sized to the card rather than the other way
+/* --mmh3-railw: the card at the current chip scale, plus the rail's 16px
+   padding and 1px border, plus ~17px of slack for a classic scrollbar --
+   164px at the default 1x chip scale. Sized to the card rather than the other
    round, so the column carries no dead width; the slack is what stops a
-   platform with non-overlay scrollbars clipping the card once the list scrolls. */
-.mmh3p-body.sidebar{grid-template-columns:164px minmax(0,1fr) 440px;}
+   platform with non-overlay scrollbars clipping the card once the list
+   scrolls. A custom property because both the grid track below and the rail
+   element's own width (further down) have to agree on it exactly, or the
+   track and its content disagree about how wide the column is. */
+.mmh3p-body.sidebar{--mmh3-railw:calc(128px * var(--mmh3-chip, 1) + 36px);
+  grid-template-columns:var(--mmh3-railw) minmax(0,1fr) 440px;}
 /* Top padding matches .mmh3p-chipbar's own (16px, below) so the "media"
    heading starts at the same Y coordinate whichever view you toggle into —
    otherwise it visibly jumps a few px on every toggle. */
 .mmh3p-body.sidebar .mmh3p-rail{display:flex;flex-direction:column;gap:6px;
   min-height:0;overflow-y:auto;padding:16px 8px 10px;background:#15181e;
   border-right:1px solid #2a2f3a;
-  /* Wide enough for a card at the current chip scale plus this padding, or
-     larger cards would be clipped by the column holding them. */
-  flex:0 0 auto;min-width:calc(128px * var(--mmh3-chip, 1) + 16px);}
+  /* Matches --mmh3-railw exactly (the grid track above) — border-box, since
+     --mmh3-railw already counts this padding and border; content-box would
+     add them again on top, so the rendered rail would come out wider than
+     the track and force the track to grow past its own declared size
+     (a fixed-length grid track still yields to an item's automatic minimum
+     size, which is border-box by default). */
+  flex:0 0 auto;box-sizing:border-box;width:var(--mmh3-railw);}
 .mmh3p-railhead{flex:0 0 auto;font-size:calc(10px * var(--mmh3-fs, 1));text-transform:uppercase;
   letter-spacing:.08em;color:#8a93a3;}
 /* In the sidebar the column's own gap spaces this; inline it is a block, so it
@@ -2751,6 +2760,9 @@ class Editor {
     this.railEl.replaceChildren();
     this.closePeek();
     this.render();
+    // railExtra (see applyScale()) only applies in sidebar mode, so leaving
+    // classic layout has to give that width back.
+    this.applyScale();
   }
 
   /** Window scale changes the modal's box; text scale zooms its contents. */
@@ -2759,7 +2771,14 @@ class Editor {
     if (!modal) return;
     const w = clampScale(this.prefs.windowScale);
     const t = clampScale(this.prefs.textScale, TEXT_SCALE_MAX);
-    modal.style.width = `min(${Math.round(1240 * w)}px, 95vw)`;
+    const chip = clampScale(this.prefs.chipScale, CHIP_SCALE_MAX);
+    // Bigger chips need a wider rail column (--mmh3-railw in the stylesheet,
+    // same formula), which would otherwise come out of the grid's flexible
+    // middle column — the form shrinking every time this slider moves. Grown
+    // onto the modal's own width instead, so the rail gets the room without
+    // taking it from anything else. 164 is --mmh3-railw's own value at 1x.
+    const railExtra = this.sidebar ? Math.max(0, Math.round(128 * chip + 36) - 164) : 0;
+    modal.style.width = `min(${Math.round(1240 * w) + railExtra}px, 95vw)`;
     // Tall mode hands the height to the viewport, so the slider governs
     // width alone — scaling the height as well would immediately clamp back
     // against the same margin and make the slider look broken.
