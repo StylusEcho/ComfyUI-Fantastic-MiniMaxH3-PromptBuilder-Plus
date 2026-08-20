@@ -584,6 +584,11 @@ const CSS = `
 .mmlp-slot.filled.off{opacity:.42;border-style:dashed;}
 .mmlp-slot.filled.off .mmlp-power{opacity:1;color:#6b7484;}
 .mmlp-slot.filled.off:hover{opacity:.7;}
+/* A filled slot under a file drag. .filled sets its own border colour and
+   background, so the plain .hot rule above cannot show through on one —
+   the ring is what actually reads as "this slot takes the drop". */
+.mmlp-slot.filled.hot{border-color:#6f86b8;
+  box-shadow:0 0 0 2px rgba(111,134,184,.55);}
 /* Loaded fine, but the current prompt mode won't send it to the model — the
    standard grid shows every slot regardless of mode, so this is the only cue
    telling the two apart. Covers both filled and empty slots with one rule. */
@@ -2006,6 +2011,15 @@ async function presetApi(path, body) {
   return data;
 }
 
+/** What kind of reference a file is, by extension. One definition, so the
+ *  add path and the replace-a-slot path can never disagree about it. */
+function kindOfFile(name) {
+  const ext = (String(name || "").split(".").pop() || "").toLowerCase();
+  return /^(png|jpe?g|webp|bmp|gif|tiff?)$/.test(ext) ? "picture"
+    : /^(mp4|mov|mkv|webm|avi|m4v|mpe?g)$/.test(ext) ? "video"
+    : /^(wav|mp3|flac|ogg|m4a|aac|opus)$/.test(ext) ? "audio" : null;
+}
+
 async function uploadFile(file) {
   const body = new FormData();
   body.append("file", file, file.name);
@@ -2380,10 +2394,7 @@ export class LoaderPanel {
     this.say("");
     const caps = await capabilities();
     for (const file of files) {
-      const ext = (file.name.split(".").pop() || "").toLowerCase();
-      const guess = /^(png|jpe?g|webp|bmp|gif|tiff?)$/.test(ext) ? "picture"
-        : /^(mp4|mov|mkv|webm|avi|m4v|mpe?g)$/.test(ext) ? "video"
-        : /^(wav|mp3|flac|ogg|m4a|aac|opus)$/.test(ext) ? "audio" : null;
+      const guess = kindOfFile(file.name);
       if (!guess) { this.say(`${file.name}: unsupported file type.`, true); continue; }
       const full = this.capacityError(guess, file.name);
       if (full) { this.say(full, true); continue; }
@@ -2418,6 +2429,82 @@ export class LoaderPanel {
       }
     }
     this.commit();
+  }
+
+  /** Swap one slot's media for a dropped file, keeping its position — and so
+   *  its tag number, exactly as replaceItem() does for the clipboard.
+   *
+   *  Dropping onto a filled slot points at that slot, so it is an explicit
+   *  target rather than another append. Appending was actively unhelpful in a
+   *  mode-shaped layout: I2VA and L2VA show one picture and FL2VA two, so the
+   *  new picture landed past the mode's cap where it could not be seen at
+   *  all — the slot went on showing the old picture and only the window
+   *  button's badge hinted anything had happened.
+   *
+   *  Any files after the first go through the normal add path. */
+  async replaceWithFile(target, files) {
+    const list = [...(files || [])];
+    const file = list.shift();
+    if (!file) return;
+    const idx = this.items.indexOf(target);
+    if (idx < 0) return;
+    this.say("");
+
+    const guess = kindOfFile(file.name);
+    if (!guess) {
+      this.say(`${file.name}: unsupported file type.`, true);
+      this.render();
+      return;
+    }
+    // A picture slot takes a picture. Swapping kinds would renumber every
+    // tag after it, which is precisely what keeping the position avoids.
+    if (guess !== target.kind) {
+      this.say(`${file.name} is a ${guess}; drop it on a ${guess} slot, or on `
+        + `the panel to add it. This slot holds a ${target.kind}.`, true);
+      this.render();
+      return;
+    }
+    if (guess === "video" && !(await capabilities()).video) {
+      this.say("Videos need PyAV or ffmpeg on the server.", true);
+      this.render();
+      return;
+    }
+
+    this.busy += 1; this.render();
+    try {
+      const info = await uploadFile(file);
+      // Measured with the outgoing item already gone, the same way
+      // replaceItem() does it: a like-for-like swap must not be refused for
+      // the slot the replacement is about to free.
+      const held = this.items;
+      this.items = held.filter((i) => i !== target);
+      const budgetFull = audioCount(this.items) >= MAX.audio;
+      this.items = held;
+      const pairable = info.kind === "video" && info.has_audio;
+      const live = this.live(target);
+      const at = this.items.indexOf(live);
+      if (at < 0) return;                 // removed while the upload ran
+      this.items[at] = {
+        kind: info.kind,
+        file: info.file,
+        name: info.original || info.name,
+        duration: info.duration ?? null,
+        width: info.width ?? null,
+        height: info.height ?? null,
+        has_audio: !!info.has_audio,
+        audio_mode: pairable && !budgetFull ? "paired" : "off",
+        // The slot keeps its identity; its per-item edits belonged to the
+        // media that just left, so they go with it.
+        enabled: live.enabled,
+      };
+      this.say(`Replaced ${target.name} with ${info.original || info.name}.`);
+    } catch (err) {
+      this.say(`${file.name}: ${err.message}`, true);
+    } finally {
+      this.busy -= 1;
+    }
+    this.commit();
+    if (list.length) await this.add(list);
   }
 
   trimBtn(item) {
@@ -2842,6 +2929,26 @@ export class LoaderPanel {
    *  stays even in a layout with nothing to reorder into. */
   reorderable(node, item, enable = true) {
     node.addEventListener("contextmenu", (e) => this.slotMenu(e, item));
+
+    // A file dropped on a filled slot replaces that slot's media. Registered
+    // before the `enable` guard on purpose: a slot that cannot be dragged
+    // (the single-picture shaped layouts) is still a perfectly good drop
+    // target, and it is exactly the case where appending instead would put
+    // the picture somewhere the layout cannot show it.
+    node.addEventListener("dragover", (e) => {
+      if (!e.dataTransfer?.types?.includes("Files")) return;   // a reorder
+      e.preventDefault(); e.stopPropagation();
+      node.classList.add("hot");
+    });
+    node.addEventListener("dragleave", () => node.classList.remove("hot"));
+    node.addEventListener("drop", (e) => {
+      if (!e.dataTransfer?.types?.includes("Files")) return;   // a reorder
+      if (!e.dataTransfer.files?.length) return;
+      e.preventDefault(); e.stopPropagation();
+      node.classList.remove("hot");
+      this.replaceWithFile(item, e.dataTransfer.files);
+    });
+
     if (!enable) return node;
     node.draggable = true;
     node.addEventListener("dragstart", (e) => {

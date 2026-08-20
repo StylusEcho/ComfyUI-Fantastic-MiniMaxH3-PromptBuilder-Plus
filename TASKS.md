@@ -446,3 +446,32 @@ when hiding, makes it a mouse-over caption for the respective section.
     - Measured: window 100%→150% takes the modal 900×585 → 1350×726; image
       size 50% → 200% takes the pane 428px → 888px, the top end capped by the
       fields' own floor rather than squeezing them out. Reset returns both.
+
+56. 🟩 dropping a picture on a filled slot in the Used layout should replace
+    that picture
+    - **The reported behaviour was inverted, and the real fault was worse.**
+      Measured in a real Chromium: the drop did not replace anything, it
+      *appended* — `[p1.png]` became `[p1.png, dropped.png]`. In the shaped
+      layouts that is the bad case, because I2VA/L2VA show one picture and
+      FL2VA two, so the newly dropped picture landed **hidden**, with only
+      the window button's count badge as a hint that anything had arrived.
+      The drop looked like it had done nothing at all.
+    - Dropping onto a filled slot now replaces that slot's media, per the
+      explicit choice: pointing at a slot is an explicit target, so nothing
+      is hidden and no extra picture accumulates. Dropping on an empty slot
+      or on the panel background still appends, unchanged.
+    - The drop handlers are registered in `reorderable()` *before* its
+      `enable` guard, on purpose: a slot that cannot be dragged (the
+      single-picture shaped layouts) is still a perfectly good drop target,
+      and it is precisely the case where appending would put the picture
+      somewhere the layout cannot show it.
+    - Guarded: a video dropped on a picture slot is refused by name rather
+      than silently mismatched (*"clip.mp4 is a video; drop it on a video
+      slot, or on the panel to add it. This slot holds a picture."*), an
+      unsupported extension says so, and a multi-file drop replaces with the
+      first and appends the rest. A `.hot` ring marks the slot under the
+      cursor so the target is visible before the drop lands.
+    - Verified: I2VA `[p1]` → `[dropped1]`, FL2VA `[p1,p2]` → `[dropped2,p2]`,
+      L2VA `[p1]` → `[dropped3]`, with `hiddenCount()` 0 and no badge in all
+      three; empty slot and panel background still append. Full harness
+      sweep (34 scripts) green.
