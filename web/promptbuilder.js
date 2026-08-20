@@ -2891,6 +2891,18 @@ class Editor {
     this.closePending = false;
     this.openedWith = JSON.stringify(this.state);
     updateSummary(this.node);
+    // A mode changed in here can change the media panel's shape, and with it
+    // whether the node's prompt bar expands and whether the panel is sized to
+    // fit the node — the node's own hooks know, this method does not. The
+    // node's small mode-switcher button already does this on every change;
+    // this is the far more common way a mode actually gets changed, and it
+    // was the one path that skipped it, which is what left the on-node
+    // interface showing the previous mode's layout until something
+    // unrelated (a resize drag, a reload) happened to nudge it.
+    try {
+      this.node._mmlPanel?.render?.();
+      this.node._mmlOnCommit?.();
+    } catch (e) { /* cosmetic */ }
     try {
       this.node.setDirtyCanvas?.(true, true);
       app.graph.setDirtyCanvas(true, true);

@@ -345,3 +345,42 @@ when hiding, makes it a mouse-over caption for the respective section.
       body height, FL2VA tiles split evenly (224.5px each), a 9:16 picture
       drawn undistorted, and a middle-half crop of a 16:9 source rendering at
       exactly 0.889 (=160/180) inside its tile.
+
+---
+
+## Follow-up round 5
+
+52. 🟩 the node interface glitches and gets stuck at a certain size within
+    the node's frame on certain interactions
+    - Root cause: the on-node media panel is only ever re-fit to the node's
+      actual current size (`fitPanel()`) from `onResize` and `onConfigure` —
+      an explicit drag or a reload. Nothing re-fit it when the panel's own
+      natural/shaped height requirement changed for any other reason: a mode
+      switch (T2VA's toolbar-only collapse and back), or the Used/All toggle
+      shrinking or growing what the panel needs to show. A node resized
+      taller in a picture mode, then switched into and back out of a
+      shape-changing state, was left with the panel stuck at its own
+      default/last-fit height — a gap or an overflow against the node's
+      actual frame — until an unrelated resize or reload happened to nudge
+      it into re-fitting.
+    - `_mmlOnCommit` (`promptstudio.js`), the hook every shape-changing
+      interaction already calls, now also calls `fitPanel()` alongside
+      `refreshBar()`, so any of them re-fits the panel immediately rather
+      than leaving it stuck.
+    - Separately, `Editor.save()` (the full editor's Save button — by far
+      the most common way a mode actually gets changed) never called either
+      hook at all: it only updated the node's collapsed-bar preview text.
+      The node's own small mode-switcher button already called
+      `node._mmlPanel.render()` and `node._mmlOnCommit()` after a mode
+      change; `Editor.save()` was the one path that skipped both, so saving
+      a mode change from the full editor left the on-node interface showing
+      the *previous* mode's layout — collapsed when it should be open, or
+      the reverse — until something unrelated forced a redraw. Now mirrors
+      the small mode-switcher's own refresh sequence.
+    - Verified end-to-end through the real Editor UI, not just the
+      hooks in isolation: resized a node to 1200px in I2VA (panel grows to
+      1140px to fill it), switched to T2VA with "Used" active via the mode
+      bar and Save button (panel correctly collapses, bar correctly
+      expands), then switched back to I2VA and saved again — panel
+      correctly un-collapses and re-fits to the full 1140px, rather than
+      being stuck at its own default floor.

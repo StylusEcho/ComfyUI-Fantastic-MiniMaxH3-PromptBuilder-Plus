@@ -186,8 +186,23 @@ app.registerExtension({
       // it rather than a header floating over an empty node.
       try {
         // Media and prompt share this node, so a change to the inventory has
-        // to redraw the summary's count. LoaderPanel.commit calls this.
-        this._mmlOnCommit = () => refreshBar(this);
+        // to redraw the summary's count. LoaderPanel.commit calls this, and
+        // so does anything else that can change the panel's shape (a mode
+        // switch, the Used/All toggle).
+        //
+        // fitPanel() belongs here too, not just in onResize/onConfigure: a
+        // shape change alone (no drag, no reload) can change how tall the
+        // panel wants to be — collapsing into T2VA's toolbar-only view, or
+        // growing back out of it — and nothing else re-measures it against
+        // whatever height the node was last resized to. Without this, the
+        // on-node interface was left showing a panel stuck at its own
+        // default/last-fit size, with a gap or an overflow against the
+        // node's actual frame, until an unrelated resize or reload happened
+        // to trigger a re-fit.
+        this._mmlOnCommit = () => {
+          refreshBar(this);
+          fitPanel(this, baseComputeSize);
+        };
         // Read by the full-size media loader window (medialoader.js) for its
         // own "open the Prompt Builder" button — a hook rather than an
         // import, since medialoader.js has no dependency on promptbuilder.js.
