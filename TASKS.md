@@ -384,3 +384,42 @@ when hiding, makes it a mouse-over caption for the respective section.
       expands), then switched back to I2VA and saved again — panel
       correctly un-collapses and re-fits to the full 1140px, rather than
       being stuck at its own default floor.
+
+---
+
+## Follow-up round 6
+
+53. 🟩 the quick edit's side pane should conform to the pictures' aspect
+    ratios, crop nothing, and put two pictures side by side when there is
+    horizontal room (vertical when there isn't)
+    - The pane was a fixed 44% column with the pictures fitted into it, so a
+      picture whose shape didn't match its tile sat in letterbox bars. New
+      `keyframePaneLayout()` inverts that: it sizes each tile to its own
+      picture's aspect and the pane to the tiles, so `object-fit:contain` has
+      nothing left to letterbox and nothing is cropped. Pure geometry, no DOM
+      reads — the caller measures and passes the space in, which keeps the
+      measure and write phases apart and the rule itself testable.
+    - Row vs column is decided by which arrangement leaves the pictures
+      **larger**, which is what "is there horizontal room" actually amounts
+      to. My first attempt asked whether a *full-height* row fitted the width
+      budget, and that was wrong: the row was pinned to full height, so two
+      wide pictures stacked even in a 2400px window where side by side was
+      plainly roomier. Caught by testing the geometry directly before wiring
+      it up.
+    - Verified in a real Chromium against real images: every tile matches its
+      picture's natural aspect exactly (16:9, 9:16, 1:1, and a 0.889 crop),
+      two tall pictures go side by side, two wide ones stack at the default
+      window and switch to side by side when given room, and a mixed pair
+      keeps both shapes. Plus a geometry sweep over 9 aspect combinations ×
+      3 window sizes: all keep aspect and stay inside both the width budget
+      and the height.
+    - **Fixed a latent bug this exposed.** `.mmh3p-audiopair` stacked via
+      `@media (max-width:900px)` — a *viewport* query answering a *container*
+      question. The fields column can be narrow inside a wide window (this
+      pane takes a share of it; the full editor's form sits beside a
+      sidebar), and the pair then stayed side by side and overflowed its own
+      column. It is now a container query on a named `mmh3p-fields` container
+      declared by both hosts. The 400px threshold is measured — the label
+      rows start overflowing just under 380px — and `label.act` now wraps
+      rather than overflows, so a larger text scale degrades gracefully
+      instead of spilling out of any fixed px threshold.

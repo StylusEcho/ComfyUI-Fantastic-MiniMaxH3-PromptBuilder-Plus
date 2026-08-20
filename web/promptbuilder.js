@@ -1257,7 +1257,11 @@ const CSS = `
    gap is the bar's own 16px instead, which is why it matches the sides here.
    Bottom is 16px to match too. */
 .mmh3p-form{overflow-y:auto;padding:0 16px 16px;min-width:0;
-  display:flex;flex-direction:column;}
+  display:flex;flex-direction:column;
+  /* Named so the audio pair above can ask this column's width rather than
+     the viewport's. inline-size only: the height still comes from the flex
+     layout, and this column's own width never depends on its contents. */
+  container:mmh3p-fields / inline-size;}
 /* Sections keep their natural height; the one marked grow takes the slack, so
    the audio sections after it sit at the bottom of the form instead of
    floating under a short description box. When the content is genuinely
@@ -1297,7 +1301,12 @@ const CSS = `
 /* A heading carrying its own controls: they sit against the right edge, clear
    of the field below. min-height keeps a header with buttons the same height
    as one without, so sections in a row still line up. */
-.mmh3p-sec>label.act{display:flex;align-items:center;gap:8px;}
+/* Wraps rather than overflows. The container query above is sized for the
+   default text; at a larger --mmh3-fs the label outgrows any fixed px
+   threshold, so the button drops below the heading instead of spilling out
+   of the section. min-width:0 lets the heading itself shrink first. */
+.mmh3p-sec>label.act{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  min-width:0;}
 .mmh3p-secact{margin-left:auto;display:flex;align-items:center;gap:5px;
   flex:0 0 auto;text-transform:none;letter-spacing:normal;}
 /* Header-sized: the standard .mmh3p-btn padding is built for a footer row and
@@ -1476,7 +1485,17 @@ const CSS = `
 /* The two audio sections sit side by side at the foot of the form. */
 .mmh3p-audiopair{display:flex;gap:14px;align-items:flex-start;}
 .mmh3p-audiopair>.mmh3p-sec{flex:1 1 0;min-width:0;margin-bottom:16px;}
-@media (max-width:900px){.mmh3p-audiopair{flex-direction:column;gap:0;}}
+/* Stacks when the column holding it is narrow. This asked the *viewport*
+   before (@media max-width:900px), which is a different question entirely:
+   the fields column can be narrow inside a wide window — the quick editor's
+   keyframe pane takes a share of the width, and the full editor's form sits
+   beside a sidebar — and the pair then stayed side by side and overflowed
+   its own column. Both hosts declare themselves containers below. */
+/* 400px is measured, not guessed: the pair's label rows start overflowing
+   their sections just under 380px at the default text size. */
+@container mmh3p-fields (max-width: 400px){
+  .mmh3p-audiopair{flex-direction:column;gap:0;}
+}
 .mmh3p-chip{display:inline-flex;align-items:center;gap:6px;border-radius:14px;cursor:pointer;
   border:1px solid #363d4a;background:#20242d;color:#c9cfda;font-size:calc(12px * var(--mmh3-fs, 1));
   padding:3px 10px;user-select:none;}
@@ -1629,7 +1648,8 @@ const CSS = `
   border:1px solid #303642;border-radius:10px;overflow:hidden;
   box-shadow:0 24px 64px rgba(0,0,0,.55);}
 .mmh3p-quickbody{flex:1;min-height:0;overflow-y:auto;padding:14px 16px 18px;}
-.mmh3p-quick{display:flex;flex-direction:column;min-height:100%;}
+.mmh3p-quick{display:flex;flex-direction:column;min-height:100%;
+  container:mmh3p-fields / inline-size;}
 /* #46: keyframes on the left, fields on the right. The keyframes are what
    you are writing against, so they get real estate — a proportional column,
    full body height — rather than the 132px thumbnail strip they used to be.
@@ -1637,9 +1657,17 @@ const CSS = `
    first frame above last. */
 .mmh3p-quickwrap{display:flex;gap:12px;align-items:stretch;min-height:100%;}
 .mmh3p-quickwrap>.mmh3p-quick{flex:1 1 auto;min-width:0;}
-.mmh3p-quickpics{flex:0 0 auto;width:44%;min-width:0;align-self:stretch;
-  display:flex;flex-direction:column;gap:8px;}
-.mmh3p-quickpic{flex:1 1 0;min-height:0;position:relative;
+/* Width, flex-direction and each tile's exact size are written inline by
+   keyframePaneLayout() — the pane takes its shape from the pictures rather
+   than fitting them into a fixed column, so nothing is cropped and no
+   letterbox bars are left over. The values here are the pre-measurement
+   fallback, replaced on the first layout pass. */
+.mmh3p-quickpics{flex:0 0 auto;min-width:0;align-self:center;
+  display:flex;flex-direction:column;gap:8px;
+  /* Two pictures of different shapes give the pane the width of the wider
+     one; centring keeps the narrower under it rather than hard left. */
+  align-items:center;justify-content:center;}
+.mmh3p-quickpic{flex:0 0 auto;min-height:0;position:relative;box-sizing:border-box;
   border:1px solid #2e3440;border-radius:7px;overflow:hidden;background:#12151b;
   /* Sizes the crop window below in cqw/cqh — see .mmh3p-quickcrop. */
   container-type:size;}
@@ -4612,6 +4640,9 @@ export function promptFields(node) {
    *  fields so you can see what you are writing against. Reference mode has no
    *  keyframes and T2VA no pictures, so both get nothing and the fields take
    *  the full width. */
+  // Filled in by keyframes(); relayout() is handed back to the caller so the
+  // pane can be re-measured whenever the window it sits in changes size.
+  let relayoutPics = () => {};
   const keyframes = () => {
     if (isRef) return null;
     const cap = MODE_CAPACITY[state.mode]?.Picture || 0;
@@ -4621,26 +4652,69 @@ export function promptFields(node) {
       pics = getRefSlots(node).filter((sl) => sl.kind === "Picture").slice(0, cap);
     } catch (e) { return null; }
     if (!pics.length) return null;
-    return el("div", { class: "mmh3p-quickpics" },
-      ...pics.map((sl) => {
-        const img = el("img", { class: "mmh3p-quickimg", src: sl.preview?.url });
-        let view = img;
-        if (hasCrop(sl.item)) {
-          // cropFrame() gives back a window onto the kept region. It fills
-          // that window by width and lets the window's height clip, so the
-          // window needs the region's own aspect for the crop to land right
-          // — the CSS reads it from --ar.
-          view = cropFrame(img, sl.item.crop);
-          view.classList.add("mmh3p-quickcrop");
-          const ar = shownAspect(sl.item);
-          // No recorded dimensions: fall back to filling the tile, which is
-          // how this looked before these previews were enlarged.
-          view.style.setProperty("--ar", String(ar || 1));
-          if (!ar) { view.style.width = "100%"; view.style.height = "100%"; }
-        }
-        return el("div", { class: "mmh3p-quickpic" }, view,
-          el("span", { class: `mmh3p-tagname ${sl.cls}` }, sl.tag));
-      }));
+
+    const entries = pics.map((sl) => {
+      const img = el("img", { class: "mmh3p-quickimg", src: sl.preview?.url });
+      let view = img;
+      if (hasCrop(sl.item)) {
+        // cropFrame() gives back a window onto the kept region. It fills that
+        // window by width and lets the window's height clip, so the window
+        // needs the region's own aspect for the crop to land right — the CSS
+        // reads it from --ar. The tile is sized to that same aspect below, so
+        // the two agree and nothing is cropped a second time.
+        view = cropFrame(img, sl.item.crop);
+        view.classList.add("mmh3p-quickcrop");
+        view.style.setProperty("--ar", String(shownAspect(sl.item) || 1));
+      }
+      const tile = el("div", { class: "mmh3p-quickpic" }, view,
+        el("span", { class: `mmh3p-tagname ${sl.cls}` }, sl.tag));
+      const entry = { tile, ar: shownAspect(sl.item) };
+      // Older saves never recorded their dimensions. The picture itself knows
+      // them once it loads, so take them from there and lay out again — the
+      // crop fractions still apply on top.
+      if (!entry.ar) {
+        img.addEventListener("load", () => {
+          const w = img.naturalWidth, h = img.naturalHeight;
+          if (!w || !h) return;
+          entry.ar = shownAspect({ ...sl.item, width: w, height: h })
+            || (w / h);
+          if (view !== img) view.style.setProperty("--ar", String(entry.ar));
+          relayoutPics();
+        }, { once: true });
+      }
+      return entry;
+    });
+
+    const pane = el("div", { class: "mmh3p-quickpics" },
+      ...entries.map((e) => e.tile));
+
+    relayoutPics = () => {
+      // Measured off the scroll container, whose size comes from the window
+      // rather than from what is in it — measuring the pane's own parent
+      // instead would feed the pane's width back into its own input.
+      const body = pane.parentElement?.parentElement;
+      if (!body) return;
+      let pad = { top: 0, bottom: 0, left: 0, right: 0 };
+      try {
+        const cs = getComputedStyle(body);
+        pad = { top: parseFloat(cs.paddingTop) || 0,
+                bottom: parseFloat(cs.paddingBottom) || 0,
+                left: parseFloat(cs.paddingLeft) || 0,
+                right: parseFloat(cs.paddingRight) || 0 };
+      } catch (e) { /* measured as zero padding */ }
+      const out = keyframePaneLayout(entries, {
+        width: (body.clientWidth || 0) - pad.left - pad.right,
+        height: (body.clientHeight || 0) - pad.top - pad.bottom,
+      });
+      if (!out) return;
+      pane.style.flexDirection = out.dir;
+      pane.style.width = `${Math.round(out.paneW)}px`;
+      entries.forEach((e, i) => {
+        e.tile.style.width = `${Math.round(out.sizes[i][0])}px`;
+        e.tile.style.height = `${Math.round(out.sizes[i][1])}px`;
+      });
+    };
+    return pane;
   };
   // Same colour coding as the full editor, minus what only it has room for
   // (hover-preview thumbnails). Slots computed once and reused across every
@@ -4748,7 +4822,7 @@ export function promptFields(node) {
   // any of the .mmh3p-quick rules the fields themselves rely on.
   const pics = keyframes();
   const shell = pics ? el("div", { class: "mmh3p-quickwrap" }, pics, root) : root;
-  return { root: shell, save, state, fieldFor };
+  return { root: shell, save, state, fieldFor, relayoutPics };
 }
 
 /** The quick-edit window, opened by clicking the node's prompt bar. The bar's
@@ -4790,6 +4864,15 @@ export function openQuickEdit(node, focusKey = null) {
         } }, "Save to node"))));
   window.addEventListener("keydown", esc);
   document.body.append(overlay);
+  // The keyframe pane sizes itself to the pictures, which needs the window's
+  // real measurements — so it runs once mounted, and again whenever the
+  // window it sits in changes size.
+  fields.relayoutPics?.();
+  if (typeof ResizeObserver === "function") {
+    const ro = new ResizeObserver(() => fields.relayoutPics?.());
+    ro.observe(overlay.querySelector(".mmh3p-quickbody"));
+  }
+
   setTimeout(() => {
     // Straight into the named field when one was asked for, so the bar's
     // audio marks land on the section they stand for; the first field
@@ -4877,6 +4960,59 @@ function shownAspect(item) {
     h *= Number(item.crop.h) || 1;
   }
   return w > 0 && h > 0 ? w / h : null;
+}
+
+/* Keyframe pane geometry. The pane takes its size from the pictures rather
+   than the pictures being fitted into a fixed column, so nothing is cropped
+   and no letterbox bars are left over. */
+const PANE_GAP = 8;          // between two pictures
+// Below this the audio pair stacks and the description field starts to feel
+// cramped, so the previews give way rather than the writing surface.
+const PANE_FIELDS_MIN = 420;
+
+/** Size the keyframe pane and its tiles to the pictures' own aspect ratios.
+ *
+ *  `entries` is [{ tile, ar }]; `avail` is the space the pane may use. Two
+ *  pictures go side by side when their full-height widths fit the budget, and
+ *  stack otherwise — "side by side if there is horizontal room, vertical if
+ *  not". Whichever way round, every tile ends up at exactly its picture's
+ *  aspect, so `object-fit:contain` has nothing left to letterbox and the pane
+ *  itself is only as wide as the pictures need.
+ *
+ *  Pure geometry, no DOM reads: the caller measures once and passes it in,
+ *  which keeps this testable and keeps the measure/write phases apart. */
+function keyframePaneLayout(entries, avail) {
+  const availW = Number(avail?.width) || 0;
+  const availH = Number(avail?.height) || 0;
+  if (!availW || !availH || !entries.length) return null;
+  // Wide pictures at full height can want more width than the whole window,
+  // so the pane is capped and the pictures shrink to suit.
+  const budget = Math.max(160,
+    Math.min(availW * 0.65, availW - PANE_GAP - PANE_FIELDS_MIN));
+  // 16:9 stands in for a picture whose dimensions were never recorded; the
+  // caller replaces it and re-runs once the image reports its own.
+  const ars = entries.map((e) => (Number(e.ar) > 0 ? Number(e.ar) : 16 / 9));
+
+  // How tall each picture can be in either arrangement, given both the width
+  // budget and the height available. Comparing the two is what decides the
+  // layout: side by side wins exactly when it leaves the pictures bigger,
+  // which is what "is there horizontal room" amounts to. Testing whether a
+  // full-height row *fits* instead got this wrong — the row was pinned to the
+  // full height, so two wide pictures stacked even in a very wide window
+  // where side by side would plainly have been roomier.
+  const gaps = PANE_GAP * (ars.length - 1);
+  const sum = ars.reduce((t, a) => t + a, 0);
+  const widest = Math.max(...ars);
+  const rowH = Math.min(availH, (budget - gaps) / sum);
+  const colH = Math.min((availH - gaps) / ars.length, budget / widest);
+
+  const dir = rowH > colH ? "row" : "column";
+  const each = Math.max(1, dir === "row" ? rowH : colH);
+  const sizes = ars.map((a) => [each * a, each]);
+  const paneW = dir === "row"
+    ? sizes.reduce((t, sz) => t + sz[0], 0) + PANE_GAP * (sizes.length - 1)
+    : Math.max(...sizes.map((sz) => sz[0]));
+  return { dir, paneW, sizes };
 }
 
 function cropFrame(node, crop) {
