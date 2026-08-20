@@ -337,6 +337,50 @@ export function applyTextScale(panel, factor) {
   } catch (e) { /* nothing to do */ }
 }
 
+/** Re-apply the stored node and text scale to this node's panel.
+ *
+ *  Must run at node creation AND on workflow load. Without the second call
+ *  the node returned at its serialised size while the panel inside it was
+ *  rebuilt from the base dimensions with --mml-fs unset — a correct-sized
+ *  node containing a 100% workspace. The prefs were saving fine; nothing
+ *  was reading them back at startup.
+ *
+ *  `force` sets an exact node size, which is right for a fresh node. On
+ *  load we only ever grow, so a node the user dragged larger keeps its
+ *  size — the workflow's geometry wins over the starting-point pref. */
+export function applyStoredScale(node, { force = false } = {}) {
+  let sp;
+  try { sp = loadScalePrefs(); } catch (e) { sp = { node: 1, text: 1 }; }
+  applyTextScale(node._mmlPanel, sp.text);
+  if (force) { applyNodeSize(node, sp.node); return; }
+
+  const f = clampScale(sp.node);
+  const w = Math.round(NODE_W * f);
+  const h = Math.round(PANEL_H * f);
+  try {
+    const widget = node._mmlWidget
+      || node.widgets?.find((x) => x.name === "mml_panel");
+    if (widget) {
+      widget.computedHeight = h;
+      widget.computeSize = () => [w, h];
+      const elx = widget.element || widget.inputEl;
+      if (elx?.style) {
+        elx.style.height = `${h}px`;
+        elx.style.minHeight = `${h}px`;
+      }
+    }
+    // The panel's CSS pins height to the base 476px, so the inline style is
+    // what actually makes the workspace grow.
+    if (node._mmlPanel?.root?.style) node._mmlPanel.root.style.height = `${h}px`;
+    const min = node.computeSize?.();
+    node.size[0] = Math.max(w, node.size[0] || 0);
+    node.size[1] = Math.max(min?.[1] || 0, h, node.size[1] || 0);
+    node.setDirtyCanvas?.(true, true);
+  } catch (e) {
+    /* Vue owns layout in Nodes 2.0; the panel's own CSS keeps it usable. */
+  }
+}
+
 const CSS = `
 .mmlp-panel{font-family:system-ui,sans-serif;color:#d7dbe2;font-size:calc(12px * var(--mml-fs, 1));
   background:#191c22;border:1px solid #2a2f3a;border-radius:8px;padding:8px;
@@ -378,6 +422,17 @@ const CSS = `
 .mmlp-modalhead button{background:none;border:0;color:#8a93a3;
   font-size:calc(17px * var(--mml-fs, 1));cursor:pointer;}
 .mmlp-modalhead button:hover{color:#fff;}
+/* Draft-bound media modal: same panel, different target, so it has to look
+   different. Teal matches the editor's draft chrome. */
+.mmlp-modal.draft{border-color:#3fb2a8;box-shadow:0 24px 64px rgba(0,0,0,.55),
+  0 0 0 1px #3fb2a8;}
+.mmlp-modal.draft .mmlp-modalhead{background:#15242a;border-bottom-color:#3fb2a8;}
+.mmlp-draftbadge{background:#3fb2a8;color:#06211f;font-weight:700;
+  border-radius:5px;padding:1px 7px;letter-spacing:.06em;margin-right:2px;
+  font-size:calc(10px * var(--mml-fs, 1));font-family:system-ui,sans-serif;}
+.mmlp-draftnote{background:#15242a;border-bottom:1px solid #24343a;
+  color:#bfe0dc;padding:6px 13px;line-height:1.45;
+  font-size:calc(11px * var(--mml-fs, 1));font-family:system-ui,sans-serif;}
 /* The same pill the node's prompt bar uses for its own way into the editor
    (.mmh3p-sumbtn in promptbuilder.js) — the two are the same action, so they
    look the same. Restated rather than shared: this file deliberately carries
@@ -1368,7 +1423,7 @@ export class TrimModal {
     }
     this.modalSay("Writing a resized copy\u2026");
     try {
-      const resp = await api.fetchApi("/minimax_h3/bake", {
+      const resp = await api.fetchApi("/minimax_h3_plus/bake", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2044,10 +2099,17 @@ function withUid(item) {
 /* --------------------------------------------------------------- panel */
 
 export class LoaderPanel {
+  /** @param opts.store - { read(), write(items) }. Given one, the panel
+   *  reads and writes THAT instead of the node's media_state widget, and
+   *  stays out of the node's panel registry so Live commits never reach it
+   *  and its own commits never reach Live. The panel itself stays
+   *  single-buffered — only its target moves. */
   constructor(node, opts = {}) {
     this.modal = !!opts.modal;
     this.node = node;
-    (node._mmlPanels = node._mmlPanels || []).push(this);
+    this.store = opts.store || null;
+    this.storeLabel = opts.storeLabel || "";
+    if (!this.store) (node._mmlPanels = node._mmlPanels || []).push(this);
     this.items = this.read();
     this.busy = 0;
     this.presets = [];
@@ -2178,6 +2240,10 @@ export class LoaderPanel {
    *  one wiped whatever was loaded and left the panel dead until the node was
    *  recreated. */
   readOrNull() {
+    if (this.store) {
+      const v = this.store.read();
+      return Array.isArray(v) ? v.map(withUid) : null;
+    }
     const w = this.widget();
     if (!w || typeof w.value !== "string") return null;
     // An empty value is "not deserialised yet", not "no media": the widget
@@ -2200,6 +2266,13 @@ export class LoaderPanel {
     this._committing = true;
     try {
       this.items.forEach(withUid);
+      if (this.store) {
+        // No fanout: this panel isn't in the node's registry, and the node's
+        // own media must not move because a draft was edited.
+        this.store.write(this.items);
+        this.render();
+        return;
+      }
       const w = this.widget();
       if (!w) {
         // Nothing to write through yet. Keep what's in memory and just draw.
@@ -3426,21 +3499,32 @@ function splitHelp(anchor) {
   document.body.append(box);
 }
 
-export function openLoaderModal(node, title = "MiniMax H3 Media Loader") {
+/** @param onClose - run after the modal closes, so a caller that renders
+ *  from this node's media (the prompt builder) can pick up the changes.
+ *  @param store/storeLabel/draft/note - a draft's own reference set, edited
+ *  through this same panel but written to the draft rather than the node. */
+export function openLoaderModal(node, opts = {}) {
   injectCSS();
-  const panel = new LoaderPanel(node, { modal: true });
+  const { onClose, store, storeLabel, draft = false, note = "" } = opts;
+  const title = opts.title || storeLabel || "MiniMax H3 Media Loader";
+  const panel = new LoaderPanel(node, { modal: true, store, storeLabel });
   const close = () => {
     node._mmlPanels = (node._mmlPanels || []).filter((p) => p !== panel);
     panel.players.forEach((p) => p.stop());
     overlay.remove();
     window.removeEventListener("keydown", esc);
     node._mmlPanel?.render();
+    try { onClose?.(); } catch (e) {
+      console.error("[Fantastic H3 Media Loader] close callback failed:", e);
+    }
   };
   const esc = (e) => { if (e.key === "Escape") close(); };
   const overlay = el("div", { class: "mmlp-overlay",
     onmousedown: (e) => { if (e.target === overlay) close(); } },
-    el("div", { class: "mmlp-modal" },
-      el("div", { class: "mmlp-modalhead" }, title,
+    el("div", { class: "mmlp-modal" + (draft ? " draft" : "") },
+      el("div", { class: "mmlp-modalhead" },
+        draft ? el("span", { class: "mmlp-draftbadge" }, "DRAFT") : null,
+        title,
         el("div", { class: "mmlp-modalacts" },
           // Only meaningful when this modal was opened from Prompt Studio,
           // which is the only place it's opened from any more \u2014 set by
@@ -3455,6 +3539,7 @@ export function openLoaderModal(node, title = "MiniMax H3 Media Loader") {
                 "\ud83d\udcdc Prompt Builder")
             : null,
           el("button", { title: "Close", onclick: close }, "\u2715"))),
+      note ? el("div", { class: "mmlp-draftnote" }, note) : null,
       el("div", { class: "mmlp-modalbody" }, panel.root)));
   window.addEventListener("keydown", esc);
   document.body.append(overlay);

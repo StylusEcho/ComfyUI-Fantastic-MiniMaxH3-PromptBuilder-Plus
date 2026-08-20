@@ -475,3 +475,80 @@ when hiding, makes it a mouse-over caption for the respective section.
       L2VA `[p1]` → `[dropped3]`, with `hiddenCount()` 0 and no badge in all
       three; empty slot and panel background still append. Full harness
       sweep (34 scripts) green.
+
+---
+
+## Upstream sync — 1.6.0
+
+57. 🟩 merge the latest upstream changes (`Adudeguyman` 1.6.0: Draft mode,
+    in-editor media loader, seven fixes)
+    - One upstream commit, ~1300 lines, 20 conflicts across `pyproject.toml`,
+      `README.md`, `web/medialoader.js` (5) and `web/promptbuilder.js` (12).
+      `web_api.py` auto-merged. Version → **2.3.0**.
+    - **Draft mode** came in whole: the disk-backed scratchpad, Pull from
+      Live, per-draft reference sets, the teal chrome, and the prefs-menu
+      "clear all drafts" admin row. Five new `drafts/*` routes.
+    - **Re-pointed at this fork's node shape.** Upstream's draft code assumed
+      a separate Media Loader node wired into a `references` input and
+      reached for it in five places (`openMedia`, `openDraftMedia`,
+      `_applyMediaSnapshot`, `_mediaDiverged`, `_snapshotMedia`). Prompt
+      Studio owns its panel outright and has no such input, so every one of
+      those would have bailed early and the feature would have looked
+      installed but dead. They now all route through the fork's existing
+      `mediaSource()`, which resolves either shape. Upstream's own
+      `loaderItems()` was rewritten on top of it rather than kept alongside.
+    - **Namespacing.** Upstream is on `.mml-`/`.mmh3-` and `/minimax_h3/`;
+      this fork is on `.mmlp-`/`.mmh3p-` and `/minimax_h3_plus/`. 28 class
+      references and 8 routes (5 server, 3 client) renamed. The CSS custom
+      properties (`--mml-fs`, `--mmh3-fs`) keep their unprefixed names — they
+      are shared with upstream by design.
+    - **Dropped as dead here**: `addSplitter()`, `flash()`, `addMediaLoader()`
+      and the standalone Media Loader / Prompt Builder node extensions. Those
+      nodes were removed from this fork in an earlier session.
+
+58. 🟩 flag what upstream 1.6.0 makes redundant or conflicts with
+    - **The editor's Media Loader button — resolved in upstream's favour.**
+      This fork's button *handed over*: it closed the editor, routing through
+      the unsaved-changes strip via `requestClose(then)`, and then opened the
+      loader. Upstream's opens the loader *over the top* and leaves the editor
+      up. Upstream's is strictly better and draft mode requires it — a draft
+      has its own reference set, which a handover cannot express — so the
+      handover is gone. `requestClose(then)`'s mechanism stays (nothing calls
+      it with a `then` now) since it is what makes close-and-then safe at all.
+      `rig/closehandover.mjs` tested the removed behaviour and was replaced by
+      `rig/mediaoverlay.mjs`, which asserts the inverse: no strip, editor
+      stays open, panel reads *this* node's own `media_state`.
+    - **Upstream fix "node and text scale never re-read at startup" — half
+      redundant.** Its `applyStoredScale()` is dead code in this fork (it
+      existed only for the standalone loader node's `onConfigure`). But the
+      underlying bug was real here too and unfixed: nothing restored
+      `--mml-fs` on workflow load. Ported the text half into
+      `promptstudio.js`'s `onConfigure`; the node-size half is deliberately
+      not ported, because `fitPanel()` already owns this node's height and
+      a second writer would fight it.
+    - **Upstream fix "`[Shot N]` chip was font-weight 700 → caret drift"** —
+      landed clean, no conflict. This is the same class of bug as the mirror
+      work in earlier rounds; worth knowing the metric-neutral `text-shadow`
+      is now the house pattern.
+    - **Not redundant, no conflict**: the atomic-write, save-under-new-name,
+      category-filter, preset-picker-popover and preset-dimension-backfill
+      fixes all apply here unchanged.
+
+59. 🟩 fix the media panel's "bake" route, broken since the namespace move
+    - Found while auditing routes for the merge, not reported. When this fork
+      moved its endpoints to `/minimax_h3_plus/`, `medialoader.js`'s bake call
+      — flattening a trim or crop into a new file — was missed and still
+      posted to `/minimax_h3/bake`, which no longer exists. It would have
+      404'd every time. One line.
+
+60. 🟩 fix the harness's DOM stub treating `className` and `classList` as two
+    separate stores
+    - Found by a merge test failing on an assertion that was correct.
+      `classList.add/toggle` wrote a `Set`; `className` read a different
+      string. A class added through one was invisible to the other — which
+      includes the stub's own selector engine and most of the harness's
+      `find()` helpers. Tests were asserting against a view of the element no
+      browser would ever produce.
+    - They are now one store, as in a real DOM. Re-ran the full suite against
+      the corrected stub, since this is the first time every class-based
+      assertion in it has been honest: **35 scripts, all green.**

@@ -625,14 +625,23 @@ function defaultState() {
   };
 }
 
+/** Merge a stored state over the current defaults.
+ *
+ *  Every state that comes from outside this session must pass through here,
+ *  not just the node's widget: a state missing a field the renderer reads
+ *  throws mid-render, which aborts the form build and leaves a half-drawn
+ *  panel — no chips, no rail, and no error the user can see. Drafts come
+ *  from disk and are exactly that kind of outside state. */
+function normaliseState(s) {
+  if (!s || !s.version) return defaultState();
+  const d = defaultState();
+  return { ...d, ...s, ref: { ...d.ref, ...(s.ref || {}) } };
+}
+
 function loadState(node) {
   const w = node.widgets?.find((w) => w.name === "builder_state");
   try {
-    const s = JSON.parse(w?.value || "{}");
-    if (s && s.version) {
-      const d = defaultState();
-      return { ...d, ...s, ref: { ...d.ref, ...(s.ref || {}) } };
-    }
+    return normaliseState(JSON.parse(w?.value || "{}"));
   } catch (e) { /* fall through */ }
   return defaultState();
 }
@@ -709,21 +718,17 @@ function mediaSource(node) {
   };
 }
 
-function slotsFromBundle(node) {
-  const src = mediaSource(node);
-  if (!src) return null;
-  // Prefer the owning panel's live objects over a fresh parse: editing a clip
-  // or reordering from the rail has to mutate the same items the panel holds,
-  // or the change is written over the moment the panel next commits.
-  const panel = src.owner?._mmlPanel || null;
-  let items = Array.isArray(panel?.items) ? panel.items : null;
-  if (!items) {
-    try {
-      items = JSON.parse(src.raw || "[]");
-    } catch (e) { return null; }
-  }
-  if (!Array.isArray(items)) return null;
-  items = items.filter(isOn);      // switched-off media never reaches the model
+/** Pure half of slotsFromBundle: compute the slots from an items array,
+ *  regardless of where it came from — this node's own panel, a wired loader,
+ *  or a draft's stored media snapshot. Tag numbering must match nodes.py
+ *  exactly either way, which is why draft mode goes through the same code.
+ *
+ *  `panel` is the LoaderPanel that owns these items, if any, so the rail can
+ *  offer the same per-clip tools the node tile does; a draft's snapshot has
+ *  no live panel and passes null. */
+function slotsFromItems(rawItems, sourceLabel, panel = null, own = false) {
+  if (!Array.isArray(rawItems)) return null;
+  const items = rawItems.filter(isOn);   // switched-off media never reaches the model
 
   const { tags, extra } = computeTags(items);
   const out = [];
@@ -732,7 +737,7 @@ function slotsFromBundle(node) {
     const slot = {
       tag, kind, idx: n, cls: TAG_CLASS[kind], note,
       slotName: `loader:${item.name}`,
-      source: `${src.label} \u2022 ${item.name}`,
+      source: `${sourceLabel} \u2022 ${item.name}`,
       preview: { type: previewKind, url: loaderViewURL(item.file) },
       // The live item and the panel that owns it, so the rail can offer the
       // same per-clip tools the node tile does.
@@ -764,8 +769,36 @@ function slotsFromBundle(node) {
       push(extra.get(i), "Audio", i, "split from " + tags.get(i), "audio");
   });
   out.bundled = true;
-  out.own = src.label === "Media";   // this node's own panel, not a wired loader
+  out.own = own;                     // this node's own panel, not a wired loader
   return out;
+}
+
+/** The live items array behind this node's tags, or null if there is none.
+ *
+ *  Prefers the owning panel's live objects over a fresh parse of the widget:
+ *  editing a clip or reordering from the rail has to mutate the same items
+ *  the panel holds, or the change is written over the moment the panel next
+ *  commits. */
+function loaderItems(node) {
+  const src = mediaSource(node);
+  if (!src) return null;
+  const items = src.owner?._mmlPanel?.items;
+  if (Array.isArray(items)) return items;
+  try {
+    const parsed = JSON.parse(src.raw || "[]");
+    return Array.isArray(parsed) ? parsed : null;
+  } catch (e) { return null; }
+}
+
+function slotsFromBundle(node) {
+  // The panel keeps its inventory in a widget, so the tags it will produce
+  // can be read straight off the graph without a round trip.
+  const src = mediaSource(node);
+  if (!src) return null;
+  const items = loaderItems(node);
+  if (!items) return null;
+  return slotsFromItems(items, src.label, src.owner?._mmlPanel || null,
+    src.label === "Media");
 }
 
 function getRefSlots(node) {
@@ -1538,6 +1571,9 @@ const CSS = `
   white-space:nowrap;}
 .mmh3p-btn:hover{background:#333b4d;}
 .mmh3p-btn.primary{background:#3f5a86;border-color:#4d6ea6;color:#fff;}
+.mmh3p-btn.off,.mmh3p-btn:disabled{background:#22262e;border-color:#2e3440;
+  color:#5c6472;cursor:not-allowed;}
+.mmh3p-btn.off:hover,.mmh3p-btn:disabled:hover{background:#22262e;}
 .mmh3p-btn.primary:hover{background:#48679a;}
 .mmh3p-btn.ghost{background:none;border-color:transparent;color:#8a93a3;}
 .mmh3p-btn.ghost:hover{color:#e05a5a;}
@@ -1933,6 +1969,57 @@ const CSS = `
 .mmh3p-chiptags{display:flex;flex-wrap:wrap;gap:3px;}
 .mmh3p-chiptags .mmh3p-tagname{font-size:calc(9px * var(--mmh3-fs, 1));}
 .mmh3p-chipnone{color:#6b7484;font-style:italic;}
+/* ---- Draft mode ----
+   One class on the modal drives everything: teal chrome for the across-the-
+   room read, a cool field wash for mid-typing, and the banner carrying the
+   actual meaning. Teal is the one hue unclaimed elsewhere in the palette —
+   speaker blue, shot magenta and danger red all stay distinct — and unlike
+   a warm accent it doesn't go muddy at low luminance. Colors only, so the
+   chip mirror never notices. Last in the sheet on purpose. */
+.mmh3p-modal.draft{border-color:#3fb2a8;
+  box-shadow:0 24px 64px rgba(0,0,0,.55), 0 0 0 1px #3fb2a8;}
+.mmh3p-modal.draft .mmh3p-head{background:#15242a;border-bottom-color:#3fb2a8;}
+.mmh3p-modal.draft .mmh3p-form textarea,
+.mmh3p-modal.draft .mmh3p-form input[type=text],
+.mmh3p-modal.draft .mmh3p-form input[type=number],
+.mmh3p-modal.draft .mmh3p-form select{background:#101619;border-color:#24343a;}
+/* Chip fields paint their background on the WRAP — textarea and mirror are
+   both transparent by design — so the wash has to land there. Backgrounds
+   and borders only: colors are layout-neutral, the mirror never notices. */
+.mmh3p-modal.draft .mmh3p-chipwrap{background:#101619;border-color:#24343a;}
+.mmh3p-modal.draft .mmh3p-chipwrap textarea.mmh3p-chiptext{background:transparent;
+  border-color:transparent;}
+.mmh3p-titletag{color:#3fb2a8;font-weight:600;margin-left:8px;
+  font-size:calc(13px * var(--mmh3-fs, 1));}
+.mmh3p-modetoggle.draft{border-color:#3fb2a8;color:#6fd0c6;}
+.mmh3p-draftadmin{display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  padding:5px 6px;}
+.mmh3p-drafthint{flex:1 1 140px;min-width:0;color:#8a93a3;
+  font-size:calc(10px * var(--mmh3-fs, 1));line-height:1.4;}
+.mmh3p-draftslot{flex:0 0 auto;}
+.mmh3p-draftslot:empty{display:none;}
+.mmh3p-draftbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  background:#15242a;border-top:1px solid #3fb2a8;
+  border-bottom:1px solid #3fb2a8;padding:8px 16px;}
+.mmh3p-draftbadge{background:#3fb2a8;color:#06211f;font-weight:700;
+  border-radius:5px;padding:1px 7px;letter-spacing:.06em;
+  font-size:calc(10px * var(--mmh3-fs, 1));}
+.mmh3p-draftmsg{flex:1 1 240px;min-width:0;color:#bfe0dc;
+  font-size:calc(11px * var(--mmh3-fs, 1));line-height:1.45;}
+.mmh3p-draftstatus{color:#3fb2a8;opacity:.75;}
+.mmh3p-draftdropped{background:#3a2a18;color:#f0c98a;border:1px solid #6b4f26;
+  border-radius:5px;padding:1px 7px;flex:0 0 auto;cursor:help;
+  font-size:calc(10px * var(--mmh3-fs, 1));}
+.mmh3p-draftactions{display:flex;gap:6px;flex:0 0 auto;}
+.mmh3p-commitstrip{background:#132126;border-top:1px solid #3fb2a8;
+  border-bottom:1px solid #3fb2a8;padding:10px 16px;}
+.mmh3p-commitmsg{display:block;color:#bfe0dc;margin-bottom:7px;
+  font-size:calc(12px * var(--mmh3-fs, 1));line-height:1.45;}
+.mmh3p-commitrow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+.mmh3p-commitname{flex:1 1 180px;min-width:0;background:#12151b;
+  color:#dde2ea;border:1px solid #2e3440;border-radius:6px;padding:5px 8px;
+  font-size:calc(12px * var(--mmh3-fs, 1));font-family:inherit;}
+.mmh3p-commitname:focus{outline:none;border-color:#4a5568;}
 `;
 
 let cssInjected = false;
@@ -1952,6 +2039,95 @@ function toast(msg, ms = 1800) {
 /* ------------------------------------------------------------------ */
 /* Prompt library                                                      */
 /* ------------------------------------------------------------------ */
+
+/* ---------- drafts ----------
+ * Draft mode's scratchpad. Lives on disk (one keyed file, server-side), so
+ * a browser crash loses at most a debounce window. Live is the node; the
+ * draft is the file; nothing here ever touches the prompt library or the
+ * preset store except through the user's own explicit save. */
+
+async function draftApi(path, body) {
+  const resp = await api.fetchApi("/minimax_h3_plus/drafts" + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.error || `request failed (${resp.status})`);
+  return data;
+}
+
+/** Stable serialisation: object key order must not read as "changed". */
+function stableStringify(v) {
+  if (Array.isArray(v)) return "[" + v.map(stableStringify).join(",") + "]";
+  if (v && typeof v === "object") {
+    return "{" + Object.keys(v).sort().map(
+      (k) => JSON.stringify(k) + ":" + stableStringify(v[k])).join(",") + "}";
+  }
+  return JSON.stringify(v);
+}
+
+/** djb2 — cheap content fingerprint for clean/dirty comparisons. Cleanliness
+ *  is always computed from this, never stored as a flag: stored booleans
+ *  drift out of sync, a comparison can't. */
+function hashStr(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
+function stateHash(state) { return hashStr(stableStringify(state)); }
+
+const DRAFT_MEDIA_KINDS = new Set(["picture", "video", "audio"]);
+
+/** Validate a media array that came from disk.
+ *
+ *  This is the only path that writes to the loader's media_state without
+ *  having gone through upload/probe first — commit deep-copies the draft's
+ *  set straight in, and that widget is what nodes.py reads at execution.
+ *  So a malformed item here doesn't just look wrong, it reaches Python.
+ *
+ *  Unknown keys are deliberately KEPT: a newer build may add fields, and
+ *  stripping them would make an older build silently lossy. Returns
+ *  { items, dropped } — the caller must surface `dropped`, because a draft
+ *  quietly losing a reference is the failure this exists to prevent. */
+function validateDraftMedia(raw) {
+  if (!Array.isArray(raw)) return { items: null, dropped: 0 };
+  const seen = new Set();
+  let dropped = 0;
+  const items = [];
+  for (const it of raw) {
+    if (!it || typeof it !== "object" || Array.isArray(it)) { dropped++; continue; }
+    if (!DRAFT_MEDIA_KINDS.has(it.kind)) { dropped++; continue; }
+    if (typeof it.file !== "string" || !it.file.trim()) { dropped++; continue; }
+    const out = { ...it };
+    out.file = it.file.trim();
+    if (typeof out.name !== "string" || !out.name.trim()) {
+      // Fall back to the filename rather than rendering "undefined".
+      out.name = parseAnnotatedPath(out.file).name || out.file;
+    }
+    // live() matches on uid, so a collision lands edits on the wrong item.
+    if (typeof out.uid !== "string" || !out.uid || seen.has(out.uid)) {
+      out.uid = `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+    }
+    seen.add(out.uid);
+    items.push(out);
+  }
+  return { items: items.length ? items : null, dropped };
+}
+
+/** The node's draft identity. Properties serialise by NAME in the workflow
+ *  file — unlike widgets, which are positional — so this adds no widget and
+ *  can't shift saved-graph value mapping. Minted once, travels with the
+ *  workflow through save/export/import. */
+function draftIdFor(node) {
+  node.properties = node.properties || {};
+  if (!node.properties.mmh3_draft_id) {
+    node.properties.mmh3_draft_id = "d" + Date.now().toString(36) +
+      Math.random().toString(36).slice(2, 8);
+  }
+  return node.properties.mmh3_draft_id;
+}
 
 async function libApi(path, body) {
   const opts = body
@@ -2055,7 +2231,14 @@ class Library {
           this.searchEl, this.catEl, this.catBtn, this.favEl),
         this.listEl));
 
-    this.escHandler = (e) => { if (e.key === "Escape") this.close(); };
+    // Both overlays listen on window, and this one registered first — so
+    // without this guard Escape closed the editor out from under whatever
+    // was stacked on top of it.
+    this.escHandler = (e) => {
+      if (e.key !== "Escape") return;
+      if (document.querySelector(".mml-overlay")) return;   // loader owns it
+      this.close();
+    };
     window.addEventListener("keydown", this.escHandler);
   }
 
@@ -2209,6 +2392,7 @@ class Library {
         ed.libraryId = res.id;
         ed.libraryName = res.name;
         ed.libraryCategory = categoryValue();
+        ed.noteLibraryIdentity();
         this.saveOpen = false;
         toast(`Saved "${res.name}"`);
         this.refresh();
@@ -2429,6 +2613,8 @@ class Library {
       this.editor.libraryId = entry.id;
       this.editor.libraryName = entry.name;
       this.editor.libraryCategory = data.category || "";
+      // Loading = clean against that entry; the active buffer records it.
+      this.editor.noteLibraryIdentity();
       this.editor.render();
       toast(`Loaded "${entry.name}"`);
       this.close();
@@ -2468,14 +2654,39 @@ class Editor {
     // remember it differently than another.
     this.sidebar = !this.prefs.classicLayout;
     this.prefsOpen = false;
+    // Draft mode. "live" edits the node's prompt as ever; "draft" edits a
+    // disk-backed scratch buffer that is never queued or executed. The two
+    // buffers swap wholesale — state, library identity, session baseline —
+    // so neither can bleed into the other.
+    this.bufferMode = "live";
+    this.draftEntry = null;          // the disk entry, once fetched
+    this.commitPending = false;      // commit decision strip showing
+    this.pullPending = false;        // pull-from-Live choice strip showing
+    this.draftStale = false;         // media snapshot diverged from loader
+    this._liveHeld = null;           // live session edits parked during draft
     // What the node currently holds, to tell "edited" from "just looked".
     this.openedWith = JSON.stringify(this.state);
     injectCSS();
+    // Same affordance the loader panel has: a handle for console diagnostics.
+    node._mmh3Editor = this;
     this.build();
     this.render();
     document.body.append(this.overlay);
     this.applyScale();
     this.applyHighlight();
+    // Reopen where you left off: if this node's draft was active when the
+    // modal last closed, restore draft mode once the entry arrives.
+    draftApi("/load", { id: draftIdFor(node) }).then((res) => {
+      this.node._mmh3DraftActive = !!res.exists;
+      updateSummary(this.node);
+      if (res.exists) {
+        this.draftEntry = res.draft;
+        if (res.draft.mode === "draft" && this.bufferMode === "live" &&
+            this.overlay.isConnected) {
+          this.enterDraft();
+        }
+      }
+    }).catch(() => { /* drafts unavailable: live mode works as ever */ });
   }
 
   /* ---------- insertion ---------- */
@@ -2551,7 +2762,8 @@ class Editor {
     }}, "Copy prompt");
     const cancelBtn = el("button", { class: "mmh3p-btn",
       onclick: () => this.requestClose() }, "Cancel");
-    const saveBtn = el("button", { class: "mmh3p-btn primary", onclick: () => this.save() },
+    const saveBtn = this.saveBtn = el("button",
+      { class: "mmh3p-btn primary", onclick: () => this.save() },
       "Save to node");
 
     const guideBtn = el("button", { class: "mmh3p-btn mmh3p-guidebtn",
@@ -2571,7 +2783,13 @@ class Editor {
       el("div", { class: "mmh3p-modal" },
         el("div", { class: "mmh3p-head" },
           el("div", { class: "mmh3p-title" }, "Fantastic H3 Prompt Builder",
+            this.titleTag = el("span", { class: "mmh3p-titletag" }, ""),
             el("small", {}, "guide-conformant output")),
+          this.modeToggle = el("button",
+            { class: "mmh3p-btn mmh3p-modetoggle",
+              title: "Switch to the draft scratchpad \u2014 the node keeps "
+                + "the Live prompt",
+              onclick: () => this.toggleDraftMode() }, "Draft \u25b6"),
           el("button", { class: "mmh3p-btn",
             title: "Browse saved prompts",
             onclick: () => new Library(this) }, "\u2630 Library"),
@@ -2582,23 +2800,26 @@ class Editor {
           this.prefsButton(),
           guideBtn,
           this.modeBar,
+          // Opens over the top rather than handing over. The editor used to
+          // close itself first, which meant a trip through the
+          // unsaved-changes strip just to glance at the media \u2014 and in draft
+          // mode there is a second reference set to edit, which a handover
+          // could not express at all. Escape belongs to whichever overlay is
+          // on top, and reference tags refresh on close since adding media
+          // renumbers them.
           el("button", { class: "mmh3p-btn",
-            title: "Open the full media loader window",
-            onclick: () => {
-              // Hand over rather than stack: the two are alternate views of
-              // the same node, so one replaces the other. requestClose()'s
-              // `then` runs once the editor actually closes, however that
-              // gets resolved \u2014 immediately, or via Save/Discard on the
-              // unsaved-changes strip \u2014 so the handover happens exactly
-              // once and never races the strip waiting for an answer.
-              this.requestClose(
-                () => openLoaderModal(this.node, "MiniMax H3 \u2014 media"));
-            } },
-            "\u2750 Media Loader"),
+            title: "Open the media loader without leaving the editor",
+            onclick: () => this.openMedia() }, "\u2750 Media Loader"),
           el("button", { class: "mmh3p-x",
             onclick: () => this.requestClose() }, "\u2715"),
         ),
         this.modeSends,
+        // Draft status sits OUTSIDE the scrolling form on purpose: most of
+        // the work happens far down in the description fields, and a banner
+        // that scrolls away stops answering "am I editing Live?" exactly
+        // when it matters most. The commit decision lands in the same slot,
+        // so the choice appears where the eye already is.
+        this.draftSlot = el("div", { class: "mmh3p-draftslot" }),
         el("div", { class: "mmh3p-body" + (this.sidebar ? " sidebar" : "") },
           this.railEl,
           this.formEl,
@@ -2643,7 +2864,14 @@ class Editor {
         this.updatePreview();
       }, 0);
     });
-    this.escHandler = (e) => { if (e.key === "Escape") this.close(); };
+    // Both overlays listen on window, and this one registered first — so
+    // without this guard Escape closed the editor out from under whatever
+    // was stacked on top of it.
+    this.escHandler = (e) => {
+      if (e.key !== "Escape") return;
+      if (document.querySelector(".mml-overlay")) return;   // loader owns it
+      this.close();
+    };
     window.addEventListener("keydown", this.escHandler);
   }
 
@@ -2677,6 +2905,14 @@ class Editor {
 
   /** True when the editor holds something the node hasn't been given. */
   isDirty() {
+    // Draft edits autosave to disk, so they are never "unsaved". What the
+    // close guard protects in draft mode is the parked LIVE session.
+    if (this.bufferMode === "draft") {
+      try {
+        return !!this._liveHeld &&
+          JSON.stringify(this._liveHeld.state) !== this._liveHeld.openedWith;
+      } catch (e) { return false; }
+    }
     try { return JSON.stringify(this.state) !== this.openedWith; }
     catch (e) { return false; }
   }
@@ -2685,12 +2921,17 @@ class Editor {
    *  runs once the close actually happens — however it gets resolved (an
    *  immediate close, or Save/Discard on the unsaved-changes strip) — so a
    *  caller that wants to close-and-then-do-something doesn't have to know
-   *  which path the close took. Used by the Media Loader button: closing
-   *  this editor to switch views is one action, whether or not there was
-   *  something to save on the way out. */
+   *  which path the close took. No caller passes one today — the Media
+   *  Loader button used to, before it started opening over the top instead
+   *  of handing over — but the wiring is what makes close-and-then safe to
+   *  ask for at all, so it stays. */
   requestClose(then = null) {
     this._closeThen = then;
     if (!this.prefs.warnUnsaved || !this.isDirty()) { this.close(); return; }
+    if (this.bufferMode === "draft") {
+      // The at-risk work is the parked live session; show it, then ask.
+      this.exitDraft();
+    }
     this.closePending = true;
     this.render();
   }
@@ -2777,6 +3018,46 @@ class Editor {
     };
     // Shown so a bug report can name the exact build rather than a version
     // number that may have covered several.
+    // Drafts are internal state that outlives code changes, so there has to
+    // be a way to wipe them from the UI rather than by deleting a file.
+    const draftLine = el("span", { class: "mmh3p-drafthint" }, "counting\u2026");
+    const draftRow = el("div", { class: "mmh3p-draftadmin" });
+    const paintDrafts = (count) => {
+      if (!count) {
+        draftLine.textContent = "No saved drafts.";
+        draftRow.replaceChildren(draftLine);
+        return;
+      }
+      draftLine.textContent =
+        `${count} saved draft${count === 1 ? "" : "s"} across all workflows.`;
+      draftRow.replaceChildren(draftLine,
+        el("button", { class: "mmh3p-btn",
+          title: "Discard every saved draft on this machine",
+          onclick: () => {
+            draftRow.replaceChildren(
+              el("span", { class: "mmh3p-drafthint" },
+                "Discard all drafts? This can't be undone."),
+              el("button", { class: "mmh3p-btn mmh3p-danger", onclick: async () => {
+                try {
+                  const res = await draftApi("/clear_all", {});
+                  this.draftEntry = null;
+                  this.node._mmh3DraftActive = false;
+                  updateSummary(this.node);
+                  if (this.bufferMode === "draft") this.exitDraft();
+                  toast(`Cleared ${res.cleared} draft${
+                    res.cleared === 1 ? "" : "s"}`);
+                  paintDrafts(0);
+                } catch (e) { toast(`Couldn't clear drafts: ${e.message}`); }
+              } }, "Discard all"),
+              el("button", { class: "mmh3p-btn",
+                onclick: () => paintDrafts(count) }, "Cancel"));
+          } }, "Clear all"));
+    };
+    api.fetchApi("/minimax_h3_plus/drafts")
+      .then((r) => r.json())
+      .then((d) => paintDrafts(d.count || 0))
+      .catch(() => { draftLine.textContent = "Drafts unavailable."; });
+
     const version = el("div", { class: "mmh3p-prefversion" }, "version \u2026");
     api.fetchApi("/minimax_h3_plus/capabilities")
       .then((r) => r.json())
@@ -2808,6 +3089,8 @@ class Editor {
            "Off means only \u2715, Cancel and Escape close the window."),
       item("warnUnsaved", "Warn about unsaved changes",
            "Off means \u2715, Cancel and Escape discard your edits silently."),
+      el("div", { class: "mmh3p-prefsep" }),
+      draftRow,
       version);
     this.prefsMenu = menu;
     // Framed like every other button in the bar. It used to wear .mmh3p-x,
@@ -2911,11 +3194,14 @@ class Editor {
     this.closeCtx();
     this.hidePhrasePeek();
     window.removeEventListener("keydown", this.escHandler);
-    // Nothing is carried over. Closing without saving discards the edits —
-    // which is what Cancel says on the tin. Keeping a draft here made the
-    // editor look like it autosaved: reopening showed the changes back even
-    // though the node still held the old prompt, and with the unsaved-changes
-    // warning switched off there was no moment where you chose either way.
+    // The DRAFT buffer flushes to disk with the mode it closed in, so the
+    // editor reopens where you left off. The LIVE buffer carries nothing
+    // over: closing without saving discards live edits — which is what
+    // Cancel says on the tin. Keeping a live draft here made the editor
+    // look like it autosaved: reopening showed changes the node didn't
+    // hold. Draft mode is that idea done right — labeled, tinted, and
+    // never executable.
+    if (this.draftEntry) this.flushDraftSave(this.bufferMode);
     this.node._mmh3Draft = null;
     this.overlay.remove();
     // Run and clear rather than just run: this instance is done either way,
@@ -2926,7 +3212,9 @@ class Editor {
     then?.();
   }
 
-  save() {
+  /** Write the active state onto the node's widgets. The one and only path
+   *  by which anything becomes executable. */
+  writeNode() {
     const pw = this.node.widgets?.find((w) => w.name === "prompt_text");
     const sw = this.node.widgets?.find((w) => w.name === "builder_state");
     if (pw) pw.value = generate(this.state);
@@ -2951,8 +3239,596 @@ class Editor {
       this.node.setDirtyCanvas?.(true, true);
       app.graph.setDirtyCanvas(true, true);
     } catch (e) { /* Vue redraws itself */ }
+  }
+
+  save() {
+    // The button is disabled in draft mode; this is the belt to that brace,
+    // since a keyboard shortcut or a stale handler could still land here.
+    if (this.bufferMode === "draft") {
+      toast("This is a draft \u2014 use Commit to Live to put it on the node");
+      return;
+    }
+    this.writeNode();
     toast("Saved to node");
     this.close();
+  }
+
+  /** Open the Media Loader's own modal on top of this editor.
+   *
+   *  It's the same LoaderPanel the node hosts — mounting it in a body
+   *  overlay is all "Open loader…" does — so this needs no new UI, just a
+   *  refresh afterwards: adding or reordering media renumbers the tags this
+   *  editor renders. */
+  openMedia() {
+    // Prompt Studio owns its panel, so the media lives on this very node;
+    // mediaSource() resolves that without caring which shape it is.
+    const loader = mediaSource(this.node)?.owner;
+    if (!loader) { toast("This node has no reference media"); return; }
+    if (this.bufferMode === "draft") { this.openDraftMedia(loader); return; }
+    openLoaderModal(loader, { title: "MiniMax H3 \u2014 media", onClose: () => {
+      // Media may have changed under us: refresh tags.
+      this.draftStale = this._mediaDiverged();
+      this.render();
+    } });
+  }
+
+  /** The same LoaderPanel, pointed at this draft's media instead of the
+   *  node's. Nothing about Live moves while this is open — and because the
+   *  overlay covers the canvas, the node's own panel can't be reached at the
+   *  same time, so the two can never be edited at once. */
+  openDraftMedia(loader) {
+    const store = {
+      // Copy-on-write: until the draft is touched it simply shows Live, so
+      // opening the panel to look at it doesn't fork anything.
+      read: () => this.draftView() || loaderItems(this.node) || [],
+      write: (items) => {
+        if (!this.draftEntry) return;
+        const v = validateDraftMedia(JSON.parse(JSON.stringify(items)));
+        this.draftEntry.media = v.items;
+        if (v.dropped) this.draftDropped = (this.draftDropped || 0) + v.dropped;
+        this.draftStale = this._mediaDiverged();
+        this.flushDraftSave();
+        this.refreshSlots();
+        this.render();
+      },
+    };
+    openLoaderModal(loader, {
+      store,
+      draft: true,
+      storeLabel: "Draft media",
+      note: "Editing this draft's own reference set. The node keeps its "
+        + "Live media until you commit the draft.",
+      onClose: () => {
+        this.draftStale = this._mediaDiverged();
+        this.refreshSlots();
+        this.render();
+      },
+    });
+  }
+
+  /* ---------- draft mode ---------- */
+
+  /** The two buffers swap wholesale. Everything that defines "what am I
+   *  editing" travels together: state, library identity, session baseline. */
+  _snapshotBuffer() {
+    return {
+      state: this.state,
+      libraryId: this.libraryId,
+      libraryName: this.libraryName,
+      libraryCategory: this.libraryCategory,
+      openedWith: this.openedWith,
+      pins: this.pins,
+      autoPin: this.autoPin,
+    };
+  }
+
+  _restoreBuffer(b) {
+    this.state = b.state;
+    this.libraryId = b.libraryId;
+    this.libraryName = b.libraryName;
+    this.libraryCategory = b.libraryCategory;
+    this.openedWith = b.openedWith;
+    this.pins = b.pins || [];
+    this.autoPin = b.autoPin || null;
+  }
+
+  enterDraft() {
+    if (this.bufferMode === "draft") return;
+    // Unsaved live edits are parked in memory, untouched and unwarned —
+    // they're fully reversible, and the close guard still covers the exit.
+    this._liveHeld = this._snapshotBuffer();
+    this.bufferMode = "draft";
+    this.pullPending = false;
+
+    const e = this.draftEntry;
+    if (e && e.state) {
+      // From disk: normalise before it reaches the renderer.
+      e.state = normaliseState(e.state);
+      // Pre-split entries put the auto-frozen snapshot in `media`, which is
+      // now the "applied on commit" field. Demote it: nothing auto-captured
+      // should ever be written back to the loader.
+      if (e.mediaBase === undefined) {
+        e.mediaBase = Array.isArray(e.media) && e.media.length ? e.media : null;
+        e.media = null;
+      }
+      // Both media fields come from disk unvalidated. Repair them here and
+      // remember what had to go, so the banner can say so — a draft that
+      // silently loses a reference is the bug this guards against.
+      const vm = validateDraftMedia(e.media);
+      const vb = validateDraftMedia(e.mediaBase);
+      e.media = vm.items;
+      e.mediaBase = vb.items;
+      this.draftDropped = vm.dropped + vb.dropped;
+      if (this.draftDropped) {
+        console.warn("[MiniMaxH3 PromptBuilder] draft media: discarded " +
+          `${this.draftDropped} unusable item(s)`);
+      }
+      this._restoreBuffer({
+        state: e.state,
+        libraryId: e.savedTo?.libraryId || null,
+        libraryName: e.savedTo?.libraryName || "",
+        libraryCategory: e.savedTo?.libraryCategory || "",
+        openedWith: JSON.stringify(e.state),
+        pins: [], autoPin: null,
+      });
+    } else {
+      // A fresh draft starts blank in the current mode: the use case is
+      // "start on the NEXT prompt", not "fork this one".
+      const mode = this.state.mode;
+      const blank = defaultState();
+      blank.mode = mode;
+      this._restoreBuffer({ state: blank, libraryId: null, libraryName: "",
+        libraryCategory: "", openedWith: JSON.stringify(blank),
+        pins: [], autoPin: null });
+      this.draftEntry = {
+        mode: "draft",
+        state: blank,
+        // TWO fields, because the snapshot was doing two unrelated jobs and
+        // the overlap was destructive.
+        //
+        //   mediaBase - frozen at creation, DISPLAY ONLY. Reference numbers
+        //     are positional and global, so without it, rearranging Live
+        //     media while the draft says <Picture 3> silently retargets
+        //     that tag. Never applied to the loader.
+        //
+        //   media - written only when the draft's own set is edited through
+        //     the media modal. This IS applied on commit.
+        //
+        // Conflated, every draft froze a copy nobody asked for and then
+        // applied it: start a draft, spend an hour improving Live media,
+        // commit, and the loader silently reverted to the old set.
+        //
+        // Empty stays null, never []: [] is truthy, and as `media` it would
+        // have wiped the loader on commit.
+        mediaBase: this._snapshotMedia(),
+        media: null,
+        savedTo: null,
+      };
+    }
+    this.draftStale = this._mediaDiverged();
+    this.node._mmh3DraftActive = true;
+    this.draftDropped = this.draftDropped || 0;
+    this.refreshSlots();
+    this.applyDraftChrome();
+    this.scheduleDraftSave();
+    updateSummary(this.node);
+    this.render();
+  }
+
+  exitDraft() {
+    if (this.bufferMode !== "draft") return;
+    this.flushDraftSave("live");
+    this.bufferMode = "live";
+    if (this._liveHeld) this._restoreBuffer(this._liveHeld);
+    this._liveHeld = null;
+    this.commitPending = false;
+    this.pullPending = false;
+    this.refreshSlots();
+    this.applyDraftChrome();
+    this.render();
+  }
+
+  toggleDraftMode() {
+    if (this.bufferMode === "draft") this.exitDraft();
+    else this.enterDraft();
+  }
+
+  /** The draft entry as it should be written to disk right now.
+   *
+   *  Reads draftEntry.state, NEVER this.state: `this.state` is the draft's
+   *  content only while bufferMode is "draft", and flushDraftSave syncs it
+   *  in exactly that case. Reading it unconditionally meant closing the
+   *  modal from Live mode wrote the LIVE prompt over the stored draft —
+   *  the draft looked wiped on reopen. */
+  draftPayload(modeOverride) {
+    if (!this.draftEntry) return null;
+    return {
+      mode: modeOverride || this.bufferMode,
+      state: this.draftEntry.state,
+      media: this.draftEntry.media ?? null,
+      mediaBase: this.draftEntry.mediaBase ?? null,
+      savedTo: this.draftEntry.savedTo ?? null,
+    };
+  }
+
+  scheduleDraftSave() {
+    if (this.bufferMode !== "draft") return;
+    clearTimeout(this._draftTimer);
+    this._draftTimer = setTimeout(() => this.flushDraftSave(), 1500);
+  }
+
+  flushDraftSave(modeOverride) {
+    clearTimeout(this._draftTimer);
+    if (!this.draftEntry) return;
+    if (this.bufferMode === "draft") {
+      this.draftEntry.state = this.state;
+      this.draftEntry.mode = modeOverride || "draft";
+    } else if (modeOverride) {
+      this.draftEntry.mode = modeOverride;
+    }
+    const payload = this.draftPayload(this.draftEntry.mode);
+    // The no-empty-drafts rule: a pristine blank with no library tie isn't
+    // worth a disk entry — or an LRU slot.
+    const blank = defaultState();
+    blank.mode = payload.state.mode;
+    if (!payload.savedTo &&
+        stableStringify(payload.state) === stableStringify(blank)) {
+      return;
+    }
+    draftApi("/save", { id: draftIdFor(this.node), draft: payload })
+      .catch(() => { /* offline blip: the buffer is still in memory */ });
+  }
+
+  clearDraft() {
+    clearTimeout(this._draftTimer);
+    draftApi("/clear", { id: draftIdFor(this.node) })
+      .catch(() => { /* worst case the LRU reaps it */ });
+    this.draftEntry = null;
+    this.draftDropped = 0;
+    this.node._mmh3DraftActive = false;
+    updateSummary(this.node);
+    if (this.bufferMode === "draft") {
+      // Start a fresh blank draft in place rather than dumping to live —
+      // "clear" means "new page", not "close the notebook".
+      const held = this._liveHeld;    // keep the parked live session
+      this.bufferMode = "live";       // let enterDraft do its full setup
+      this.enterDraft();
+      this._liveHeld = held;
+    }
+    this.render();
+  }
+
+  /** True when the buffer matches its last library save exactly. Always
+   *  computed, never stored — stored flags drift, comparisons can't. */
+  cleanSince(savedTo, state) {
+    return !!(savedTo && savedTo.hash && savedTo.hash === stateHash(state));
+  }
+
+  /** Called by the Library after a successful save or load, so the active
+   *  buffer remembers what it's clean against. */
+  noteLibraryIdentity() {
+    const rec = {
+      libraryId: this.libraryId,
+      libraryName: this.libraryName,
+      libraryCategory: this.libraryCategory,
+      hash: stateHash(this.state),
+    };
+    if (this.bufferMode === "draft") {
+      if (this.draftEntry) {
+        this.draftEntry.savedTo = rec;
+        this.flushDraftSave();
+      }
+    } else {
+      this.node.properties = this.node.properties || {};
+      this.node.properties.mmh3_live_saved = rec;
+    }
+    this.applyDraftChrome();
+  }
+
+  /** The loader's current set, or null when there's nothing worth freezing. */
+  _snapshotMedia() {
+    const items = loaderItems(this.node);
+    return (Array.isArray(items) && items.length) ? items : null;
+  }
+
+  /** Media the draft OWNS — edited deliberately, and applied on commit.
+   *  Null means the draft has never been given media of its own. Always go
+   *  through this: a bare `.media` check treats [] as a real set. */
+  draftMedia() {
+    const m = this.draftEntry?.media;
+    return (Array.isArray(m) && m.length) ? m : null;
+  }
+
+  /** What the draft DISPLAYS: its own set if it has one, else the frozen
+   *  base, else whatever the node currently holds. Display only — commit
+   *  never reads this. */
+  draftView() {
+    if (!this.draftEntry) return null;
+    const own = this.draftMedia();
+    if (own) return own;
+    const b = this.draftEntry.mediaBase;
+    return (Array.isArray(b) && b.length) ? b : null;
+  }
+
+  /** True when the frozen base no longer matches the node — i.e. the tags
+   *  this draft was written against describe a set the loader has moved on
+   *  from. Only meaningful while the draft has no media of its own. */
+  _mediaDiverged() {
+    if (this.draftMedia()) return false;      // own set: nothing to compare
+    const b = this.draftEntry?.mediaBase;
+    if (!Array.isArray(b) || !b.length) return false;
+    const now = loaderItems(this.node);
+    if (!now) return true;                    // loader unwired since creation
+    return stableStringify(b) !== stableStringify(now);
+  }
+
+  refreshSlots() {
+    const snap = this.bufferMode === "draft" ? this.draftView() : null;
+    this.slots = snap
+      ? slotsFromItems(snap, this.draftMedia() ? "Draft media" : "Media")
+      : getRefSlots(this.node);
+    if (!this.slots) this.slots = getRefSlots(this.node);
+  }
+
+  /** Copy the Live prompt into the draft.
+   *
+   *  "setup" keeps the scaffolding that costs real effort — mode, duration,
+   *  subject definitions, style, retention markers — and blanks the
+   *  per-shot writing, which is the shape of chaining one shot to the next.
+   *  "all" is a straight fork, for working up a variant.
+   *
+   *  Live is never touched: this reads the parked live buffer (or the node
+   *  when there isn't one) and writes only the draft. */
+  pullFromLive(scope) {
+    const srcState = this._liveHeld?.state ?? loadState(this.node);
+    const next = normaliseState(JSON.parse(JSON.stringify(srcState)));
+    if (scope === "setup") {
+      const d = defaultState();
+      next.imd = d.imd;
+      next.soundscape = d.soundscape;
+      next.ref.summaryText = d.ref.summaryText;
+      next.ref.detail = d.ref.detail;
+      next.ref.soundscape = d.ref.soundscape;
+    }
+    this.state = next;
+    this.openedWith = JSON.stringify(next);
+    this.pins = [];
+    this.autoPin = null;
+    if (this.draftEntry) {
+      // The pulled text's tags are numbered against the node's media as it
+      // is now, so re-freeze the display base to match. A media set the
+      // draft OWNS is left alone — that was a deliberate choice.
+      this.draftEntry.mediaBase = this._snapshotMedia();
+      this.draftStale = this._mediaDiverged();
+    }
+    this.pullPending = false;
+    this.flushDraftSave();
+    this.refreshSlots();
+    this.render();
+    toast(scope === "setup"
+      ? "Pulled the cast and setup from Live"
+      : "Pulled the Live prompt into this draft");
+  }
+
+  pullStrip() {
+    if (!this.pullPending) return null;
+    const blank = (() => {
+      const d = defaultState(); d.mode = this.state.mode;
+      return stableStringify(this.state) === stableStringify(d);
+    })();
+    return el("div", { class: "mmh3p-commitstrip" },
+      el("span", { class: "mmh3p-commitmsg" },
+        blank
+          ? "Copy the Live prompt into this draft."
+          : "Copy the Live prompt into this draft, replacing what's here. " +
+            "Live itself is not changed."),
+      el("div", { class: "mmh3p-commitrow" },
+        el("button", { class: "mmh3p-btn primary",
+          title: "Keep the mode, duration, subjects, style and retention " +
+            "markers; leave the description fields empty for the next shot",
+          onclick: () => this.pullFromLive("setup") }, "Cast and setup only"),
+        el("button", { class: "mmh3p-btn",
+          title: "Copy the whole Live prompt, description included",
+          onclick: () => this.pullFromLive("all") }, "Everything"),
+        el("button", { class: "mmh3p-btn",
+          onclick: () => { this.pullPending = false; this.render(); } },
+          "Cancel")));
+  }
+
+  /** Commit: the single doorway from draft to executable. */
+  commitDraft() {
+    const liveState = this._liveHeld?.state ?? loadState(this.node);
+    const liveSaved = this.node.properties?.mmh3_live_saved;
+    const b = defaultState();
+    b.mode = liveState.mode;
+    const liveBlank = stableStringify(liveState) === stableStringify(b);
+    // The only genuinely destructive edge in the whole feature: live being
+    // displaced while unfiled. Everything else is recoverable by design.
+    if (!liveBlank && !this.cleanSince(liveSaved, liveState)) {
+      this.commitPending = "guard";
+      this.render();
+      return;
+    }
+    this._doCommit();
+  }
+
+  _doCommit() {
+    const committed = this.state;
+    // Only a set the draft OWNS is applied. The frozen base is display-only:
+    // applying it would revert any media work done on Live while drafting.
+    const media = this.draftMedia();
+    // Draft becomes live: adopt its state and library identity as the live
+    // buffer, write the node, apply the media snapshot through the same
+    // front door presets use, and consume the draft entry.
+    this.bufferMode = "live";
+    this._liveHeld = null;
+    this.commitPending = false;
+    this.pullPending = false;
+    this.state = committed;
+    this.writeNode();
+    if (media) this._applyMediaSnapshot(media);
+    clearTimeout(this._draftTimer);
+    draftApi("/clear", { id: draftIdFor(this.node) }).catch(() => {});
+    this.draftEntry = null;
+    this.draftDropped = 0;
+    this.node._mmh3DraftActive = false;
+    updateSummary(this.node);
+    this.refreshSlots();
+    this.applyDraftChrome();
+    toast("Draft committed to Live");
+    this.render();
+  }
+
+  _applyMediaSnapshot(items) {
+    // Same shape as presets/load on the loader panel: replace the items
+    // array and let the panel's own commit() do everything else. The
+    // panel stays single-buffered and mode-ignorant.
+    try {
+      // Whichever node actually owns the media — this one in Prompt Studio,
+      // a wired loader otherwise.
+      const loader = mediaSource(this.node)?.owner;
+      if (!loader) return;
+      const panel = loader._mmlPanel || loader._mmlPanels?.[0];
+      if (panel) {
+        panel.items = JSON.parse(JSON.stringify(items));
+        panel.presetName = "";
+        panel.commit();
+      } else {
+        const w = loader.widgets?.find((x) => x.name === "media_state");
+        if (w) w.value = JSON.stringify(items);
+      }
+    } catch (e) {
+      console.error("[MiniMaxH3 PromptBuilder] draft media apply failed:", e);
+      toast("Draft media couldn't be applied to the loader \u2014 see console");
+    }
+  }
+
+  applyDraftChrome() {
+    const modal = this.overlay?.querySelector(".mmh3p-modal");
+    if (!modal) return;
+    const drafting = this.bufferMode === "draft";
+    modal.classList.toggle("draft", drafting);
+    if (this.modeToggle) {
+      this.modeToggle.textContent = drafting ? "\u25c0 Live" : "Draft \u25b6";
+      this.modeToggle.title = drafting
+        ? "Back to the Live prompt (the one on the node)"
+        : "Switch to the draft scratchpad \u2014 the node keeps the Live prompt";
+      this.modeToggle.classList.toggle("draft", drafting);
+    }
+    if (this.titleTag) this.titleTag.textContent = drafting ? "\u2014 Draft" : "";
+    if (this.saveBtn) {
+      // Nothing in a draft can reach the node except through Commit, so the
+      // one button that writes the node must not look available here.
+      // Disabled rather than relabelled: the commit action already lives in
+      // the banner above, and two doors to it invites clicking the wrong one.
+      this.saveBtn.disabled = drafting;
+      this.saveBtn.classList.toggle("off", drafting);
+      this.saveBtn.title = drafting
+        ? "Drafts can't be saved to the node \u2014 use Commit to Live above"
+        : "";
+    }
+  }
+
+  draftBar() {
+    if (this.bufferMode !== "draft") return null;
+    const saved = this.draftEntry?.savedTo;
+    const clean = this.cleanSince(saved, this.state);
+    const status = saved
+      ? (clean ? `saved to library as \u201c${saved.libraryName}\u201d`
+               : `edited since it was saved as \u201c${saved.libraryName}\u201d`)
+      : "not in the library";
+    return el("div", { class: "mmh3p-draftbar" },
+      el("span", { class: "mmh3p-draftbadge" }, "DRAFT"),
+      this.draftDropped
+        ? el("span", { class: "mmh3p-draftdropped",
+            title: "Items that were missing a file or had an unknown type. " +
+              "See the browser console for details." },
+            `\u26a0 ${this.draftDropped} unusable media item` +
+            `${this.draftDropped === 1 ? "" : "s"} discarded`)
+        : null,
+      el("span", { class: "mmh3p-draftmsg" },
+        "The node still holds the Live prompt. Nothing here is queued or " +
+        "executed until you commit it to Live.",
+        el("span", { class: "mmh3p-draftstatus" },
+          ` \u2014 ${status}` +
+          (this.draftMedia()
+            ? " \u00b7 has its own media, applied on commit"
+            : (this.draftStale
+              ? " \u00b7 showing media as of when this draft was started; " +
+                "the loader has changed since"
+              : " \u00b7 following the node's media")))),
+      el("div", { class: "mmh3p-draftactions" },
+        el("button", { class: "mmh3p-btn",
+          title: "Copy the Live prompt into this draft \u2014 " +
+            "Live itself isn't changed",
+          onclick: () => { this.pullPending = true; this.render(); } },
+          "\u21e3 Pull from Live"),
+        el("button", { class: "mmh3p-btn primary",
+          title: "Overwrite the Live prompt with this draft",
+          onclick: () => this.commitDraft() }, "Commit to Live"),
+        el("button", { class: "mmh3p-btn",
+          title: "Throw this draft away and start a blank one",
+          onclick: () => this.clearDraft() }, "Clear draft")));
+  }
+
+  commitStrip() {
+    if (this.commitPending !== "guard") return null;
+    const liveState = this._liveHeld?.state ?? loadState(this.node);
+    const nameInput = el("input", { type: "text", class: "mmh3p-commitname",
+      placeholder: "name for the Live prompt\u2026",
+      value: this._liveHeld?.libraryName || "" });
+    const err = el("span", { class: "mmh3p-saveerr" });
+    const saveLive = async (expectNew) => {
+      const value = nameInput.value.trim();
+      if (!value) { err.textContent = "Give it a name first."; return; }
+      const body = {
+        name: value,
+        category: this._liveHeld?.libraryCategory || "",
+        favorite: false,
+        mode: liveState.mode,
+        refs: 0,
+        prompt: generate(liveState),
+        state: liveState,
+      };
+      if (expectNew) body.expect_new = true;
+      const res = await libApi("/save", body);
+      this.node.properties = this.node.properties || {};
+      this.node.properties.mmh3_live_saved = {
+        libraryId: res.id, libraryName: res.name,
+        libraryCategory: body.category,
+        hash: stateHash(liveState),
+      };
+      toast(`Live prompt saved as \u201c${res.name}\u201d`);
+      this._doCommit();
+    };
+    return el("div", { class: "mmh3p-commitstrip" },
+      el("span", { class: "mmh3p-commitmsg" },
+        "The Live prompt has work that isn't in the library. Committing " +
+        "this draft will overwrite it."),
+      el("div", { class: "mmh3p-commitrow" },
+        nameInput,
+        el("button", { class: "mmh3p-btn primary",
+          onclick: async () => {
+            try {
+              await saveLive(nameInput.value.trim() !==
+                (this._liveHeld?.libraryName || ""));
+            } catch (e2) {
+              if (e2.exists) {
+                err.replaceChildren(
+                  `\u201c${nameInput.value.trim()}\u201d already exists. `,
+                  el("button", { class: "mmh3p-btn", onclick: async () => {
+                    try { await saveLive(false); }
+                    catch (e3) { err.textContent = e3.message; }
+                  } }, "Overwrite it"));
+              } else err.textContent = e2.message;
+            }
+          } }, "Save Live to library, then commit"),
+        el("button", { class: "mmh3p-btn mmh3p-danger",
+          onclick: () => this._doCommit() }, "Overwrite Live"),
+        el("button", { class: "mmh3p-btn",
+          onclick: () => { this.commitPending = false; this.render(); } },
+          "Cancel")),
+      err);
   }
 
   /* ---------- shared UI pieces ---------- */
@@ -3431,9 +4307,23 @@ class Editor {
     const live = this.slots.filter((s) => s.tag);
     const tile = this.dropTile();
     if (!live.length) {
+      // In draft mode, say which set came up empty: the draft's own frozen
+      // snapshot, or the node's live references. "No media" with no source
+      // named is unactionable when two sources are possible.
+      const snap = this.bufferMode === "draft" ? this.draftView() : null;
+      if (snap) {
+        return [tile, el("span", { class: "hint keep" },
+          `This draft's frozen media snapshot holds ${snap.length} `
+          + `item${snap.length === 1 ? "" : "s"}, but none of them produce a `
+          + "reference tag \u2014 they may all be switched off. Commit or clear "
+          + "the draft to go back to the node's own media.")].filter(Boolean);
+      }
       return [tile, el("span", { class: "hint keep" },
         "No reference media on this node yet \u2014 add some in the panel on the "
-        + "node, or with the + tile here.")].filter(Boolean);
+        + "node, or with the + tile here."
+        + (this.bufferMode === "draft"
+          ? " (This draft has no snapshot of its own, so it follows the node.)"
+          : ""))].filter(Boolean);
     }
     const cards = live.map((s) => {
       const ok = this.usable(s);
@@ -4073,7 +4963,23 @@ class Editor {
 
   /* ---------- mode renderers ---------- */
 
+  /** Guarded so a bad state can't leave a half-built form.
+   *
+   *  The media loader learned this the hard way (see "render failed" in its
+   *  console output): a throw partway through a build leaves stale tiles and
+   *  dead buttons with nothing on screen to explain it. Same shape here —
+   *  an unbuilt chipbar reads as "my media disappeared". */
   render() {
+    try {
+      this._render();
+    } catch (err) {
+      console.error("[MiniMaxH3 PromptBuilder] render failed:", err);
+      toast("The editor hit an error while drawing \u2014 " +
+        "see the browser console (F12).", 8000);
+    }
+  }
+
+  _render() {
     this._citeText = null;
     const scroll = this.formEl.scrollTop;
     [...this.modeBar.children].forEach((b, i) =>
@@ -4083,7 +4989,15 @@ class Editor {
     this.modeSends.textContent = MODE_SENDS[this.state.mode] || "";
     this.modeSends.classList.toggle("gated", this.state.mode !== "REF");
     this.formEl.replaceChildren();
-    this.slots = getRefSlots(this.node);
+    this.refreshSlots();
+    // Fill the status slot BEFORE the form. If a form build throws, the
+    // guard catches it — but the draft banner is the one thing that must
+    // survive, because it's what tells you the node isn't holding what
+    // you're looking at. Drawing it last made it the first casualty.
+    this.draftSlot.replaceChildren(
+      this.commitPending === "guard" ? this.commitStrip()
+        : this.pullPending ? this.pullStrip()
+        : (this.bufferMode === "draft" ? this.draftBar() : null) || "");
     if (this.state.mode === "REF") this.renderRef();
     else this.renderBase();
     if (this.closePending) {
@@ -4094,6 +5008,7 @@ class Editor {
       this.formEl.scrollTop = 0;
     } else this.formEl.scrollTop = scroll;
     this.applyHints();
+    this.applyDraftChrome();
     this.updatePreview();
   }
 
@@ -4558,6 +5473,7 @@ class Editor {
   }
 
   updatePreview() {
+    this.scheduleDraftSave();      // no-op outside draft mode
     this._paintSubjChips?.();
     const text = generate(this.state);
     this._citeText = text;
@@ -4620,6 +5536,20 @@ export function hideWidget(node, name) {
   w.type = "hidden";
   if (w.inputEl) w.inputEl.style.display = "none";
   if (w.element) w.element.style.display = "none";
+}
+
+/** A saved draft should show on the node without opening the editor — one
+ *  light POST per node per workflow load. Mints no id: a node that never
+ *  drafted has no `mmh3_draft_id` property and is skipped outright. */
+export function restoreDraftFlag(node) {
+  const id = node.properties?.mmh3_draft_id;
+  if (!id) return;
+  draftApi("/load", { id })
+    .then((res) => {
+      node._mmh3DraftActive = !!res.exists;
+      if (res.exists) updateSummary(node);
+    })
+    .catch(() => { /* the flag is cosmetic; the draft itself is on disk */ });
 }
 
 export function openEditor(node) {
@@ -5309,6 +6239,9 @@ export function updateSummary(node) {
       + `${allSlots.bundled && !allSlots.own ? " (loader)" : ""}` : "",
     over ? `over the ${cap.total} limit` : "",
     orphans ? `${orphans} unpaired soundtrack${orphans > 1 ? "s" : ""}` : "",
+    // A draft is invisible from the canvas otherwise, and it is exactly the
+    // state where "why isn't my edit showing?" gets asked.
+    node._mmh3DraftActive ? "draft in progress" : "",
   ].filter(Boolean).join(" \u2022 ");
 
   const btn = el("button", {

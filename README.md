@@ -43,6 +43,47 @@ any frame straight out of a video into your picture references.*
 
 ---
 
+## What's new in 2.3.0
+
+Folds in upstream's 1.6.0.
+
+**Draft mode.** Queue a batch, then start writing the next prompt on a
+scratchpad the node can't execute. Drafts autosave to disk, survive a browser
+crash, reopen where you left off, and can carry their own reference set.
+**⇣ Pull from Live** copies the current prompt across — cast and setup only,
+or everything — so a follow-up shot doesn't mean re-typing your subjects.
+See [Draft mode](#draft-mode).
+
+**The media loader opens inside the editor.** The editor header's
+**❐ Media Loader** button now brings the panel up *over* the editor instead of
+closing it first, so adding a reference mid-sentence no longer costs a trip
+through the unsaved-changes prompt.
+
+**Fixes:**
+
+- Saving a prompt under a new name no longer deletes the one you loaded.
+  Renaming is now its own clearly-labelled action, and a name collision asks
+  before overwriting instead of replacing silently.
+- The library's category filter no longer sticks to a category that no longer
+  exists, which made a full library look empty.
+- The Media Loader's preset dropdown stayed open reliably; it was a native
+  `<select>` inside the node, which the ComfyUI frontend closes on every
+  canvas redraw.
+- Presets saved before dimensions were stored now come back with their aspect
+  data, and no longer cause a burst of redraws that made the browser sluggish.
+- The text size you set is re-applied when a workflow loads, instead of the
+  panel reverting to 100% inside a correctly-sized node.
+- Fixed caret drift in the highlighted text fields: the `[Shot N]` marker was
+  drawn bold, and the extra glyph width pushed the caret out of step with the
+  text underneath.
+- All prompt and preset writes are atomic, so a crash mid-save can't corrupt
+  an entry.
+- **(Plus only)** The media panel's "bake" call — flattening a trim or crop
+  into a new file — was still pointing at upstream's `/minimax_h3/` route
+  after this fork moved its own routes to `/minimax_h3_plus/`, so it 404'd.
+
+---
+
 ## Contents
 
 - [What you get](#what-you-get)
@@ -52,10 +93,13 @@ any frame straight out of a video into your picture references.*
 - [Quick start](#quick-start)
 - [Writing a prompt](#writing-a-prompt)
 - [Prompt library](#prompt-library)
+- [Draft mode](#draft-mode)
 - [Reference mode](#reference-mode)
 - [FAQ: wiring reference media](#faq-wiring-reference-media)
+- [Dated output folders](#dated-output-folders)
 - [Troubleshooting](#troubleshooting)
 - [Credits](#credits)
+- [License](#license)
 
 ---
 
@@ -111,6 +155,11 @@ Highlights:
   touching the file.
 - **A prompt library** — save prompts with categories and favourites, then
   search and reload them.
+- **Draft mode** — park the prompt that's queued and start the next one on a
+  disk-backed scratchpad, with its own reference set, that can't be executed
+  until you commit it.
+- **The media loader opens inside the editor** — no hunting for the node on
+  the canvas to add a reference mid-sentence.
 - **Media presets** so you can reload a set of references in one click.
 - **Unload media** clears the node in one go (after a confirmation) without
   deleting the underlying files, so presets pointing at them still work.
@@ -370,6 +419,85 @@ nothing is overwritten until you confirm it inline.
 Prompts live as individual JSON files in your ComfyUI user directory, so they
 survive updates and are easy to back up or share. Writes go through a temporary
 file, so a crash mid-save can't corrupt an entry.
+
+The editor's **❐ Media Loader** button opens the node's own media panel in an
+overlay on top of the editor — the same panel the node hosts, so everything
+works the same way. Escape closes the loader and leaves the editor open.
+Reference tags refresh when you close it, so adding or reordering media
+renumbers `<Picture N>` immediately.
+
+In draft mode that button opens the **draft's own** reference set instead,
+marked teal like the rest of draft mode. Editing it never touches the node's
+Live media: the draft keeps its own until you commit. Which set you are
+editing is decided by where you clicked — the panel on the node itself is
+always Live, and ❐ Media Loader while drafting is always the draft.
+
+---
+
+## Draft mode
+
+Queue some generations, then start on your *next* prompt without touching the
+one that's running: the **Draft ▶** button in the editor header switches to a
+scratchpad. The modal turns teal, the fields cool, and a banner states the
+deal plainly — the node still holds the Live prompt, and nothing in the draft
+is queued or executed until you commit it.
+
+The draft autosaves to disk as you type (its own file, in its own directory —
+it can never appear in, or interfere with, your prompt library or presets), so
+a browser crash costs at most a second or two. Closing the editor from draft
+mode reopens it in draft mode. Your Live session edits are held while you
+draft and restored when you switch back — nothing is written to the node by
+switching.
+
+A draft's media is in one of three states, and the banner always says which:
+
+- **Following the node's media** — the usual case. The draft shows whatever
+  the Media Loader holds.
+- **Showing media as of when the draft started** — if the loader held
+  references when you began, the draft remembers them so its `<Picture N>`
+  tags keep meaning the same files. Reference numbers are positional, so
+  without this, rearranging the loader would silently retarget the tags in
+  your draft. This is display only.
+- **Has its own media** — you edited the draft's reference set through
+  ❐ Media Loader. Only this state is applied to the node when you commit.
+
+The distinction matters: a draft you never edited media in will never change
+the node's media on commit, so improving your Live references while a draft
+sits open is safe.
+
+Because a draft's media is the one thing that can reach the Media Loader
+without having been uploaded through it, it's checked when the draft loads.
+Anything unusable — a missing file, an unrecognised type — is discarded, and
+the banner says how many, rather than letting a broken reference through to a
+generation. Unrecognised fields are left alone, so a draft written by a newer
+version isn't damaged by an older one.
+
+**Save to node** is greyed out while you're drafting — nothing in a draft can
+reach the node except through Commit — and the ⚙ menu's other controls carry
+on working as usual.
+
+**⇣ Pull from Live** copies the Live prompt into the draft, which saves
+re-typing a cast you've already written. It offers two scopes: *Cast and
+setup only* keeps the mode, duration, subject definitions, style and
+retention markers but leaves the description fields empty — the shape of
+writing the next shot in a scene — while *Everything* is a straight copy for
+working up a variant. Live is not changed either way.
+
+**Commit to Live** overwrites the node's prompt with the draft and applies the
+draft's media snapshot to the loader. If the Live prompt has work that isn't
+in the library, you're offered the chance to save it there first — inline,
+with the same collision protection as any library save. Committing consumes
+the draft. **Clear draft** throws the scratchpad away and starts a blank one.
+
+The draft banner stays pinned above the editor body rather than scrolling with
+the fields, so it still answers "am I editing Live?" when you're deep in the
+description. The ⚙ menu shows how many drafts exist across all your workflows
+and can discard them all at once.
+
+You can also save a draft straight to the library at any point without
+committing it — the banner then tracks whether the draft still matches what
+you saved. Drafts are per prompt-builder node, capped at the 25 most recently
+touched across all workflows; older ones age out on their own.
 
 ---
 
@@ -976,6 +1104,8 @@ script failing, and almost always one of:
 If this pack itself is the one failing, the node now shows a **⚠ UI failed**
 button — click it for the error, and include that text in a bug report.
 
+### Anything else
+
 **The nodes don't appear.** ComfyUI needs a full restart, not a page refresh.
 Check the startup console for errors mentioning MiniMaxH3.
 
@@ -991,9 +1121,9 @@ ffmpeg isn't on your PATH, `pip install av` into your ComfyUI environment is the
 simplest fix.
 
 **A button does nothing.** Open the browser console (F12) and click it again —
-any failure prints there. The panel's **Open loader…** button opens the media
-panel in its own window, independent of the on-node one, if that helps narrow
-it down.
+any failure prints there. The panel's **❐** button opens the media panel in
+its own window, independent of the on-node one, if that helps narrow it
+down.
 
 **Something looks squashed or overlapping.** This pack works with both the
 classic node renderer and Nodes 2.0. If the on-node panel misbehaves in one of

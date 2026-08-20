@@ -16,7 +16,10 @@ name = "fantastic-minimax-h3-promptstudio"
 # collision check and an explicit rename flag for the prompt library, and
 # dimension/duration healing for presets saved before that metadata was
 # stored) — again no breakage of saved workflows.
-version = "2.2.0"
+# 2.3.0 folds in upstream 1.6.0 (Draft mode, the editor's own Media button
+# opening the loader over the top of it, a pack-owned preset picker, and the
+# [Shot N] chip's caret-drift fix) — no breakage of saved workflows.
+version = "2.3.0"
 description = "MiniMax H3 Prompt Studio: a single guided prompt-writing and reference-media node for the H3 video model, with live checking against MiniMax's prompt guide."
 license = { file = "LICENSE" }
 requires-python = ">=3.9"

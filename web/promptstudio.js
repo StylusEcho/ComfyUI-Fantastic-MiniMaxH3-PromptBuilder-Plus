@@ -9,11 +9,12 @@
  */
 import { app } from "../../scripts/app.js";
 import {
-  LoaderPanel, applyCanvasSizing, PANEL_H, NODE_W,
+  LoaderPanel, applyCanvasSizing, applyTextScale, loadScalePrefs,
+  PANEL_H, NODE_W,
 } from "./medialoader.js";
 import {
   openEditor, openQuickEdit, updateSummary, promptFields, hideWidget, el,
-  injectCSS,
+  injectCSS, restoreDraftFlag,
 } from "./promptbuilder.js";
 
 // Logged at module scope: if this line is missing from the console the file
@@ -241,7 +242,10 @@ app.registerExtension({
         console.error("[MiniMaxH3 PromptStudio] summary panel failed:", e);
       }
 
-      setTimeout(() => { try { refreshBar(this); } catch (e) { /* cosmetic */ } }, 0);
+      setTimeout(() => {
+        try { refreshBar(this); } catch (e) { /* cosmetic */ }
+        try { restoreDraftFlag(this); } catch (e) { /* cosmetic */ }
+      }, 0);
       return r;
     };
 
@@ -279,9 +283,16 @@ app.registerExtension({
         }
         applyCanvasSizing(this, this.widgets?.find((w) => w.name === "mml_panel"),
           NODE_W, PANEL_H);
+        // Re-apply the stored text scale. It saves fine, but nothing read it
+        // back on workflow load, so a node came back at its serialised size
+        // with the panel inside it rebuilt at 100%. Text only — this node's
+        // own height comes from fitPanel() below, not from the scale pref.
+        try { applyTextScale(this._mmlPanel, loadScalePrefs().text); }
+        catch (e) { /* the panel's own CSS keeps it readable */ }
         // A saved node restores its own height, so re-fit after that lands.
         fitPanel(this, baseComputeSize);
         refreshBar(this);
+        restoreDraftFlag(this);
       }, 0);
       return r;
     };
