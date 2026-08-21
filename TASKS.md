@@ -552,3 +552,38 @@ when hiding, makes it a mouse-over caption for the respective section.
     - They are now one store, as in a real DOM. Re-ran the full suite against
       the corrected stub, since this is the first time every class-based
       assertion in it has been honest: **35 scripts, all green.**
+
+---
+
+## Follow-up round 8
+
+61. 🟩 rename the `picture_1`/`picture_2` outputs to `first_frame`/`last_frame`,
+    matching what each mode actually sends: I2VA and FL2VA on `first_frame`,
+    FL2VA and L2VA on `last_frame` (L2VA's one loaded picture IS the last
+    frame, not the first), nothing on T2VA or Reference mode
+    - **Breaking for saved L2VA workflows only**, and documented as such —
+      see the new note under "Upgrading from 1.x" in the README, and the
+      `pyproject.toml` version comment. Slots are positional in ComfyUI, and
+      L2VA's picture used to travel on the `picture_1` slot regardless of
+      which downstream input you'd wired it to; it now travels on the
+      `last_frame` slot instead, matching what it actually is. I2VA and
+      FL2VA are unaffected — their pictures already came out on the same two
+      slots they do now, only the labels changed, and a label is not part of
+      a saved link. Version → **2.4.0**.
+    - `nodes.py`: `build()` now computes `first_frame`/`last_frame`
+      explicitly per mode rather than blindly padding `keyframes[0:2]` into
+      two same-named outputs. `RETURN_NAMES`, the class docstring, the
+      module docstring and `DESCRIPTION` all updated to match; the console
+      line that names which outputs fired now says `first_frame`/
+      `last_frame` instead of `picture_1`/`picture_2`.
+    - Swept the README for every `picture_1`/`picture_2` reference: the
+      outputs table, the wiring instructions, both FAQ entries, and the
+      "which output goes where" / "does switching mode change what's sent"
+      sections. Left the media panel's own `<Picture N>` reference-tag
+      numbering alone — a different, still-current naming scheme for the
+      panel's reference slots, unrelated to these node outputs.
+    - Verified by exercising `build()` directly (stubbing `media_io.load_image`
+      to skip real image decoding — PIL isn't installed in this environment)
+      across all five modes: T2VA and REF both `None`/`None`; I2VA
+      `first_frame`/`None`; FL2VA `first_frame`/`last_frame`; L2VA
+      `None`/`last_frame`. Matches the spec exactly.

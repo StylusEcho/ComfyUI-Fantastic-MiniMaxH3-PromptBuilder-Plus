@@ -19,7 +19,13 @@ name = "fantastic-minimax-h3-promptstudio"
 # 2.3.0 folds in upstream 1.6.0 (Draft mode, the editor's own Media button
 # opening the loader over the top of it, a pack-owned preset picker, and the
 # [Shot N] chip's caret-drift fix) — no breakage of saved workflows.
-version = "2.3.0"
+# 2.4.0 renames the picture_1/picture_2 outputs to first_frame/last_frame,
+# matching what MiniMaxH3ImageToVideo actually calls them. For L2VA only this
+# also moves which slot the picture comes out on — its one loaded picture
+# used to travel on picture_1, and now travels on last_frame, since that is
+# what it actually is. I2VA and FL2VA output on the same two slots as before.
+# See "Upgrading from 1.x" in the README.
+version = "2.4.0"
 description = "MiniMax H3 Prompt Studio: a single guided prompt-writing and reference-media node for the H3 video model, with live checking against MiniMax's prompt guide."
 license = { file = "LICENSE" }
 requires-python = ">=3.9"

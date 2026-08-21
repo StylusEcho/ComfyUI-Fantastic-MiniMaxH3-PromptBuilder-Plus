@@ -4,7 +4,8 @@ MiniMax H3 model (FL2VA family: T2VA / I2VA / FL2VA / L2VA, and Ref2VA
 full-reference mode).
 
 Outputs the final prompt STRING plus the mode-gated reference bundle and the
-first two loaded pictures, so a plain graph needs nothing else wired in.
+loaded keyframe(s) as first_frame / last_frame, so a plain graph needs
+nothing else wired in.
 """
 
 import json
@@ -264,9 +265,9 @@ class MiniMaxH3PromptStudio:
     tags the bundle will carry. Deliberately input-less — reference media
     comes from the panel, not from upstream slots.
 
-    Emits the prompt, the mode-gated bundle, and the first two pictures on
-    their own IMAGE outputs, so a plain I2VA / L2VA / FL2VA graph needs nothing
-    else.
+    Emits the prompt, the mode-gated bundle, and the loaded keyframe(s) on
+    their own first_frame / last_frame IMAGE outputs, so a plain I2VA / L2VA /
+    FL2VA graph needs nothing else.
     """
 
     CATEGORY = "conditioning/video_models"
@@ -275,9 +276,10 @@ class MiniMaxH3PromptStudio:
         "Click 'Edit Prompt' to open the guided editor, and load media in the "
         "panel below it. Outputs the MODEL for the mode being used, the final "
         "prompt STRING, an H3_REFS bundle holding only what the chosen mode "
-        "can actually send, the first two loaded pictures as IMAGEs for "
-        "first_frame / last_frame, and a ref2va_needed BOOLEAN that is true "
-        "in full-reference mode."
+        "can actually send, the loaded keyframe(s) as first_frame / "
+        "last_frame IMAGEs (I2VA fills first_frame, L2VA fills last_frame, "
+        "FL2VA fills both, T2VA and full-reference fill neither), and a "
+        "ref2va_needed BOOLEAN that is true in full-reference mode."
     )
 
     # model leads, matching the order the chain is actually wired in: the
@@ -291,7 +293,7 @@ class MiniMaxH3PromptStudio:
     # added from here on gets appended last, as references and the pictures
     # originally were.
     RETURN_TYPES = ("MODEL", "STRING", "H3_REFS", "IMAGE", "IMAGE", "BOOLEAN")
-    RETURN_NAMES = ("model", "prompt", "references", "picture_1", "picture_2",
+    RETURN_NAMES = ("model", "prompt", "references", "first_frame", "last_frame",
                     "ref2va_needed")
     # model carries whichever checkpoint the saved mode runs on — ref2va in
     # full-reference mode, fl2va everywhere else — so both can stay wired and
@@ -300,10 +302,13 @@ class MiniMaxH3PromptStudio:
     # prompt has to go to MiniMaxH3ReferenceToVideo rather than ImageToVideo.
     # Wire it into a switch to pick the branch from the editor's mode instead
     # of rewiring by hand.
-    # picture_1 / picture_2 are the first two loaded pictures on their own, so
-    # I2VA / L2VA / FL2VA reach first_frame and last_frame on
-    # MiniMaxH3ImageToVideo with no splitter in between — those modes never
-    # use more than two.
+    # first_frame / last_frame name the outputs after what MiniMaxH3ImageToVideo
+    # actually calls its two picture inputs, so both wire in directly with no
+    # splitter: I2VA fills only first_frame, L2VA fills only last_frame (its
+    # one loaded picture IS the last frame, not the first), and FL2VA fills
+    # both. T2VA and full-reference load no keyframes of their own — REF's
+    # pictures are reference tags on the `references` bundle instead — so
+    # both outputs carry nothing in those two modes.
     FUNCTION = "build"
 
     @classmethod
@@ -371,14 +376,25 @@ class MiniMaxH3PromptStudio:
             for value in gated.get(key) or []
             if value is not None
         )
-        # Taken from the gated bundle, not the raw one, so these obey the same
-        # mode rule as the rest: T2VA sends no pictures and I2VA / L2VA only
-        # one, so the spare output holds nothing rather than quietly leaking a
-        # frame the mode drops.
+        # Taken from the gated bundle, not the raw one, so this obeys the same
+        # mode rule as the rest of the bundle. gated["pictures"] holds at most
+        # one loaded picture for I2VA/L2VA and up to two for FL2VA — never
+        # more than the mode's own picture cap — so the two slots below are
+        # never asked to disagree with what the bundle actually sent.
         keyframes = _pad(gated.get("pictures"), 2)[:2]
+        # Which physical slot maps to which named output is mode-dependent:
+        # L2VA's one loaded picture is conceptually the LAST frame, not the
+        # first, even though it lands in keyframes[0] like every other
+        # single-picture mode. T2VA and REF load no keyframes of their own —
+        # REF's pictures are reference tags on the bundle instead — so both
+        # outputs are None in those two modes.
+        first_frame = keyframes[0] if mode in ("I2VA", "FL2VA") else None
+        last_frame = (keyframes[1] if mode == "FL2VA"
+                      else keyframes[0] if mode == "L2VA" else None)
         tail = f"{sent} reference(s) on the bundle" if sent else \
             "prompt only, no references"
-        named = [f"picture_{i + 1}" for i, v in enumerate(keyframes)
+        named = [name for name, v in
+                 (("first_frame", first_frame), ("last_frame", last_frame))
                  if v is not None]
         print(f"[MiniMaxH3 Studio] mode={mode} -> {tail}"
               f"{', ' + ' + '.join(named) + ' on their own outputs' if named else ''}")
@@ -392,7 +408,8 @@ class MiniMaxH3PromptStudio:
                   "input is empty — the model output carries nothing.")
         else:
             print(f"[MiniMaxH3 Studio] mode {mode} -> passing {want} through.")
-        return (model, prompt_text.strip(), gated, *keyframes, mode == "REF")
+        return (model, prompt_text.strip(), gated, first_frame, last_frame,
+                mode == "REF")
 
 
 NODE_CLASS_MAPPINGS = {

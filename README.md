@@ -235,6 +235,17 @@ changed that a saved workflow can't adapt to on its own:
   state and loaded media all live on the node's own widgets and are carried
   across the update intact.
 
+**2.4.0 renames `picture_1`/`picture_2` to `first_frame`/`last_frame` and, for
+L2VA only, moves which output slot the picture comes out on.** The rename
+alone is cosmetic — ComfyUI links by slot position, not name, so it doesn't
+touch existing connections. But **L2VA workflows saved before 2.4.0 need their
+picture link moved**: L2VA's one loaded picture used to travel on the
+`picture_1` slot (whichever input you'd wired it to), and now travels on the
+`last_frame` slot instead — matching what it actually is, the *last* frame,
+not the first. **Reconnect L2VA's picture wire to the new `last_frame`
+output**; I2VA and FL2VA are unaffected, since their pictures already came out
+on these same two slots.
+
 ---
 
 ## Prompt Studio
@@ -251,8 +262,8 @@ It takes **no required inputs**, and has six outputs:
 | `model` | `MODEL` | the sampler, once you've wired both checkpoints in (see below) |
 | `prompt` | `STRING` | the `prompt` input on **Image to Video** or **Reference to Video** |
 | `references` | `H3_REFS` | a **Reference Splitter**, whose slots feed **Reference to Video** — from the original pack, if you have it installed too |
-| `picture_1` | `IMAGE` | `first_frame` on **Image to Video** (or `last_frame` for L2VA) |
-| `picture_2` | `IMAGE` | `last_frame` on **Image to Video**, for FL2VA |
+| `first_frame` | `IMAGE` | `first_frame` on **Image to Video** |
+| `last_frame` | `IMAGE` | `last_frame` on **Image to Video** |
 | `ref2va_needed` | `BOOLEAN` | a switch node, to pick which H3 node runs |
 
 `ref2va_needed` is true only in **Reference** mode — the one mode whose prompt
@@ -261,22 +272,24 @@ boolean switch and the mode you pick in the editor chooses the branch, instead
 of you rewiring by hand. If the editor state is ever unreadable it falls back
 to reference mode, same as the media gate does.
 
-`picture_1` and `picture_2` are the first two pictures in the panel on their
-own, which is everything the keyframe modes need — no splitter, no separate
-**Load Image**:
+`first_frame` and `last_frame` are named after exactly what they wire into —
+**Image to Video**'s own two picture inputs — so no splitter and no separate
+**Load Image** is needed for the keyframe modes:
 
 | Mode | Wire |
 |---|---|
-| **I2VA** | `picture_1` → `first_frame` |
-| **L2VA** | `picture_1` → `last_frame` |
-| **FL2VA** | `picture_1` → `first_frame`, `picture_2` → `last_frame` |
+| **I2VA** | panel's picture → `first_frame` |
+| **L2VA** | panel's picture → `last_frame` |
+| **FL2VA** | panel's two pictures → `first_frame` and `last_frame` |
 
 Reference media comes from the node's own panel rather than upstream slots, so
 the keyframe and reference media you load are picked up directly. The
-`references` bundle and both picture outputs are **mode-gated**: T2VA leaves
-all three empty, I2VA and L2VA fill `picture_1` only, and FL2VA fills both —
-so switching mode never quietly sends media the mode can't use. Anything
-withheld is printed to the console, never dropped silently.
+`references` bundle and both picture outputs are **mode-gated**: T2VA and
+Reference mode leave all three empty, I2VA fills `first_frame` only, L2VA
+fills `last_frame` only (its one loaded picture IS the last frame, not the
+first), and FL2VA fills both — so switching mode never quietly sends media the
+mode can't use. Anything withheld is printed to the console, never dropped
+silently.
 
 Two optional inputs, `fl2va_model` and `ref2va_model`, take both H3 checkpoints
 at once; the `model` output passes through whichever one the saved mode
@@ -322,11 +335,11 @@ This is the same for every mode.
    values, and the editor already rounds to a valid one.
 7. Wire up whatever your mode needs:
    - **T2VA** — nothing else; the prompt is the whole input.
-   - **I2VA / FL2VA / L2VA** — connect the node's own `picture_1` (and
-     `picture_2` for FL2VA) outputs to **Image to Video**:
-     - **I2VA** — `picture_1` → `first_frame`
-     - **FL2VA** — `picture_1` → `first_frame`, `picture_2` → `last_frame`
-     - **L2VA** — `picture_1` → `last_frame`
+   - **I2VA / FL2VA / L2VA** — connect the node's own `first_frame` (and
+     `last_frame` for FL2VA/L2VA) outputs to **Image to Video**:
+     - **I2VA** — `first_frame` → `first_frame`
+     - **FL2VA** — `first_frame` → `first_frame`, `last_frame` → `last_frame`
+     - **L2VA** — `last_frame` → `last_frame`
    - **Reference mode** — see [Reference mode](#reference-mode) below.
 8. Queue it.
 
@@ -873,7 +886,7 @@ self-contained.
 ### Which output goes where?
 
 Prompt Studio has a `prompt` output, a gated `references` bundle, and
-`picture_1` / `picture_2` for the keyframe modes (see
+`first_frame` / `last_frame` for the keyframe modes (see
 [Prompt Studio](#prompt-studio) for the full table). `references` isn't split
 into individual slots on its own — see the next question.
 
@@ -960,10 +973,11 @@ would quietly invalidate tags already written into your prompt.
 ### Does switching mode change what gets sent?
 
 Yes — the saved mode decides what the outputs carry, so cables can stay
-plugged in permanently. Keep `picture_1` wired to `first_frame`, and a prompt
-saved in T2VA mode sends nothing but the prompt; switch the editor to I2VA and
-Save, and picture 1 flows again. What each mode sends is written right under
-the mode buttons in the editor, unusable media is greyed out in the rail, and
+plugged in permanently. Keep `first_frame` wired to `first_frame`, and a
+prompt saved in T2VA mode sends nothing but the prompt; switch the editor to
+I2VA and Save, and the picture flows again. What each mode sends is written
+right under the mode buttons in the editor, unusable media is greyed out in
+the rail, and
 the console prints exactly what was withheld on each run — so a gated
 reference is visible three ways before a render finishes.
 
@@ -1041,8 +1055,8 @@ are exact frames of the finished video, so they go to the `first_frame` and
 slots, which exist only on the reference node and mean "here's something to draw
 from", not "here's a frame".
 
-Load your keyframes onto Prompt Studio's own panel and its `picture_1` /
-`picture_2` outputs already carry them — no separate **Load Image** node or
+Load your keyframes onto Prompt Studio's own panel and its `first_frame` /
+`last_frame` outputs already carry them — no separate **Load Image** node or
 extra wiring needed. See [Quick start](#quick-start) for the wiring.
 
 These modes take one image each, except FL2VA which takes two. Wire in more and
