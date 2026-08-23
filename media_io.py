@@ -2,11 +2,15 @@
 
 Everything here degrades gracefully: if a decoder backend is missing we raise a
 message the user can act on rather than failing deep inside a tensor op.
+
+All decoding goes through PyAV (plus ComfyUI's own LoadAudio and torchaudio as
+audio fallbacks). There is deliberately no shell-out-to-ffmpeg path: ComfyUI
+core itself requires PyAV >= 17, so every working install has it, and shelling
+out added an external-binary failure mode and kept tripping the registry's
+command-injection scanner on calls that were never actually injectable.
 """
 
 import os
-import shutil
-import subprocess
 
 try:
     import numpy as np
@@ -34,39 +38,61 @@ def _have_av():
         return False
 
 
-def _ffmpeg():
-    return shutil.which("ffmpeg")
-
-
-def _ffprobe():
-    return shutil.which("ffprobe")
+def _no_av_error(path):
+    return RuntimeError(
+        f"Can't decode {os.path.basename(path)}: PyAV is unavailable. ComfyUI "
+        "itself requires PyAV, so a failing import usually means another pack "
+        "downgraded or broke it — `pip install 'av>=17'` into the ComfyUI "
+        "environment restores it.")
 
 
 def backends():
-    return {"av": _have_av(), "ffmpeg": bool(_ffmpeg()), "ffprobe": bool(_ffprobe())}
+    return {"av": _have_av()}
 
 
 def can_decode_video():
-    return _have_av() or bool(_ffmpeg())
+    return _have_av()
 
 
 # --- path handling ----------------------------------------------------------
 
+def _allowed_roots():
+    """Realpaths of the only directories a resolved file may live in."""
+    roots = []
+    if folder_paths is not None:
+        for getter in ("get_input_directory", "get_output_directory",
+                       "get_temp_directory"):
+            fn = getattr(folder_paths, getter, None)
+            if callable(fn):
+                try:
+                    roots.append(os.path.realpath(fn()))
+                except Exception:
+                    continue
+    return roots
+
+
 def resolve(annotated):
-    """'name [input]' or 'sub/name' -> absolute path inside ComfyUI's dirs."""
-    if folder_paths is not None:
-        try:
-            return folder_paths.get_annotated_filepath(annotated)
-        except Exception:
-            pass
-    name = annotated
-    for suffix in (" [input]", " [output]", " [temp]"):
-        if name.endswith(suffix):
-            name = name[: -len(suffix)]
-            break
-    if folder_paths is not None:
-        return os.path.join(folder_paths.get_input_directory(), name)
-    return name
+    """'name [input]' or 'sub/name' -> absolute path inside ComfyUI's dirs.
+
+    Raises ValueError for anything that would land outside the input, output
+    or temp directory. Core's get_annotated_filepath raises exactly to block
+    traversal — an earlier version of this function caught that exception and
+    fell back to an unconfined os.path.join, which silently rewrote a path
+    core had correctly rejected into an arbitrary one. Never reintroduce a
+    fallback join here: the exception must propagate, and the realpath prefix
+    check below is a second, independent line of defence (it also covers any
+    core version whose get_annotated_filepath lacks the containment check).
+    """
+    if folder_paths is None:
+        return annotated            # outside ComfyUI (tests): nothing to confine to
+    path = folder_paths.get_annotated_filepath(annotated)
+    real = os.path.realpath(path)
+    for root in _allowed_roots():
+        if real == root or real.startswith(root + os.sep):
+            return path
+    raise ValueError(
+        f"refusing {os.path.basename(str(annotated))!r}: resolves outside "
+        "ComfyUI's input/output/temp directories")
 
 
 # --- images -----------------------------------------------------------------
@@ -232,7 +258,12 @@ def _audio_via_av(path):
     import av
 
     with av.open(path) as container:
-        stream = next(s for s in container.streams if s.type == "audio")
+        stream = next((s for s in container.streams if s.type == "audio"), None)
+        if stream is None:
+            # The ffmpeg fallback used to be what produced a readable message
+            # for this case; now it has to come from here.
+            raise RuntimeError(
+                f"{os.path.basename(path)} contains no audio stream.")
         chunks = []
         for frame in container.decode(stream):
             arr = frame.to_ndarray()
@@ -293,10 +324,6 @@ def load_audio(annotated, start=None, end=None):
     except Exception as exc:
         errors.append(f"av: {exc}")
     try:
-        return _slice_audio(_audio_via_ffmpeg(path), start, end)
-    except Exception as exc:
-        errors.append(f"ffmpeg: {exc}")
-    try:
         import torchaudio
 
         waveform, sr = torchaudio.load(path)
@@ -305,22 +332,6 @@ def load_audio(annotated, start=None, end=None):
         errors.append(f"torchaudio: {exc}")
     raise RuntimeError(
         f"Can't decode audio from {os.path.basename(path)} — " + "; ".join(errors))
-
-
-def _audio_via_ffmpeg(path):
-    exe = _ffmpeg()
-    if not exe:
-        raise RuntimeError(
-            f"Can't decode audio from {os.path.basename(path)}: no torchaudio and "
-            "no ffmpeg on PATH. Install ffmpeg or supply a WAV file."
-        )
-    cmd = [exe, "-v", "error", "-i", path, "-f", "f32le", "-acodec", "pcm_f32le",
-           "-ac", "2", "-ar", str(AUDIO_SR), "-"]
-    raw = subprocess.run(cmd, capture_output=True, check=True).stdout
-    if not raw:
-        raise RuntimeError(f"{os.path.basename(path)} contains no decodable audio.")
-    data = np.frombuffer(raw, dtype=np.float32).reshape(-1, 2).T.copy()
-    return _to_audio_dict(torch.from_numpy(data), AUDIO_SR)
 
 
 # --- video ------------------------------------------------------------------
@@ -382,23 +393,15 @@ def load_video_frames(annotated, fps=FPS, max_frames=None, start=None, end=None,
         cap = max(0, int(resize or 0))       # 0 / unset = decode as-is
     except (TypeError, ValueError):
         cap = 0
-    if _have_av():
-        try:
-            return _apply_crop(
-                _apply_mirror(
-                    _frames_via_av(path, fps, max_frames, start, end, cap),
-                    mirror), crop)
-        except Exception:
-            pass
-    if _ffmpeg():
-        return _apply_crop(
-            _apply_mirror(
-                _frames_via_ffmpeg(path, fps, max_frames, start, end, cap),
-                mirror), crop)
-    raise RuntimeError(
-        f"Can't decode {os.path.basename(path)}: install PyAV (pip install av) "
-        "or put ffmpeg on PATH."
-    )
+    if not _have_av():
+        raise _no_av_error(path)
+    # No fallback decoder any more, so AV's own error must reach the user —
+    # the old chain swallowed it here on the way to ffmpeg, which would now
+    # turn every decode failure into a misleading "PyAV missing" story.
+    return _apply_crop(
+        _apply_mirror(
+            _frames_via_av(path, fps, max_frames, start, end, cap),
+            mirror), crop)
 
 
 # Long-edge caps for reference video. The native H3 node rescales every
@@ -483,74 +486,21 @@ def _frames_via_av(path, fps, max_frames, start=None, end=None, cap=0):
     return _frames_to_tensor(out)
 
 
-def _frames_via_ffmpeg(path, fps, max_frames, start=None, end=None, cap=0):
-    exe = _ffmpeg()
-    w, h = _dimensions(path)
-    target = _scaled_size(w, h, cap)
-    if target:
-        w, h = target
-    cmd = [exe, "-v", "error"]
-    if start:
-        cmd += ["-ss", f"{float(start):.3f}"]     # before -i: keyframe-fast seek
-    cmd += ["-i", path]
-    if end:
-        span = float(end) - float(start or 0.0)
-        if span <= 0:
-            raise RuntimeError(f"Video trim {start}-{end}s selects nothing.")
-        cmd += ["-t", f"{span:.3f}"]
-    vf = f"fps={fps}"
-    if target:
-        vf += f",scale={target[0]}:{target[1]}:flags=lanczos"
-    cmd += ["-vf", vf, "-f", "rawvideo", "-pix_fmt", "rgb24"]
-    if max_frames:
-        cmd += ["-frames:v", str(int(max_frames))]
-    cmd += ["-"]
-    raw = subprocess.run(cmd, capture_output=True, check=True).stdout
-    if not raw:
-        raise RuntimeError(f"No video frames decoded from {os.path.basename(path)}.")
-    arr = np.frombuffer(raw, dtype=np.uint8).reshape(-1, h, w, 3)
-    # Convert in one pass into a preallocated buffer; astype() followed by a
-    # division would hold two float copies of the whole clip at once.
-    out = np.empty(arr.shape, dtype=np.float32)
-    for i in range(arr.shape[0]):
-        np.divide(arr[i], 255.0, out=out[i])
-    del raw
-    return torch.from_numpy(out)
-
-
-def _dimensions(path):
-    if _have_av():
-        import av
-
-        with av.open(path) as c:
-            s = c.streams.video[0]
-            return int(s.codec_context.width), int(s.codec_context.height)
-    exe = _ffprobe()
-    if not exe:
-        raise RuntimeError("ffprobe not found; can't determine video dimensions.")
-    out = subprocess.run(
-        [exe, "-v", "error", "-select_streams", "v:0", "-show_entries",
-         "stream=width,height", "-of", "csv=p=0:s=x", path],
-        capture_output=True, text=True, check=True).stdout.strip()
-    w, h = out.split("x")[:2]
-    return int(w), int(h)
-
-
 def extract_audio(annotated, start=None, end=None):
     """Pull the soundtrack out of a video file."""
     path = resolve(annotated)
-    if _have_av():
-        try:
-            return _slice_audio(_audio_via_av(path), start, end)
-        except Exception:
-            pass
-    return _slice_audio(_audio_via_ffmpeg(path), start, end)
+    if not _have_av():
+        raise _no_av_error(path)
+    return _slice_audio(_audio_via_av(path), start, end)
 
 
 def probe(annotated):
     """Duration / stream info shown on the node. Never raises."""
-    path = resolve(annotated)
     info = {"duration": None, "has_audio": False, "width": None, "height": None}
+    try:
+        path = resolve(annotated)
+    except Exception:
+        return info                 # out-of-bounds path -> same as "no file"
     if not os.path.exists(path):
         return info
     if _have_av():
@@ -565,27 +515,6 @@ def probe(annotated):
                     s = c.streams.video[0]
                     info["width"] = int(s.codec_context.width)
                     info["height"] = int(s.codec_context.height)
-            return info
-        except Exception:
-            pass
-    exe = _ffprobe()
-    if exe:
-        try:
-            out = subprocess.run(
-                [exe, "-v", "error", "-show_entries",
-                 "format=duration:stream=codec_type,width,height",
-                 "-of", "default=nw=1", path],
-                capture_output=True, text=True, check=True).stdout
-            for line in out.splitlines():
-                k, _, v = line.partition("=")
-                if k == "duration" and v:
-                    info["duration"] = round(float(v), 2)
-                elif k == "codec_type" and v == "audio":
-                    info["has_audio"] = True
-                elif k == "width" and v and not info["width"]:
-                    info["width"] = int(v)
-                elif k == "height" and v and not info["height"]:
-                    info["height"] = int(v)
         except Exception:
             pass
     return info

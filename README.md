@@ -45,6 +45,46 @@ any frame straight out of a video into your picture references.*
 
 ---
 
+## What's new in 1.6.2
+
+**Security release.** This version exists to address findings from the Comfy
+Registry's security review of earlier versions. No features changed; if you
+run any earlier version, update.
+
+- **Path containment.** Every file path a request supplies is now resolved
+  and verified (via `realpath`) to live inside ComfyUI's input, output or
+  temp directory before it is read, and the fallback that could previously
+  rewrite a rejected path into an unconfined one is gone. Symlink escapes
+  are caught by the same check.
+- **Cross-site request protection.** Every `POST` route now refuses requests
+  that a browser marks as coming from another site (`Sec-Fetch-Site:
+  cross-site`, or an `Origin` that doesn't match the host), independently of
+  ComfyUI core's middleware — which matters on `--listen` installs, where
+  core's Host/Origin comparison doesn't apply. A malicious web page you
+  happen to visit can no longer call this pack's upload, delete or write
+  endpoints.
+- **JSON routes require `Content-Type: application/json`.** Cross-origin
+  pages cannot send that content type without a CORS preflight, which is
+  never approved, so the JSON endpoints stop being reachable as "simple
+  requests". *If you script these endpoints yourself, add the header* — a
+  `text/plain` body now gets a 415.
+- **Deletion is double-checked.** The prompt/preset delete and rename paths
+  re-verify, immediately beside the `os.remove`, that the target file lives
+  inside its own library directory.
+- **`POST /minimax_h3/probe` removed.** Nothing in the pack called it, and
+  an uncalled endpoint that accepts an arbitrary path is pure attack
+  surface. Media metadata comes from the upload and extract responses and
+  from `presets/load`, as before.
+- **No more shelling out to ffmpeg.** All video and audio decoding now goes
+  through PyAV in-process (ComfyUI core requires PyAV, so every working
+  install has it). The ffmpeg/ffprobe fallback paths are gone: they were the
+  cause of the registry scanner's command-injection flags (list-argument
+  calls that were never actually injectable, but the cleanest answer is no
+  external processes at all), and they were also the pack's only dependency
+  on a binary being on PATH. If you previously relied on ffmpeg because PyAV
+  was broken in your environment, see Troubleshooting — a broken PyAV also
+  breaks ComfyUI itself, so it's worth fixing either way.
+
 ## What's new in 1.6.1
 
 **Prompts can be linked to a media preset.** A prompt is written for a
@@ -235,13 +275,11 @@ Highlights:
 - **ComfyUI 0.30.0 or newer** — this is when H3 support landed.
 - **The MiniMax H3 models.** Use the `fl2va` checkpoint for text and keyframe
   work, `ref2va` for reference mode. ComfyUI's own H3 templates will set you up.
-- **PyAV or ffmpeg** — only needed for reference *videos*. Images and audio work
-  without either. There's a good chance you already have this: many ComfyUI
-  installs ship with ffmpeg, and PyAV comes along with several common custom
-  node packs. Try dropping a video on the Media Loader first — if it's accepted,
-  you're set. If not, `pip install av` into your ComfyUI environment is the easy
-  route. Either way the node still loads and tells you why videos are
-  unavailable, rather than failing when you hit queue.
+- **PyAV** — used for video and audio decoding. ComfyUI itself requires PyAV,
+  so every working install already has it; the node checks at startup and
+  tells you if videos are unavailable rather than failing when you hit queue.
+  Since 1.6.2 the pack never shells out to ffmpeg — decoding is all in-process
+  through PyAV.
 
 ---
 
@@ -1102,10 +1140,10 @@ open. If a node's *outputs* look wrong specifically, that's a restart issue
 rather than a browser one — and nodes already placed in a workflow keep their
 old slots, so delete and re-add them after an update.
 
-**Videos are rejected.** Neither PyAV nor ffmpeg was found. Many ComfyUI installs
-already include ffmpeg, so this is worth a check before installing anything: if
-ffmpeg isn't on your PATH, `pip install av` into your ComfyUI environment is the
-simplest fix.
+**Videos are rejected.** PyAV failed to import. ComfyUI core requires PyAV, so
+this almost always means another pack downgraded or broke it (a known culprit:
+`aiortc` pins `av<17`, which ComfyUI's own code can't run with).
+`pip install 'av>=17'` into your ComfyUI environment restores it.
 
 **A button does nothing.** Open the browser console (F12) and click it again —
 any failure prints there. The Media Loader also has an **Open loader…** button

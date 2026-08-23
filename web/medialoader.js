@@ -1820,7 +1820,7 @@ function capabilities() {
   if (!capsPromise) {
     capsPromise = api.fetchApi("/minimax_h3/capabilities")
       .then((r) => r.json())
-      .catch(() => ({ video: true, av: false, ffmpeg: false }));
+      .catch(() => ({ video: true, av: false }));
   }
   return capsPromise;
 }
@@ -2434,7 +2434,7 @@ class LoaderPanel {
         continue;
       }
       if (guess === "video" && !caps.video) {
-        this.say("Videos need PyAV or ffmpeg on the server.", true);
+        this.say("Videos need PyAV on the server.", true);
         continue;
       }
       this.busy += 1; this.render();
