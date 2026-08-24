@@ -381,7 +381,76 @@ export function applyStoredScale(node, { force = false } = {}) {
   }
 }
 
+/** The one tag palette, for every surface in the pack.
+ *
+ *  A reference tag is drawn in at least six different places — the node's
+ *  tag-order strip, the editor's rail cards, the chips inside the text
+ *  fields, the mini-tags under a subject row, the generated-prompt preview,
+ *  and the library's own previews — each with its own class family. They had
+ *  drifted: Subject was #7ec87e in four of them and #6fbf73 in the other two,
+ *  which is close enough to look like a rendering artefact rather than a
+ *  different colour, and far enough to be visibly wrong side by side.
+ *
+ *  Exported and emitted as custom properties so there is exactly one place a
+ *  hue is written down. Every family below references var(--mmh3-tag-*), so a
+ *  future family cannot quietly invent its own green, and an upstream merge
+ *  that changes a literal shows up as a conflict here rather than as one
+ *  surface silently disagreeing with the rest.
+ *
+ *  Speaker and Shot have no media kind behind them, but they are tags in the
+ *  same sense — the writer reads them the same way — so they live here too. */
+export const TAG_COLORS = {
+  pic:  "#e0a94c",     // picture — amber
+  vid:  "#4cc3e0",     // video — cyan
+  aud:  "#b48ce8",     // audio — violet
+  subj: "#7ec87e",     // subject — green
+  spk:  "#7ea7d8",     // speaker — blue
+  shot: "#a34b7d",     // shot marker — magenta (solid, not a tint)
+  shotink: "#ffe9f4",  // text ON the solid shot marker
+  unknown: "#f07070",  // a tag naming media that isn't loaded — red
+};
+
+/** The `:root` block declaring the palette. Emitted by both stylesheets so
+ *  neither file depends on the other having been injected first. */
+export const TAG_VARS = `:root{\n${
+  Object.entries(TAG_COLORS)
+    .map(([k, v]) => `  --mmh3-tag-${k}:${v};`).join("\n")}\n}`;
+
+/** Raise an already-open window instead of opening a second copy.
+ *
+ *  Every window in this pack is a body-level overlay on the same z-index, so
+ *  DOM order is what decides which one is on top — re-appending moves it to
+ *  the end, which is the front. Returns true when there was one to raise, so
+ *  the caller can bail out rather than build a duplicate.
+ *
+ *  The pulse matters: without it, clicking "Media Loader" on an editor that
+ *  already has the loader open behind it looks like the button is broken.
+ *  Something has to acknowledge the click. */
+export function raiseIfOpen(overlay) {
+  if (!overlay?.isConnected) return false;
+  try {
+    document.body.append(overlay);
+    overlay.classList.remove("raised");
+    void overlay.offsetWidth;          // reflow, so the animation restarts
+    overlay.classList.add("raised");
+    setTimeout(() => overlay.classList?.remove("raised"), 700);
+  } catch (e) { /* raising is a courtesy; never break the caller */ }
+  return true;
+}
+
+/** The pulse's keyframes, emitted by both stylesheets like TAG_VARS. */
+export const RAISE_CSS = `
+@keyframes mmh3-raise{0%{box-shadow:0 0 0 0 rgba(126,167,216,.55);}
+  100%{box-shadow:0 0 0 22px rgba(126,167,216,0);}}
+.mmlp-overlay.raised>*,.mmh3p-overlay.raised>*,.mmh3p-liboverlay.raised>*{
+  animation:mmh3-raise .55s ease-out;}
+@media (prefers-reduced-motion:reduce){
+  .mmlp-overlay.raised>*,.mmh3p-overlay.raised>*,
+  .mmh3p-liboverlay.raised>*{animation:none;}}`;
+
 const CSS = `
+${TAG_VARS}
+${RAISE_CSS}
 .mmlp-panel{font-family:system-ui,sans-serif;color:#d7dbe2;font-size:calc(12px * var(--mml-fs, 1));
   background:#191c22;border:1px solid #2a2f3a;border-radius:8px;padding:8px;
   display:flex;flex-direction:column;gap:6px;box-sizing:border-box;
@@ -607,7 +676,7 @@ const CSS = `
 .mmlp-picbar .mmlp-x{flex:0 0 auto;}
 .mmlp-picbar .mmlp-trimbtn{font-size:calc(12px * var(--mml-fs, 1));}
 .mmlp-tag{font-family:ui-monospace,monospace;font-size:calc(9px * var(--mml-fs, 1));white-space:nowrap;}
-.mmlp-tag.pic{color:#e0a94c;} .mmlp-tag.vid{color:#4cc3e0;} .mmlp-tag.aud{color:#b48ce8;}
+.mmlp-tag.pic{color:var(--mmh3-tag-pic, #e0a94c);} .mmlp-tag.vid{color:var(--mmh3-tag-vid, #4cc3e0);} .mmlp-tag.aud{color:var(--mmh3-tag-aud, #b48ce8);}
 .mmlp-x{cursor:pointer;color:#7a8393;font-size:calc(11px * var(--mml-fs, 1));line-height:1;}
 .mmlp-x:hover{color:#e05a5a;}
 
@@ -785,8 +854,8 @@ const CSS = `
   line-height:1.35;overflow:hidden;}
 /* Same tag colours the prompt preview uses, so a tag looks the same wherever
    it appears. The arrows stay dim: they are punctuation, not content. */
-.mmlp-order .mmlp-t-pic{color:#e0a94c;} .mmlp-order .mmlp-t-vid{color:#4cc3e0;}
-.mmlp-order .mmlp-t-aud{color:#b48ce8;} .mmlp-order .mmlp-t-subj{color:#7ec87e;}
+.mmlp-order .mmlp-t-pic{color:var(--mmh3-tag-pic, #e0a94c);} .mmlp-order .mmlp-t-vid{color:var(--mmh3-tag-vid, #4cc3e0);}
+.mmlp-order .mmlp-t-aud{color:var(--mmh3-tag-aud, #b48ce8);} .mmlp-order .mmlp-t-subj{color:var(--mmh3-tag-subj, #7ec87e);}
 .mmlp-orderarrow{color:#4a5568;margin:0 4px;}
 /* Loaded and numbered, but the current mode won't forward this one — see the
    comment at its call site for why dimming rather than dropping it. */
@@ -3794,10 +3863,18 @@ function splitHelp(anchor) {
  *  through this same panel but written to the draft rather than the node. */
 export function openLoaderModal(node, opts = {}) {
   injectCSS();
+  // One loader window per node, for the same reason the editor has one: two
+  // panels on one node both write media_state, and the loser's copy is
+  // whatever it read when it opened. A draft's panel is a different target
+  // though, so it is tracked separately rather than blocking the live one.
+  const slot = opts.draft ? "_mmlDraftModal" : "_mmlModal";
+  if (raiseIfOpen(node[slot])) return node[`${slot}Panel`] || null;
   const { onClose, store, storeLabel, draft = false, note = "" } = opts;
   const title = opts.title || storeLabel || "MiniMax H3 Media Loader";
   const panel = new LoaderPanel(node, { modal: true, store, storeLabel });
   const close = () => {
+    node[slot] = null;
+    node[`${slot}Panel`] = null;
     node._mmlPanels = (node._mmlPanels || []).filter((p) => p !== panel);
     panel.players.forEach((p) => p.stop());
     overlay.remove();
@@ -3822,8 +3899,9 @@ export function openLoaderModal(node, opts = {}) {
           node._mmh3OpenEditor
             ? el("button", { class: "mmlp-pbbtn",
                 title: "Open the full Prompt Builder",
-                // Hand over rather than stack \u2014 the editor's own Media
-                // Loader button does the same in the other direction.
+                // Close this window, then either raise the editor that is
+                // already open behind it or build one. openEditor() decides;
+                // this button no longer assumes there isn't one.
                 onclick: () => { close(); node._mmh3OpenEditor(); } },
                 "\ud83d\udcdc Prompt Builder")
             : null,
@@ -3832,6 +3910,8 @@ export function openLoaderModal(node, opts = {}) {
       el("div", { class: "mmlp-modalbody" }, panel.root)));
   window.addEventListener("keydown", esc);
   document.body.append(overlay);
+  node[slot] = overlay;
+  node[`${slot}Panel`] = panel;
   scaleOverlay(node, [[overlay.querySelector(".mmlp-modal"), 1140, 780]]);
   return panel;
 }

@@ -8,7 +8,9 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { LOADER_NAME, computeTags, viewURL as loaderViewURL,
   safeCanvasFocus, openLoaderModal, isOn, TrimModal,
-  fileCount, MODE_CAPACITY, hasCrop } from "./medialoader.js";
+  fileCount, MODE_CAPACITY, hasCrop, TAG_COLORS, TAG_VARS,
+  raiseIfOpen, RAISE_CSS,
+} from "./medialoader.js";
 
 // Private drag type: marks a drag as "reorder the rail" so a drop on another
 // card moves media, while a drop on a textarea still inserts the tag.
@@ -1176,6 +1178,8 @@ function validate(state, slots) {
 /* ------------------------------------------------------------------ */
 
 const CSS = `
+${TAG_VARS}
+${RAISE_CSS}
 .mmh3p-overlay{position:fixed;inset:0;z-index:10000;background:rgba(8,10,14,.62);
   display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;
   --mmh3p-mw:min(1240px,95vw);
@@ -1303,8 +1307,8 @@ const CSS = `
 .mmh3p-wave{background:#0d1015;}
 .mmh3p-cardbar{display:flex;align-items:center;gap:3px;padding:2px 4px;}
 .mmh3p-tagname{font-family:ui-monospace,monospace;font-size:calc(9px * var(--mmh3-fs, 1));}
-.mmh3p-tagname.pic{color:#e0a94c;} .mmh3p-tagname.vid{color:#4cc3e0;}
-.mmh3p-tagname.aud{color:#b48ce8;} .mmh3p-tagname.subj{color:#7ec87e;}
+.mmh3p-tagname.pic{color:var(--mmh3-tag-pic, #e0a94c);} .mmh3p-tagname.vid{color:var(--mmh3-tag-vid, #4cc3e0);}
+.mmh3p-tagname.aud{color:var(--mmh3-tag-aud, #b48ce8);} .mmh3p-tagname.subj{color:var(--mmh3-tag-subj, #7ec87e);}
 /* Badged into the card's top-right corner, over the thumbnail. The dark pill
    and shadow are what keep a single digit legible against a bright frame;
    pointer-events:none so the corner is still part of the card's click target
@@ -1586,10 +1590,10 @@ const CSS = `
   padding:3px 10px;user-select:none;}
 .mmh3p-chip:hover{border-color:#59637a;background:#262c38;}
 .mmh3p-chip img,.mmh3p-chip video{width:22px;height:22px;object-fit:cover;border-radius:4px;}
-.mmh3p-chip.pic{border-color:#8a6a2c;} .mmh3p-chip.pic b{color:#e0a94c;}
-.mmh3p-chip.vid{border-color:#2c6f81;} .mmh3p-chip.vid b{color:#4cc3e0;}
-.mmh3p-chip.aud{border-color:#5d4a86;} .mmh3p-chip.aud b{color:#b48ce8;}
-.mmh3p-chip.subj{border-color:#3e6b3e;} .mmh3p-chip.subj b{color:#7ec87e;}
+.mmh3p-chip.pic{border-color:#8a6a2c;} .mmh3p-chip.pic b{color:var(--mmh3-tag-pic, #e0a94c);}
+.mmh3p-chip.vid{border-color:#2c6f81;} .mmh3p-chip.vid b{color:var(--mmh3-tag-vid, #4cc3e0);}
+.mmh3p-chip.aud{border-color:#5d4a86;} .mmh3p-chip.aud b{color:var(--mmh3-tag-aud, #b48ce8);}
+.mmh3p-chip.subj{border-color:#3e6b3e;} .mmh3p-chip.subj b{color:var(--mmh3-tag-subj, #7ec87e);}
 .mmh3p-chip b{font-weight:600;}
 .mmh3p-chipnote{font-size:calc(9px * var(--mmh3-fs, 1));font-style:normal;opacity:.75;letter-spacing:.02em;
   border-left:1px solid #4a4260;padding-left:5px;margin-left:1px;}
@@ -1623,10 +1627,10 @@ const CSS = `
 .mmh3p-defrow textarea{flex:1;min-height:38px;}
 .mmh3p-minitags{display:flex;gap:4px;flex-wrap:wrap;margin:-2px 0 8px 2px;min-height:14px;}
 .mmh3p-minitag{font-size:calc(10px * var(--mmh3-fs, 1));border-radius:8px;padding:1px 7px;background:#20242d;border:1px solid #363d4a;}
-.mmh3p-minitag.pic{color:#e0a94c;border-color:#8a6a2c;}
-.mmh3p-minitag.vid{color:#4cc3e0;border-color:#2c6f81;}
-.mmh3p-minitag.aud{color:#b48ce8;border-color:#5d4a86;}
-.mmh3p-minitag.subj{color:#7ec87e;border-color:#3e6b3e;}
+.mmh3p-minitag.pic{color:var(--mmh3-tag-pic, #e0a94c);border-color:#8a6a2c;}
+.mmh3p-minitag.vid{color:var(--mmh3-tag-vid, #4cc3e0);border-color:#2c6f81;}
+.mmh3p-minitag.aud{color:var(--mmh3-tag-aud, #b48ce8);border-color:#5d4a86;}
+.mmh3p-minitag.subj{color:var(--mmh3-tag-subj, #7ec87e);border-color:#3e6b3e;}
 .mmh3p-roles{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:-4px 0 10px 2px;}
 .mmh3p-rolelabel{font-size:calc(10px * var(--mmh3-fs, 1));text-transform:uppercase;letter-spacing:.07em;
   color:#6b7484;margin-right:2px;}
@@ -1659,20 +1663,20 @@ const CSS = `
    outright swapped — the preview drew a shot blue and a speaker pink while
    the fields drew a shot pink and a speaker blue. The chips are the reference
    now, since that is where the writing actually happens. */
-.mmh3p-t-pic{color:#e0a94c;} .mmh3p-t-vid{color:#4cc3e0;}
-.mmh3p-t-aud{color:#b48ce8;} .mmh3p-t-subj{color:#6fbf73;}
+.mmh3p-t-pic{color:var(--mmh3-tag-pic, #e0a94c);} .mmh3p-t-vid{color:var(--mmh3-tag-vid, #4cc3e0);}
+.mmh3p-t-aud{color:var(--mmh3-tag-aud, #b48ce8);} .mmh3p-t-subj{color:var(--mmh3-tag-subj, #7ec87e);}
 /* Solid, like its chip: a cut marker is the loudest thing in a prompt. Bold
    is safe here — unlike in a field, nothing has to line up under this text. */
-.mmh3p-t-shot{color:#ffe9f4;background:#a34b7d;border-radius:3px;
+.mmh3p-t-shot{color:var(--mmh3-tag-shotink, #ffe9f4);background:var(--mmh3-tag-shot, #a34b7d);border-radius:3px;
   font-weight:600;-webkit-box-decoration-break:clone;box-decoration-break:clone;}
 .mmh3p-t-d{color:#5f7899;}
 .mmh3p-t-lang{color:#9dc0e4;background:rgba(126,167,216,.16);border-radius:3px;}
-.mmh3p-t-spk{color:#7ea7d8;font-weight:600;}
+.mmh3p-t-spk{color:var(--mmh3-tag-spk, #7ea7d8);font-weight:600;}
 /* A tag naming media that isn't loaded, matching .mmh3p-reftag.unknown. The
    preview could not show this at all before — it is a pure string pass with
    no idea what is loaded — so a typo'd tag looked correct right up until the
    prompt ran. */
-.mmh3p-t-unknown{color:#f07070;background:rgba(240,112,112,.16);border-radius:3px;}
+.mmh3p-t-unknown{color:var(--mmh3-tag-unknown, #f07070);background:color-mix(in srgb, var(--mmh3-tag-unknown) 16%, transparent);border-radius:3px;}
 /* N/A marks a section as deliberately empty, so it reads as absent rather
    than as content. No chip equivalent: the fields never paint it. */
 .mmh3p-t-na{color:#6b7484;font-style:italic;}
@@ -1776,6 +1780,13 @@ const CSS = `
   transform:translate(-50%,-50%);
   width:min(100cqw, calc(100cqh * var(--ar)));
   height:min(100cqh, calc(100cqw / var(--ar)));}
+/* The quick editor's language picker sits on the field's header row beside
+   + Shot and + (SN), so it has to stay small and match the buttons' height
+   rather than a full-width form control. */
+.mmh3p-quicklang{background:#12151b;color:#c9cfda;border:1px solid #2e3440;
+  border-radius:6px;padding:3px 5px;max-width:120px;
+  font-size:calc(11px * var(--mmh3-fs, 1));font-family:inherit;}
+.mmh3p-quicklang:focus{outline:none;border-color:#4a5568;}
 .mmh3p-quickpic .mmh3p-tagname{position:absolute;left:6px;bottom:6px;
   padding:2px 7px;border-radius:5px;background:rgba(8,10,14,.78);
   pointer-events:none;}
@@ -1952,19 +1963,19 @@ const CSS = `
 .mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-dlang,
 .mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-dtext{
   color:transparent;background:none;box-shadow:none;}
-.mmh3p-reftag{border-radius:3px;background:rgba(224,169,76,.18);color:#e0a94c;
-  box-shadow:0 0 0 2px rgba(224,169,76,.18), inset 0 0 0 1px rgba(224,169,76,.45);
+.mmh3p-reftag{border-radius:3px;background:color-mix(in srgb, var(--mmh3-tag-pic) 18%, transparent);color:var(--mmh3-tag-pic, #e0a94c);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--mmh3-tag-pic) 18%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--mmh3-tag-pic) 45%, transparent);
   -webkit-box-decoration-break:clone;box-decoration-break:clone;}
-.mmh3p-reftag.vid{background:rgba(76,195,224,.18);color:#4cc3e0;
-  box-shadow:0 0 0 2px rgba(76,195,224,.18), inset 0 0 0 1px rgba(76,195,224,.45);}
-.mmh3p-reftag.aud{background:rgba(180,140,232,.18);color:#b48ce8;
-  box-shadow:0 0 0 2px rgba(180,140,232,.18), inset 0 0 0 1px rgba(180,140,232,.45);}
-.mmh3p-reftag.subj{background:rgba(111,191,115,.18);color:#6fbf73;
-  box-shadow:0 0 0 2px rgba(111,191,115,.18), inset 0 0 0 1px rgba(111,191,115,.45);}
-.mmh3p-reftag.unknown{background:rgba(240,112,112,.16);color:#f07070;
-  box-shadow:0 0 0 2px rgba(240,112,112,.16), inset 0 0 0 1px rgba(240,112,112,.5);}
-.mmh3p-reftag.spk{background:rgba(126,167,216,.16);color:#7ea7d8;
-  box-shadow:0 0 0 2px rgba(126,167,216,.16), inset 0 0 0 1px rgba(126,167,216,.4);}
+.mmh3p-reftag.vid{background:color-mix(in srgb, var(--mmh3-tag-vid) 18%, transparent);color:var(--mmh3-tag-vid, #4cc3e0);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--mmh3-tag-vid) 18%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--mmh3-tag-vid) 45%, transparent);}
+.mmh3p-reftag.aud{background:color-mix(in srgb, var(--mmh3-tag-aud) 18%, transparent);color:var(--mmh3-tag-aud, #b48ce8);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--mmh3-tag-aud) 18%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--mmh3-tag-aud) 45%, transparent);}
+.mmh3p-reftag.subj{background:color-mix(in srgb, var(--mmh3-tag-subj) 18%, transparent);color:var(--mmh3-tag-subj, #7ec87e);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--mmh3-tag-subj) 18%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--mmh3-tag-subj) 45%, transparent);}
+.mmh3p-reftag.unknown{background:color-mix(in srgb, var(--mmh3-tag-unknown) 16%, transparent);color:var(--mmh3-tag-unknown, #f07070);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--mmh3-tag-unknown) 16%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--mmh3-tag-unknown) 50%, transparent);}
+.mmh3p-reftag.spk{background:color-mix(in srgb, var(--mmh3-tag-spk) 16%, transparent);color:var(--mmh3-tag-spk, #7ea7d8);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--mmh3-tag-spk) 16%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--mmh3-tag-spk) 40%, transparent);}
 /* Cut markers are the loudest thing in a prompt, so they're the only SOLID
    chip: every other tag is a translucent tint. The weight does the work, which
    also means the hue doesn't have to compete with audio's violet or the red
@@ -1974,9 +1985,9 @@ const CSS = `
    px of caret drift on that line, or a whole word once the widened line
    wrapped earlier than the real one. The double text-shadow fakes the weight
    without touching a single glyph advance. */
-.mmh3p-reftag.shot{background:#a34b7d;color:#ffe9f4;
+.mmh3p-reftag.shot{background:var(--mmh3-tag-shot, #a34b7d);color:var(--mmh3-tag-shotink, #ffe9f4);
   text-shadow:0.02em 0 currentColor,-0.02em 0 currentColor;
-  box-shadow:0 0 0 2px #a34b7d, inset 0 0 0 1px rgba(255,255,255,.18);}
+  box-shadow:0 0 0 2px var(--mmh3-tag-shot, #a34b7d), inset 0 0 0 1px rgba(255,255,255,.18);}
 /* Spoken lines. The band shows how much of a paragraph is actually speech;
    the markers dim because they're syntax, not words the model will say.
    box-decoration-break keeps the band intact when a line wraps. */
@@ -2283,6 +2294,7 @@ class Library {
     this.build();
     this.applyPrefs();
     document.body.append(this.overlay);
+    editor._mmh3Lib = this;
     this.refresh();
   }
 
@@ -2396,6 +2408,7 @@ class Library {
     // The peek lives on <body>, so it would outlive the modal that owns it.
     this.closeMediaPeek();
     this.overlay.remove();
+    if (this.editor?._mmh3Lib === this) this.editor._mmh3Lib = null;
   }
 
   async refresh() {
@@ -3073,12 +3086,14 @@ class Editor {
               onclick: () => this.toggleDraftMode() }, "Draft \u25b6"),
           el("button", { class: "mmh3p-btn",
             title: "Browse saved prompts",
-            onclick: () => new Library(this) }, "\u2630 Library"),
+            onclick: () => {
+              if (raiseIfOpen(this._mmh3Lib?.overlay)) return;
+              new Library(this);
+            } }, "\u2630 Library"),
           el("button", { class: "mmh3p-btn mmh3p-danger",
             title: "Clear every field and start over",
             onclick: () => { this.clearPending = !this.clearPending; this.render(); } },
             "Clear"),
-          this.prefsButton(),
           guideBtn,
           this.modeBar,
           // Opens over the top rather than handing over. The editor used to
@@ -3091,6 +3106,11 @@ class Editor {
           el("button", { class: "mmh3p-btn",
             title: "Open the media loader without leaving the editor",
             onclick: () => this.openMedia() }, "\u2750 Media Loader"),
+          // Settings sits immediately left of the close button, matching the
+          // prompt library's header. It used to sit mid-row between Clear and
+          // the guide, which put the one control that isn't about THIS prompt
+          // in among the ones that are.
+          this.prefsButton(),
           el("button", { class: "mmh3p-x",
             onclick: () => this.requestClose() }, "\u2715"),
         ),
@@ -3135,7 +3155,12 @@ class Editor {
       e.preventDefault();
       this.openCtx(e.clientX, e.clientY, box.value.slice(a, b));
     });
-    this.formEl.addEventListener("input", () => this.updatePreview());
+    this.formEl.addEventListener("input", () => {
+      this.updatePreview();
+      // Covers every route a speaker marker can arrive by — the buttons
+      // here, a rail drop, or simply typing "(S2)" by hand.
+      this.refreshDialogue();
+    });
     // Dropping a rail card onto a textarea inserts the tag where it lands.
     this.formEl.addEventListener("drop", (e) => {
       const t = e.target;
@@ -4412,7 +4437,10 @@ class Editor {
       const w = canvas.width, h = canvas.height;
       const ctx = canvas.getContext("2d");
       ctx.clearRect(0, 0, w, h);
-      ctx.fillStyle = "#b48ce8";
+      // Canvas cannot read a CSS variable, so the audio hue comes from
+      // the same exported palette the stylesheets are built from —
+      // otherwise this waveform is the one surface that can drift.
+      ctx.fillStyle = TAG_COLORS.aud;
       const n = peaks.length;
       for (let x = 0; x < w; x++) {
         const v = peaks[Math.floor((x / w) * n)] || 0;
@@ -4939,7 +4967,7 @@ class Editor {
         ? el("div", { class: "mmh3p-subjrow" }, extraChips) : null,
       el("div", { class: "mmh3p-tools" },
         timeIn, shotBtn, camMove, camAmp, camSpd, camBtn, styleSel),
-      this.dialogueRow(lang),
+      this.dialogueEl = this.dialogueRow(lang),
       this.phraseRow());
   }
 
@@ -5237,6 +5265,27 @@ class Editor {
     }
   }
 
+  /** Rebuild just the dialogue row when the speakers in the prompt change.
+   *
+   *  The buttons are derived from the prompt text, so inserting "(S1)" should
+   *  immediately offer "+ (S2)". It didn't: the row is built by toolBar()
+   *  during render(), and insert() deliberately never re-renders — a full
+   *  render rebuilds every field and drops the caret mid-sentence. So the
+   *  new speaker only appeared after Save to node and reopening, which is
+   *  two round trips to learn something the editor already knew.
+   *
+   *  Swapping the one row keeps the caret where it is. The language select
+   *  is carried across rather than rebuilt, so a repaint can't silently
+   *  reset a chosen language back to the default. */
+  refreshDialogue() {
+    if (!this.dialogueEl?.isConnected) return;
+    if (this.usedSpeakers().join(",") === this._spkKey) return;
+    const next = this.dialogueRow(this._langSel
+      || el("select", {}, LANGS.map((l) => el("option", { value: l }, l))));
+    this.dialogueEl.replaceWith(next);
+    this.dialogueEl = next;
+  }
+
   /** Speaker IDs already used in the prompt, in numeric order. */
   usedSpeakers() {
     const text = JSON.stringify(this.state || {});
@@ -5254,6 +5303,8 @@ class Editor {
   dialogueRow(lang) {
     const used = this.usedSpeakers();
     const next = `S${used.length ? Math.max(...used.map((s) => +s.slice(1))) + 1 : 1}`;
+    this._spkKey = used.join(",");
+    this._langSel = lang;
 
     const vo = el("button", {
       class: "mmh3p-btn" + (this.voiceover ? " primary" : ""),
@@ -5942,6 +5993,14 @@ export function restoreDraftFlag(node) {
 
 export function openEditor(node) {
   try {
+    // One editor per node. Every route in — double-clicking the node, the
+    // prompt bar's scroll, the quick editor's "full editor" button, and the
+    // media loader's Prompt Builder button — used to build an unconditional
+    // second one. The loader route was the easy one to hit: the loader opens
+    // OVER the editor, so handing back from it left the original still up
+    // underneath and stacked a fresh copy on top. Two editors on one node
+    // then disagree about state, and whichever you save last silently wins.
+    if (raiseIfOpen(node._mmh3Editor?.overlay)) return;
     new Editor(node);
   } catch (err) {
     console.error("[MiniMaxH3 PromptBuilder] failed to open editor:", err);
@@ -6070,6 +6129,7 @@ export function promptFields(node) {
     const { wrap } = chipField(t, { slotFor, highlightTags });
     const labelEl = extra
       ? el("label", { class: "act" }, label,
+          // extra() may hand back one control or several; el() flattens.
           el("span", { class: "mmh3p-secact" }, extra(t)))
       : el("label", {}, label);
     root.append(el("div", { class: "mmh3p-sec" + (cls ? ` ${cls}` : "") },
@@ -6096,16 +6156,70 @@ export function promptFields(node) {
       t.focus();
     } }, "+ Shot");
 
+  /** The full editor's "add speaker" button, trimmed to what this window can
+   *  support. Speaker IDs follow the video's speaking order, so the number
+   *  offered is the next one this field hasn't used — the full editor derives
+   *  it the same way, just from the whole prompt rather than one field.
+   *
+   *  The language select defaults to English (LANGS[0]) and is carried on the
+   *  button's own row rather than assumed, because the marker it writes has
+   *  to name a language and guessing wrong is worse than one more control. */
+  const spkControl = (t) => {
+    const lang = el("select", { class: "mmh3p-quicklang",
+      title: "Language for the inserted line" },
+      LANGS.map((l) => el("option", { value: l }, l)));
+    const btn = el("button", { class: "mmh3p-btn",
+      title: "Insert a dialogue line for the next speaker",
+      onclick: () => {
+        const val = t.value || "";
+        const used = new Set();
+        for (const m of val.matchAll(/\((S\d+(?:\s*,\s*S\d+)*)\)/g)) {
+          for (const id of m[1].split(",")) used.add(id.trim());
+        }
+        const n = Math.max(0, ...[...used].map((x) => +x.slice(1))) + 1;
+        // Deliberately NOT on its own line: the model reads a line break as a
+        // shot boundary, so only [Shot N] may introduce one. Dialogue joins
+        // the description it belongs to. Same rule as the full editor.
+        const text = `(S${n}) says: <d>[${lang.value}] </d>`;
+        const pos = t.selectionStart ?? val.length;
+        const before = val.slice(0, pos), after = val.slice(pos);
+        const pad = before && !/[\s(\u2014]$/.test(before) ? " " : "";
+        t.value = before + pad + text + after;
+        // Land the caret inside the <d> block, where the words go — the same
+        // place the full editor's insert() puts it.
+        const dPos = text.indexOf("</d>");
+        t.selectionStart = t.selectionEnd = before.length + pad.length + dPos;
+        t.dispatchEvent(new Event("input", { bubbles: true }));
+        t.focus();
+        btn.textContent = `+ (S${n + 1})`;   // the row updates as you add
+      } }, "+ (S1)");
+    // The number on the button has to reflect what the field already holds,
+    // both on open and as the text changes -- otherwise it offers S1 over a
+    // prompt that is already up to S3.
+    const sync = () => {
+      const used = new Set();
+      for (const m of (t.value || "").matchAll(/\((S\d+(?:\s*,\s*S\d+)*)\)/g)) {
+        for (const id of m[1].split(",")) used.add(id.trim());
+      }
+      btn.textContent = `+ (S${Math.max(0, ...[...used].map((x) => +x.slice(1))) + 1})`;
+    };
+    t.addEventListener("input", sync);
+    sync();
+    return [lang, btn];
+  };
+
   if (isRef) {
     // Reference mode writes detailed_description instead: its style opening
     // and its shots, the two halves the generator joins.
     field("detailed_description — style opening", target, "styleLine", 2,
       "The target video is in a realistic multi-camera sitcom style…");
     field("detailed_description — shots", target, "detail", 10,
-      "[Shot 1] A medium shot establishes <Subject 1>, …", "mmh3p-grow");
+      "[Shot 1] A medium shot establishes <Subject 1>, …", "mmh3p-grow",
+      (t) => [shotBtn(t), ...spkControl(t)]);
   } else {
     field("integrated_multimodal_description", state, "imd", 10,
-      "[Shot 1] Live-action, cinematic, …", "mmh3p-grow", shotBtn);
+      "[Shot 1] Live-action, cinematic, …", "mmh3p-grow",
+      (t) => [shotBtn(t), ...spkControl(t)]);
   }
 
   const pair = el("div", { class: "mmh3p-audiopair" });
@@ -6247,10 +6361,15 @@ function quickPrefsButton(onApply) {
 
 export function openQuickEdit(node, focusKey = null) {
   injectCSS();
+  if (raiseIfOpen(node._mmh3Quick)) return;
+  // The full editor and the quick editor are two views of the same prompt,
+  // so a second view of it is the same hazard as a second editor.
+  if (raiseIfOpen(node._mmh3Editor?.overlay)) return;
   const fields = promptFields(node);
   const mode = fields.state.mode;
   const close = () => {
     overlay.remove();
+    node._mmh3Quick = null;      // or reopening finds a stale, dead overlay
     window.removeEventListener("keydown", esc);
   };
   const esc = (e) => { if (e.key === "Escape") close(); };
@@ -6280,6 +6399,7 @@ export function openQuickEdit(node, focusKey = null) {
         } }, "Save to node"))));
   window.addEventListener("keydown", esc);
   document.body.append(overlay);
+  node._mmh3Quick = overlay;
   // Window size is a preference rather than a fixed box, so it is applied
   // here and re-applied whenever the setting changes. The pane follows,
   // since its own size is measured against this window.

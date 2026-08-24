@@ -587,3 +587,139 @@ when hiding, makes it a mouse-over caption for the respective section.
       across all five modes: T2VA and REF both `None`/`None`; I2VA
       `first_frame`/`None`; FL2VA `first_frame`/`last_frame`; L2VA
       `None`/`last_frame`. Matches the spec exactly.
+
+---
+
+## Follow-up round 9
+
+62. 🟩 update with the latest upstream changes (1.6.1 + the 1.6.2 security
+    release)
+    - Two commits, 36 conflicts. Version → **2.5.0**. Details in the merge
+      commit; the notable resolutions were keeping this fork's
+      `/minimax_h3_plus/` prefix while taking upstream's new `@_guard`
+      decorators (16 route conflicts resolved by script), and dropping
+      `/browse`, `/mkdir` and `/probe` as dead here — the first two served
+      the removed Filename Prefix node, and 1.6.2's own reasoning for
+      deleting `/probe` applies to all three.
+    - **Checked the security release doesn't break this fork's client.**
+      1.6.2 makes JSON routes *require* `Content-Type: application/json`;
+      every JSON POST here already sends it, and `upload` correctly stays on
+      `@_guard(json_only=False)` for its FormData body. Added a client-vs-
+      server route cross-check that confirms all 13 client routes resolve —
+      it immediately caught `presets/match`, a new upstream route that had
+      auto-merged onto the wrong prefix.
+    - `requestClose()` took upstream's `{discard}` form, which supersedes the
+      `then` parameter this fork added for the old Media Loader handover.
+      Nothing had set `_closeThen` since that handover was replaced, so the
+      dead mechanism was removed rather than left to rot.
+
+63. 🟩 make tag colour coding consistent across every interface
+    - **Found one real inconsistency by auditing rather than by eye.**
+      Subject was `#7ec87e` in the rail cards, the field chips and the
+      mini-tags, but `#6fbf73` in the generated-prompt preview and in the
+      chips drawn inside the text fields — close enough to read as a
+      rendering artefact, far enough to be visibly wrong side by side.
+      Picture, Video and Audio were already consistent.
+    - Fixed at the root rather than by patching two hex values: the palette
+      is now one exported object (`TAG_COLORS`) emitted as `:root` custom
+      properties by both stylesheets, and all 55 tag colour declarations
+      reference `var(--mmh3-tag-*)`. A future family cannot quietly invent
+      its own green, and an upstream merge that changes a hue shows up as a
+      conflict in one place instead of as one surface disagreeing.
+    - The waveform canvas is drawn, not styled, so it cannot read a CSS
+      variable — it takes `TAG_COLORS.aud` from the same object instead of a
+      literal, which is what stops it being the one drifting surface.
+    - **A second bug surfaced while verifying.** My first pass kept each
+      rule's *original* literal as its `var()` fallback, so subject still
+      fell back to two different greens if the `:root` block ever failed to
+      load. All fallbacks are now canonical.
+    - `rig/tagcolours.mjs` reads the actual injected stylesheets and asserts:
+      every kind has a declared hue, no tag rule sets a colour from a
+      literal, each kind resolves to exactly one variable, no fallback is
+      stale, and the canvas matches. Verified it fails against both drift
+      modes before being restored — the first version of this test passed
+      against the reintroduced bug, which is why it now checks fallbacks too.
+
+64. 🟩 prevent opening the same window twice when moving between the prompt
+    builder and the media loader
+    - **The path that bit.** Upstream 1.6.0 changed the editor's Media Loader
+      button from a handover to an overlay, so the editor stays open
+      underneath. The loader's own "Prompt Builder" button still closed the
+      loader and built a *fresh* editor — stacking a second one on the first.
+      Two editors on one node disagree about state, and whichever you save
+      last silently wins.
+    - One guard, `raiseIfOpen()`, applied at all four entry points: the full
+      editor, the quick editor, the prompt library and the loader modal. An
+      already-open window is raised (re-appended, so DOM order puts it in
+      front) and pulsed rather than duplicated. The pulse matters — without
+      it the button looks broken when the window is already open behind.
+    - A draft's loader is tracked separately from the live one: they are
+      different targets, so both open at once is correct, not a duplicate.
+    - Registry entries are cleared on close, so a reopened window is never
+      blocked by a stale reference. `rig/singlewindow.mjs` covers all of it,
+      including the exact reported path end to end.
+
+65. 🟩 put the settings button to the left of the ✕ in the prompt builder and
+    the prompt library
+    - The library was already correct. The editor's gear sat mid-header
+      between Clear and the guide, which put the one control that isn't about
+      *this prompt* in among the ones that are. Both headers now end
+      `⚙ | ✕`, verified against the rendered header rather than the source.
+
+66. 🟩 update the dialogue speaker buttons as speakers are added
+    - The row is built by `toolBar()` during `render()`, and `insert()`
+      deliberately never re-renders — a full render rebuilds every field and
+      drops the caret mid-sentence. So the derived button list was frozen at
+      whatever the prompt held when the window opened, and `+ (S2)` only
+      appeared after Save to node and reopening: two round trips to learn
+      something the editor already knew.
+    - `refreshDialogue()` swaps just that one row, driven by the `input`
+      event that already bubbles to the form — so it covers the buttons, a
+      rail drop, and typing `(S2)` by hand. It no-ops when the speaker set is
+      unchanged, so an ordinary keystroke doesn't churn the DOM, and the
+      language select is carried across rather than rebuilt so a repaint
+      can't silently reset a chosen language.
+
+67. 🟩 add the prompt builder's Add speaker button to the quick editor,
+    defaulting to English
+    - Built self-contained against the field's own text, the same way the
+      quick editor's existing `+ Shot` button is — there is no shared
+      "last focused field" here to lean on. The number offered is the next
+      one the field hasn't used, and it advances as you add.
+    - A compact language select sits beside it, defaulting to English
+      (`LANGS[0]`). Carried explicitly rather than assumed, because the
+      marker it writes has to name a language and guessing wrong is worse
+      than one more control.
+    - The inserted line never introduces a newline: the model reads a line
+      break as a shot boundary, so only `[Shot N]` may start one. Same rule
+      the full editor follows, and the test asserts it.
+
+68. 🟩 harness: five DOM-stub fidelity gaps, four of them masking real code
+    paths
+    - The merge failed 22 of 35 scripts on one missing feature, and fixing
+      that exposed the rest. Each of these made production code that works
+      in a browser look broken — or worse, look fine — under test.
+    - `value:""` on form controls. A real `<input>` has it from birth;
+      without it a freshly rendered filter box threw on `.value.trim()` and
+      took the whole panel render down with it.
+    - **`isConnected` and parent tracking.** Six production sites read
+      `isConnected` — "is this window still open", "is the caret's field
+      still in the document" — and with no parent link every one silently
+      read `undefined`. Four of those six pre-date this round's work, so
+      whole branches had never been reached by any test. `remove()` also only
+      worked on direct children of body/head; it now works on nested nodes,
+      as a real DOM does.
+    - **Event bubbling.** `insert()` signals its edit with
+      `dispatchEvent(new Event("input", {bubbles:true}))`, and the listener
+      that acts on it sits on the *form*, not the field — so that entire path
+      was invisible to the harness. Added `dispatchEvent`, `replaceWith` and
+      the `Event` constructor.
+    - **`<select>.value`.** Not a stored string: with nothing selected a real
+      select reports its first option's value. A freshly built picker read as
+      empty, so "the language select starts on English because English is
+      listed first" silently got `""`. `<option>` had no `value` property at
+      all.
+    - Two scripts (`run.mjs`, `t2va_combine.mjs`) carried private stubs
+      predating `domstub.mjs` and had drifted from it, breaking on any merge
+      touching a feature the private copy lacked. Both now import the shared
+      one. **38 scripts green.**
