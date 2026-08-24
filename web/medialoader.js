@@ -488,6 +488,19 @@ ${RAISE_CSS}
    header instead of grouping them at the right-hand end. */
 .mmlp-modalacts{margin-left:auto;display:flex;align-items:center;gap:8px;
   flex:0 0 auto;}
+/* Settings and close read as one control group, matching the editor, the
+   library and the quick editor — so the gap between just those two closes,
+   while the Prompt Builder button before them keeps its own. */
+.mmlp-modalacts .mmlp-scalewrap+.mmlp-modalx{margin-left:-8px;}
+/* The gear arrives here wearing .mmlp-btn (it is the same control the node's
+   toolbar uses), but .mmlp-modalhead button strips every button in this row
+   back to a bare glyph. Restore the frame for this one, so it matches the
+   framed gear the other three windows show. */
+.mmlp-modalhead .mmlp-scalewrap .mmlp-btn{background:#2b3140;
+  border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;padding:4px 9px;
+  font-size:calc(11px * var(--mml-fs, 1));}
+.mmlp-modalhead .mmlp-scalewrap .mmlp-btn:hover{background:#333b4d;
+  border-color:#59637a;color:#d7dbe2;}
 .mmlp-modalhead button{background:none;border:0;color:#8a93a3;
   font-size:calc(17px * var(--mml-fs, 1));cursor:pointer;}
 .mmlp-modalhead button:hover{color:#fff;}
@@ -3466,7 +3479,12 @@ export class LoaderPanel {
       presetGroup,
       el("span", { class: "mmlp-topspace" }),
       modeCtl.shape,
-      this.scaleControl()));
+      // In the modal the gear lives in the window header beside its ✕, the
+      // way it does in the editor, the library and the quick editor. On the
+      // node there is no header to put it in, so it stays last in this bar —
+      // which is the same rule ("settings sits last, by the close control"),
+      // just applied to the only row this view has.
+      this.modal ? null : this.scaleControl()));
     // The x/12 and audio counters used to sit here. Every state they warned
     // about is already spelled out in the problem line below, in words and in
     // red, so they were spending prime space to repeat it \u2014 the running
@@ -3905,7 +3923,9 @@ export function openLoaderModal(node, opts = {}) {
                 onclick: () => { close(); node._mmh3OpenEditor(); } },
                 "\ud83d\udcdc Prompt Builder")
             : null,
-          el("button", { title: "Close", onclick: close }, "\u2715"))),
+          panel.scaleControl(),
+          el("button", { class: "mmlp-modalx", title: "Close",
+            onclick: close }, "\u2715"))),
       note ? el("div", { class: "mmlp-draftnote" }, note) : null,
       el("div", { class: "mmlp-modalbody" }, panel.root)));
   window.addEventListener("keydown", esc);

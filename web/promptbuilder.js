@@ -1192,8 +1192,9 @@ ${RAISE_CSS}
   display:flex;flex-direction:column;
   background:#191c22;color:#d7dbe2;border:1px solid #303642;border-radius:10px;
   box-shadow:0 24px 64px rgba(0,0,0,.55);overflow:hidden;}
-.mmh3p-head{display:flex;align-items:center;gap:14px;padding:10px 16px;
-  border-bottom:1px solid #2a2f3a;background:#1e222a;}
+.mmh3p-head{display:flex;align-items:center;gap:var(--mmh3-headgap);
+  padding:10px 16px;border-bottom:1px solid #2a2f3a;background:#1e222a;
+  --mmh3-headgap:14px;}
 /* One height for every control here, regardless of which of several
    differently-padded button styles it happens to use — .mmh3p-btn, .mmh3p-x
    and the mode switcher's own buttons each disagreed by a couple of px. */
@@ -1220,10 +1221,24 @@ ${RAISE_CSS}
 .mmh3p-guidebtn{margin-left:auto;}
 /* Pushes an item, and everything after it, to the right of a flex header. */
 .mmh3p-pushright{margin-left:auto;}
-/* ...which only holds if the close button stops claiming the slack too: with
-   two auto margins the free space splits between them and the pair ends up
-   apart rather than together. */
-.mmh3p-head .mmh3p-pushright ~ .mmh3p-x{margin-left:0;}
+/* Settings and close are ONE control group at the right-hand end of every
+   window that has a header — the editor, the library and the quick editor
+   all share this rule, and the media loader mirrors it in its own sheet.
+   The settings wrapper claims the header's slack... */
+.mmh3p-head .mmh3p-prefwrap{margin-left:auto;}
+/* ...which only holds if the close button stops claiming it too: with two
+   auto margins the free space splits between them and the pair ends up apart
+   rather than together. Either slack-claimer disables it. */
+.mmh3p-head .mmh3p-pushright ~ .mmh3p-x,
+.mmh3p-head .mmh3p-prefwrap ~ .mmh3p-x{margin-left:0;}
+/* ...and where settings sits directly before it, the gap between those two
+   closes so they read as one group. This MUST stay after the rules above:
+   it ties with them on specificity, so source order is what decides it —
+   the quick editor's header has a .mmh3p-pushright button as well, and
+   while this rule sat earlier that tie silently reopened the gap there
+   while the editor and library looked correct. Derived from the gap rather
+   than repeating 14px, so changing the gap can't reopen it either. */
+.mmh3p-head .mmh3p-prefwrap+.mmh3p-x{margin-left:calc(-1 * var(--mmh3-headgap));}
 .mmh3p-modes button{background:none;border:0;color:#9aa3b2;padding:5px 12px;border-radius:5px;
   cursor:pointer;font-size:calc(12px * var(--mmh3-fs, 1));}
 .mmh3p-modes button.on{background:#2f3947;color:#fff;}
@@ -1780,13 +1795,11 @@ ${RAISE_CSS}
   transform:translate(-50%,-50%);
   width:min(100cqw, calc(100cqh * var(--ar)));
   height:min(100cqh, calc(100cqw / var(--ar)));}
-/* The quick editor's language picker sits on the field's header row beside
-   + Shot and + (SN), so it has to stay small and match the buttons' height
-   rather than a full-width form control. */
-.mmh3p-quicklang{background:#12151b;color:#c9cfda;border:1px solid #2e3440;
-  border-radius:6px;padding:3px 5px;max-width:120px;
-  font-size:calc(11px * var(--mmh3-fs, 1));font-family:inherit;}
-.mmh3p-quicklang:focus{outline:none;border-color:#4a5568;}
+/* The speaker buttons share the field's header row with + Shot, and there
+   are as many of them as the prompt has speakers — so the group wraps as a
+   unit rather than letting one button strand itself on a line of its own. */
+.mmh3p-quickspk{display:inline-flex;gap:5px;flex-wrap:wrap;
+  align-items:center;}
 .mmh3p-quickpic .mmh3p-tagname{position:absolute;left:6px;bottom:6px;
   padding:2px 7px;border-radius:5px;background:rgba(8,10,14,.78);
   pointer-events:none;}
@@ -6164,48 +6177,83 @@ export function promptFields(node) {
    *  The language select defaults to English (LANGS[0]) and is carried on the
    *  button's own row rather than assumed, because the marker it writes has
    *  to name a language and guessing wrong is worse than one more control. */
+  /** Speakers already used in this field, in numeric order. The same scan
+   *  the full editor runs over the whole prompt, kept local here because a
+   *  quick-edit field is the only text this window has. */
+  const spkIds = (t) => {
+    const used = new Set();
+    for (const m of (t.value || "").matchAll(/\((S\d+(?:\s*,\s*S\d+)*)\)/g)) {
+      for (const id of m[1].split(",")) used.add(id.trim());
+    }
+    return [...used].sort((a, b) => (+a.slice(1)) - (+b.slice(1)));
+  };
+
+  /** The full editor's dialogue buttons, trimmed to what this window needs.
+   *
+   *  Progressive, exactly as the full editor is: one button per speaker
+   *  already in the text, plus the next unused ID. So a two-speaker scene
+   *  ends up with (S1), (S2) and + (S3) — you re-use a speaker by clicking
+   *  their own button, not by counting.
+   *
+   *  No language picker. Lines go out as English, which is LANGS[0] and the
+   *  full editor's own default; anything else is a word to change in the
+   *  text, and a dropdown for it costs more header room than this window has.
+   *
+   *  Rebuilt on every edit rather than relabelled, since the button COUNT
+   *  changes as speakers are added — which is the behaviour being matched. */
   const spkControl = (t) => {
-    const lang = el("select", { class: "mmh3p-quicklang",
-      title: "Language for the inserted line" },
-      LANGS.map((l) => el("option", { value: l }, l)));
-    const btn = el("button", { class: "mmh3p-btn",
-      title: "Insert a dialogue line for the next speaker",
-      onclick: () => {
-        const val = t.value || "";
-        const used = new Set();
-        for (const m of val.matchAll(/\((S\d+(?:\s*,\s*S\d+)*)\)/g)) {
-          for (const id of m[1].split(",")) used.add(id.trim());
-        }
-        const n = Math.max(0, ...[...used].map((x) => +x.slice(1))) + 1;
-        // Deliberately NOT on its own line: the model reads a line break as a
-        // shot boundary, so only [Shot N] may introduce one. Dialogue joins
-        // the description it belongs to. Same rule as the full editor.
-        const text = `(S${n}) says: <d>[${lang.value}] </d>`;
-        const pos = t.selectionStart ?? val.length;
-        const before = val.slice(0, pos), after = val.slice(pos);
-        const pad = before && !/[\s(\u2014]$/.test(before) ? " " : "";
-        t.value = before + pad + text + after;
-        // Land the caret inside the <d> block, where the words go — the same
-        // place the full editor's insert() puts it.
-        const dPos = text.indexOf("</d>");
-        t.selectionStart = t.selectionEnd = before.length + pad.length + dPos;
-        t.dispatchEvent(new Event("input", { bubbles: true }));
-        t.focus();
-        btn.textContent = `+ (S${n + 1})`;   // the row updates as you add
-      } }, "+ (S1)");
-    // The number on the button has to reflect what the field already holds,
-    // both on open and as the text changes -- otherwise it offers S1 over a
-    // prompt that is already up to S3.
-    const sync = () => {
-      const used = new Set();
-      for (const m of (t.value || "").matchAll(/\((S\d+(?:\s*,\s*S\d+)*)\)/g)) {
-        for (const id of m[1].split(",")) used.add(id.trim());
-      }
-      btn.textContent = `+ (S${Math.max(0, ...[...used].map((x) => +x.slice(1))) + 1})`;
+    const row = el("span", { class: "mmh3p-quickspk" });
+
+    const insert = (id) => {
+      const val = t.value || "";
+      // Deliberately NOT on its own line: the model reads a line break as a
+      // shot boundary, so only [Shot N] may introduce one. Dialogue joins
+      // the description it belongs to. Same rule as the full editor.
+      const text = `(${id}) says: <d>[${LANGS[0]}] </d>`;
+      const pos = t.selectionStart ?? val.length;
+      const before = val.slice(0, pos), after = val.slice(pos);
+      const pad = before && !/[\s(\u2014]$/.test(before) ? " " : "";
+      t.value = before + pad + text + after;
+      // Land the caret inside the <d> block, where the words go — the same
+      // place the full editor's insert() puts it.
+      const dPos = text.indexOf("</d>");
+      t.selectionStart = t.selectionEnd = before.length + pad.length + dPos;
+      t.dispatchEvent(new Event("input", { bubbles: true }));
+      t.focus();
     };
-    t.addEventListener("input", sync);
-    sync();
-    return [lang, btn];
+
+    const paint = () => {
+      const used = spkIds(t);
+      const next = `S${used.length
+        ? Math.max(...used.map((x) => +x.slice(1))) + 1 : 1}`;
+      const btn = (id, isNew) => el("button", {
+        class: "mmh3p-btn" + (isNew ? " ghost" : ""),
+        title: isNew
+          ? `Add ${id} \u2014 the next speaker in the video's speaking order`
+          : `Insert a line for ${id}`,
+        onclick: () => insert(id),
+      }, isNew ? `+ (${id})` : `(${id})`);
+      // .filter(Boolean), because replaceChildren is not el(): el() drops a
+      // null child, replaceChildren stringifies it — so the pair button's
+      // absence rendered as the literal text "null" beside the buttons
+      // whenever there were fewer than two speakers, which is the state the
+      // row opens in.
+      row.replaceChildren(...[
+        ...used.map((id) => btn(id, false)),
+        btn(next, true),
+        // Two speakers vocalising together, same as the full editor offers
+        // once there are two to pair.
+        used.length >= 2
+          ? el("button", { class: "mmh3p-btn",
+              title: "Two speakers vocalising together",
+              onclick: () => insert(`${used[0]},${used[1]}`) },
+              `(${used[0]},${used[1]})`)
+          : null,
+      ].filter(Boolean));
+    };
+    t.addEventListener("input", paint);
+    paint();
+    return row;
   };
 
   if (isRef) {
@@ -6215,11 +6263,11 @@ export function promptFields(node) {
       "The target video is in a realistic multi-camera sitcom style…");
     field("detailed_description — shots", target, "detail", 10,
       "[Shot 1] A medium shot establishes <Subject 1>, …", "mmh3p-grow",
-      (t) => [shotBtn(t), ...spkControl(t)]);
+      (t) => [shotBtn(t), spkControl(t)]);
   } else {
     field("integrated_multimodal_description", state, "imd", 10,
       "[Shot 1] Live-action, cinematic, …", "mmh3p-grow",
-      (t) => [shotBtn(t), ...spkControl(t)]);
+      (t) => [shotBtn(t), spkControl(t)]);
   }
 
   const pair = el("div", { class: "mmh3p-audiopair" });

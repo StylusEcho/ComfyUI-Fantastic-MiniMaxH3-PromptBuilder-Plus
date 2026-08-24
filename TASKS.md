@@ -723,3 +723,56 @@ when hiding, makes it a mouse-over caption for the respective section.
       predating `domstub.mjs` and had drifted from it, breaking on any merge
       touching a feature the private copy lacked. Both now import the shared
       one. **38 scripts green.**
+
+---
+
+## Follow-up round 10
+
+69. 🟩 drop the quick editor's language dropdown; keep the prompt builder's
+    progressive speaker buttons
+    - The quick editor now shows the same row the full editor does: one
+      button per speaker already in the text, plus the next unused ID, plus
+      the pair button once there are two to pair. Re-using a speaker is
+      clicking their own button rather than counting.
+    - No dropdown. Lines go out as English (`LANGS[0]`, the full editor's own
+      default); anything else is a word to change in the text.
+    - The row is rebuilt on every edit rather than relabelled, because the
+      button *count* changes as speakers are added — which is the behaviour
+      being matched.
+    - **Caught a bug of my own making, in the browser.** `replaceChildren()`
+      is not `el()`: `el()` drops a null child, `replaceChildren` stringifies
+      it. The pair button's absence rendered as the literal text **"null"**
+      beside the buttons — in the state the row *opens* in, so it was on
+      screen every time until a second speaker appeared. The headless harness
+      only surfaced it as a crash in an unrelated test's DOM walker; the
+      real-browser check is what showed what a user would actually see.
+      Guarded now by an assertion on the row's own text content.
+
+70. 🟩 remove the gap between the settings button and the ✕ in the prompt
+    builder
+    - Cause: `.mmh3p-head .mmh3p-x{margin-left:auto}` had the close button
+      claiming all the header's slack on its own, pinning it to the edge and
+      stranding the gear a full 14px header gap behind it. The settings
+      wrapper claims the slack now and the ✕ cancels the gap, so the two read
+      as one control group. The negative margin is derived from the gap
+      variable rather than repeating `14px`.
+    - **Measured, not assumed — and the first attempt was wrong.** The editor
+      and library came out at 0px but the quick editor stayed at 14px: its
+      header also carries a `.mmh3p-pushright` button, and
+      `.mmh3p-pushright ~ .mmh3p-x{margin-left:0}` ties with the new rule on
+      specificity, so source order decided it. The rules are now one ordered
+      group with the dependency written down. Verified in real Chromium:
+      **0.0px in all four windows**, with the ✕ flush to the header's right
+      padding edge.
+
+71. 🟩 keep the settings button placement consistent across every interface
+    - Three of four windows already ended `⚙ | ✕`. The media loader's window
+      was the odd one out: its gear sat at the far right of the *panel's*
+      toolbar while its header held only the ✕.
+    - The gear now renders in the loader's window header beside its ✕, and is
+      re-framed there — `.mmlp-modalhead button` strips every button in that
+      row back to a bare glyph, which would have left this one unframed while
+      the other three are framed. Measured: gear and ✕ both 23px, same top.
+    - The on-node panel has no header, so its gear stays last in the toolbar
+      — the same rule ("settings sits last, by the close control") applied to
+      the only row that view has.
