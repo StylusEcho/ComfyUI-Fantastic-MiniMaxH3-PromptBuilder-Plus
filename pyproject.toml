@@ -25,7 +25,11 @@ name = "fantastic-minimax-h3-promptstudio"
 # used to travel on picture_1, and now travels on last_frame, since that is
 # what it actually is. I2VA and FL2VA output on the same two slots as before.
 # See "Upgrading from 1.x" in the README.
-version = "2.4.0"
+# 2.5.0 folds in upstream 1.6.1 (prompt-to-preset linking, preset categories,
+# the HTML guide replacing the PDF, save-on-close) and the 1.6.2 security
+# release (path containment, per-route CSRF guards, PyAV-only decoding with
+# no subprocess use) — no breakage of saved workflows.
+version = "2.5.0"
 description = "MiniMax H3 Prompt Studio: a single guided prompt-writing and reference-media node for the H3 video model, with live checking against MiniMax's prompt guide."
 license = { file = "LICENSE" }
 requires-python = ">=3.9"

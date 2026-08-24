@@ -849,12 +849,56 @@ const CSS = `
 .mmlp-presetbtn:focus{outline:none;border-color:#4a5568;}
 .mmlp-presetmenu{display:none;position:absolute;left:0;right:0;top:100%;margin-top:4px;
   background:#161a21;border:1px solid #2e3440;border-radius:6px;z-index:40;
-  max-height:220px;overflow:auto;box-shadow:0 12px 32px rgba(0,0,0,.5);}
+  overflow:hidden;box-shadow:0 12px 32px rgba(0,0,0,.5);}
 .mmlp-presetmenu.on{display:block;}
 .mmlp-presetitem{padding:4px 8px;font-size:calc(11px * var(--mml-fs, 1));color:#c9cfda;
   font-family:system-ui,sans-serif;cursor:pointer;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;}
+.mmlp-presetitem{display:flex;align-items:baseline;gap:6px;}
+.mmlp-presetitemname{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;}
+.mmlp-presetitemn{flex:0 0 auto;color:#5c6472;
+  font-size:calc(9px * var(--mml-fs, 1));}
 .mmlp-presetitem:hover{background:#232a35;}
+.mmlp-presetcatbtn{flex:0 0 auto;background:none;border:0;color:#4a5568;
+  cursor:pointer;padding:0 2px;font-size:calc(10px * var(--mml-fs, 1));}
+.mmlp-presetitem:hover .mmlp-presetcatbtn{color:#8a93a3;}
+.mmlp-presetcatbtn:hover{color:#dde2ea;}
+.mmlp-presetitem.editing{background:#1d2430;gap:5px;flex-wrap:nowrap;
+  align-items:center;}
+/* The name is flex:1 in a normal row; in edit mode it must yield so the
+   controls stay on the line instead of wrapping out of the clipped menu. */
+.mmlp-presetitem.editing .mmlp-presetitemname{flex:0 1 auto;max-width:38%;}
+.mmlp-presetitem.editing .mmlp-presetcat{flex:0 1 150px;min-width:0;}
+.mmlp-presetitem.editing .mmlp-presetcatnew{flex:1 1 90px;min-width:0;}
+.mmlp-presetitem.editing .mmlp-btn{flex:0 0 auto;}
+.mmlp-presethead{padding:5px 8px 2px;color:#6b7484;letter-spacing:.05em;
+  text-transform:uppercase;font-size:calc(9px * var(--mml-fs, 1));
+  font-family:system-ui,sans-serif;position:sticky;top:0;background:#161a21;}
+.mmlp-presetlist{max-height:220px;overflow:auto;}
+/* The picker's bar mirrors the prompt library's: search, category select,
+   rename. Same job, same shape. */
+.mmlp-presetbar{display:flex;gap:5px;align-items:center;padding:6px 7px;
+  border-bottom:1px solid #2e3440;background:#12151b;}
+.mmlp-presetfilter{flex:1 1 auto;min-width:0;box-sizing:border-box;
+  background:#191c22;color:#dde2ea;border:1px solid #2e3440;border-radius:6px;
+  padding:4px 7px;font-size:calc(11px * var(--mml-fs, 1));
+  font-family:system-ui,sans-serif;}
+.mmlp-presetfilter:focus{outline:none;border-color:#4a5568;}
+.mmlp-presetcatfilter{flex:0 1 130px;min-width:0;background:#191c22;
+  color:#c9cfda;border:1px solid #2e3440;border-radius:6px;padding:4px 5px;
+  font-size:calc(11px * var(--mml-fs, 1));font-family:system-ui,sans-serif;}
+.mmlp-presetcatfilter:focus{outline:none;border-color:#4a5568;}
+.mmlp-presetcatedit{flex:0 0 auto;}
+.mmlp-presetcatedit.on{border-color:#4a5568;color:#dde2ea;}
+.mmlp-presetrenamerow{display:flex;gap:5px;align-items:center;}
+.mmlp-presetrenamerow:not(:empty){padding:6px 7px;
+  border-bottom:1px solid #2e3440;background:#151920;}
+.mmlp-presetrenamerow .mmlp-presetcatnew{flex:1 1 auto;min-width:0;display:block;}
+.mmlp-presetcat,.mmlp-presetcatnew{background:#12151b;color:#c9cfda;
+  border:1px solid #2e3440;border-radius:6px;padding:3px 6px;flex:0 0 auto;
+  max-width:150px;font-size:calc(11px * var(--mml-fs, 1));
+  font-family:system-ui,sans-serif;}
+.mmlp-presetcat:focus,.mmlp-presetcatnew:focus{outline:none;border-color:#4a5568;}
 .mmlp-presetitem.on{color:#dde2ea;background:#1d2430;}
 .mmlp-presetempty{padding:4px 8px;font-size:calc(10px * var(--mml-fs, 1));color:#6b7484;
   font-family:system-ui,sans-serif;}
@@ -2050,7 +2094,7 @@ function capabilities() {
   if (!capsPromise) {
     capsPromise = api.fetchApi("/minimax_h3_plus/capabilities")
       .then((r) => r.json())
-      .catch(() => ({ video: true, av: false, ffmpeg: false }));
+      .catch(() => ({ video: true, av: false }));
   }
   return capsPromise;
 }
@@ -2170,22 +2214,48 @@ export class LoaderPanel {
     this.refreshPresets();
   }
 
+  /** presetName survives every edit short of Unload, so it will happily
+   *  claim "beach set" for media that stopped matching it an hour ago.
+   *  Ask the server what the media actually is and mark it if it drifted. */
+  async checkPresetMatch() {
+    if (this.store) return;              // draft sets aren't named presets
+    try {
+      const res = await presetApi("/match", { items: this.items });
+      const drifted = !!this.presetName && res.name !== this.presetName;
+      if (drifted !== this.presetDrifted) {
+        this.presetDrifted = drifted;
+        this.render();
+      }
+    } catch (e) { /* labelling is cosmetic; never break the panel for it */ }
+  }
+
   async refreshPresets() {
     try {
       const data = await presetApi("");
-      this.presets = data.presets || [];
+      // The route used to return bare strings; it now returns objects with
+      // a category. Normalise both so a stale cached client can't blank the
+      // picker.
+      this.presets = (data.presets || []).map((p) =>
+        typeof p === "string" ? { name: p, category: "" } : p);
+      this.presetCats = data.categories || [];
       this.render();
     } catch (e) { /* routes unavailable; the row stays empty */ }
   }
 
-  async savePreset(name) {
+  presetNames() { return this.presets.map((p) => p.name); }
+
+  async savePreset(name, category) {
     if (!this.items.length) {
       this.say("Nothing loaded to save.", true); this.render(); return;
     }
     if (!name) { this.say("Give the preset a name.", true); this.render(); return; }
     try {
-      const res = await presetApi("/save", { name, items: this.items });
+      const body = { name, items: this.items };
+      // Undefined means "leave whatever it had"; "" means uncategorised.
+      if (category !== undefined) body.category = category;
+      const res = await presetApi("/save", body);
       this.presetName = res.name;
+      this.presetDrifted = false;
       this.presetPrompt = null;
       this.say(`Saved "${res.name}" (${res.count} item${res.count === 1 ? "" : "s"}).`);
       await this.refreshPresets();
@@ -2201,6 +2271,7 @@ export class LoaderPanel {
       const res = await presetApi("/load", { name });
       this.items = res.items || [];
       this.presetName = res.name;
+      this.presetDrifted = false;
       if (res.missing?.length) {
         this.say(`Loaded "${res.name}" — ${res.missing.length} file(s) no longer ` +
           `on disk and were skipped: ${res.missing.join(", ")}`, true);
@@ -2273,6 +2344,8 @@ export class LoaderPanel {
         this.render();
         return;
       }
+      clearTimeout(this._matchTimer);
+      this._matchTimer = setTimeout(() => this.checkPresetMatch(), 400);
       const w = this.widget();
       if (!w) {
         // Nothing to write through yet. Keep what's in memory and just draw.
@@ -2422,15 +2495,153 @@ export class LoaderPanel {
    *  an open native picker, which read as "the dropdown flashes and closes".
    *  A popover we own can only be closed by us. */
   presetPicker() {
-    const menu = el("div", { class: "mmlp-presetmenu" },
-      this.presets.length
-        ? this.presets.map((n) => el("div", {
-            class: "mmlp-presetitem" + (n === this.presetName ? " on" : ""),
-            title: `Load "${n}"`,
+    const list = el("div", { class: "mmlp-presetlist" });
+    // Same bar the prompt library uses: a text search, a category select,
+    // and a pencil to rename or clear the selected category. Mirroring it
+    // rather than inventing a second idiom for the same job.
+    const filter = el("input", { type: "text", class: "mmlp-presetfilter",
+      placeholder: "Search presets",
+      onmousedown: (e) => e.stopPropagation(),
+      onclick: (e) => e.stopPropagation(),
+      onkeydown: (e) => {
+        if (e.key === "Escape") { this.closePresetMenu(); e.stopPropagation(); }
+        e.stopPropagation();      // typing must not reach the modal's keys
+      },
+      oninput: () => paint() });
+
+    const catSel = el("select", { class: "mmlp-presetcatfilter",
+      title: "Show one category",
+      onmousedown: (e) => e.stopPropagation(),
+      onclick: (e) => e.stopPropagation(),
+      onchange: () => { this._catFilter = catSel.value; this._catRename = false;
+        paint(); } });
+
+    const catBtn = el("button", { class: "mmlp-btn mmlp-sm mmlp-presetcatedit",
+      title: "Rename or clear the selected category",
+      onmousedown: (e) => e.stopPropagation(),
+      onclick: (e) => {
+        e.stopPropagation();
+        if (!this._catFilter) { this.say("Pick a category to manage first.", true); return; }
+        this._catRename = !this._catRename;
+        paint();
+      } }, "\u270e");
+
+    const bar = el("div", { class: "mmlp-presetbar" }, filter, catSel, catBtn);
+    const renameRow = el("div", { class: "mmlp-presetrenamerow" });
+
+    const paintCats = () => {
+      const cats = this.presetCats || [];
+      catSel.replaceChildren(
+        el("option", { value: "" }, "All categories"),
+        ...cats.map((c) => el("option", { value: c }, c)),
+        el("option", { value: "\u0000none" }, "Uncategorised"));
+      catSel.value = this._catFilter || "";
+      catBtn.classList.toggle("on", !!this._catRename);
+    };
+
+    const paintRename = () => {
+      if (!this._catRename || !this._catFilter
+          || this._catFilter === "\u0000none") {
+        renameRow.replaceChildren();
+        return;
+      }
+      const input = el("input", { type: "text", class: "mmlp-presetcatnew",
+        value: this._catFilter,
+        onmousedown: (e) => e.stopPropagation(),
+        onclick: (e) => e.stopPropagation(),
+        onkeydown: (e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") go("");
+          if (e.key === "Escape") { this._catRename = false; paint(); }
+        } });
+      const go = async (to) => {
+        const from = this._catFilter;
+        const target = to === "" ? input.value.trim() : to;
+        if (to === "" && !target) return;
+        try {
+          await presetApi("/category", { from, to: target });
+          this._catFilter = to === null ? "" : target;
+          this._catRename = false;
+          await this.refreshPresets();
+          this._presetMenu?.classList.add("on");
+          this._presetBtn?.classList.add("on");
+        } catch (err) { this.say(`Couldn't update: ${err.message}`, true); }
+      };
+      renameRow.replaceChildren(input,
+        el("button", { class: "mmlp-btn mmlp-sm",
+          onmousedown: (e) => e.stopPropagation(),
+          onclick: (e) => { e.stopPropagation(); go(""); } }, "Rename"),
+        el("button", { class: "mmlp-btn mmlp-sm mmlp-danger",
+          title: "Remove this category from its presets; the presets stay",
+          onmousedown: (e) => e.stopPropagation(),
+          onclick: (e) => { e.stopPropagation();
+            this._catFilter = ""; go(null); } }, "Clear"));
+    };
+
+    const paint = () => {
+      // Normalise here too, not just in refreshPresets: anything that sets
+      // this.presets directly would otherwise render nameless rows.
+      this.presets = (this.presets || []).map((p) =>
+        typeof p === "string" ? { name: p, category: "" } : p);
+      paintCats();
+      paintRename();
+      const q = filter.value.trim().toLowerCase();
+      const cf = this._catFilter || "";
+      const hits = this.presets.filter((p) => {
+        const cat = p.category || "";
+        if (cf === "\u0000none" && cat) return false;
+        if (cf && cf !== "\u0000none" && cat !== cf) return false;
+        return !q || p.name.toLowerCase().includes(q)
+                  || cat.toLowerCase().includes(q);
+      });
+      if (!hits.length) {
+        list.replaceChildren(el("div", { class: "mmlp-presetempty" },
+          this.presets.length ? "Nothing matches that."
+                              : "No presets saved \u2014 use Save."));
+        return;
+      }
+      const groups = new Map();
+      for (const p of hits) {
+        const k = p.category || "";
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(p);
+      }
+      // Named categories first, alphabetically; uncategorised last, since
+      // it's a leftover rather than a heading anyone chose.
+      const keys = [...groups.keys()].filter(Boolean)
+        .sort((a, b) => a.localeCompare(b));
+      if (groups.has("")) keys.push("");
+      const out = [];
+      for (const k of keys) {
+        // Headed even when it's the only group: hiding it meant the
+        // grouping stayed invisible until after you'd filed something.
+        out.push(el("div", { class: "mmlp-presethead" }, k || "Uncategorised"));
+        for (const p of groups.get(k)) {
+          if (this._catEdit === p.name) { out.push(this.catEditor(p, paint)); continue; }
+          out.push(el("div", {
+            class: "mmlp-presetitem" + (p.name === this.presetName ? " on" : ""),
             onmousedown: (e) => e.stopPropagation(),
-            onclick: (e) => { e.stopPropagation(); this.loadPreset(n); } }, n))
-        : el("div", { class: "mmlp-presetempty" },
-            "No presets saved \u2014 use Save."));
+            onclick: (e) => { e.stopPropagation(); this.loadPreset(p.name); } },
+            el("span", { class: "mmlp-presetitemname" }, p.name),
+            p.counts ? el("span", { class: "mmlp-presetitemn" },
+              String((p.counts.picture || 0) + (p.counts.video || 0) +
+                     (p.counts.audio || 0))) : null,
+            // File an existing preset without loading and re-saving it.
+            el("button", { class: "mmlp-presetcatbtn",
+              title: "Change this preset's category",
+              onmousedown: (e) => e.stopPropagation(),
+              onclick: (e) => {
+                e.stopPropagation();
+                this._catEdit = p.name;
+                paint();
+              } }, "\u270e")));
+        }
+      }
+      list.replaceChildren(...out);
+    };
+    paint();
+
+    const menu = el("div", { class: "mmlp-presetmenu" }, bar, renameRow, list);
     const btn = el("button", { class: "mmlp-presetbtn",
       title: "Load a saved reference set",
       onkeydown: (e) => {
@@ -2445,13 +2656,68 @@ export class LoaderPanel {
         btn.classList.toggle("on", open);
       } },
       this.presetName
-        || (this.presets.length ? "load preset\u2026" : "no presets saved"));
+        ? this.presetName + (this.presetDrifted ? " (edited)" : "")
+        : (this.presets.length ? "load preset\u2026" : "no presets saved"));
     this._presetMenu = menu;
     this._presetBtn = btn;
     return el("div", { class: "mmlp-presetwrap" }, btn, menu);
   }
 
+  /** Inline category editor for one preset row. Inline rather than a
+   *  dialog, same as everywhere else in this pack. */
+  catEditor(p, paint) {
+    const known = [...(this.presetCats || [])];
+    if (p.category && !known.includes(p.category)) known.unshift(p.category);
+    const fresh = el("input", { type: "text", class: "mmlp-presetcatnew",
+      placeholder: "new category", style: { display: "none" },
+      onmousedown: (e) => e.stopPropagation(),
+      onclick: (e) => e.stopPropagation(),
+      onkeydown: (e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") { this._catEdit = null; paint(); }
+      } });
+    const sel = el("select", { class: "mmlp-presetcat",
+      onmousedown: (e) => e.stopPropagation(),
+      onclick: (e) => e.stopPropagation(),
+      onchange: () => {
+        const isNew = sel.value === "\u0000new";
+        fresh.style.display = isNew ? "" : "none";
+        if (isNew) fresh.focus();
+      } },
+      el("option", { value: "" }, "no category"),
+      known.map((c) => el("option", { value: c,
+        selected: c === (p.category || "") }, c)),
+      el("option", { value: "\u0000new" }, "(new category\u2026)"));
+    sel.value = p.category || "";
+    const commit = async () => {
+      const value = sel.value === "\u0000new" ? fresh.value.trim() : sel.value;
+      try {
+        await presetApi("/meta", { name: p.name, category: value });
+        this._catEdit = null;
+        await this.refreshPresets();
+        // refreshPresets re-renders the whole panel, which rebuilds the
+        // picker closed — reopen it so filing several in a row is one flow.
+        this._presetMenu?.classList.add("on");
+        this._presetBtn?.classList.add("on");
+      } catch (err) {
+        this.say(`Couldn't set category: ${err.message}`, true);
+        this._catEdit = null;
+        paint();
+      }
+    };
+    return el("div", { class: "mmlp-presetitem editing",
+      onmousedown: (e) => e.stopPropagation(),
+      onclick: (e) => e.stopPropagation() },
+      el("span", { class: "mmlp-presetitemname" }, p.name),
+      sel, fresh,
+      el("button", { class: "mmlp-btn mmlp-sm", onclick: commit }, "Set"),
+      el("button", { class: "mmlp-btn mmlp-sm",
+        onclick: () => { this._catEdit = null; paint(); } }, "\u2715"));
+  }
+
   closePresetMenu() {
+    this._catEdit = null;
     this._presetMenu?.classList.remove("on");
     this._presetBtn?.classList.remove("on");
   }
@@ -2472,7 +2738,7 @@ export class LoaderPanel {
       const full = this.capacityError(guess, file.name);
       if (full) { this.say(full, true); continue; }
       if (guess === "video" && !caps.video) {
-        this.say("Videos need PyAV or ffmpeg on the server.", true);
+        this.say("Videos need PyAV on the server.", true);
         continue;
       }
       this.busy += 1; this.render();
@@ -3154,14 +3420,37 @@ export class LoaderPanel {
         placeholder: "Preset name",
         value: this.presetName ||
           `refs ${new Date().toISOString().slice(0, 10)}` });
-      const go = () => this.savePreset(input.value.trim());
-      input.addEventListener("keydown", (e) => {
+      // Category: existing ones as a pick, so filing into one is a choice
+      // rather than retyping it exactly; the same shape the prompt library
+      // uses. A blank value leaves the preset uncategorised.
+      const known = [...(this.presetCats || [])];
+      const current = (this.presets.find((p) => p.name === this.presetName)
+        || {}).category || "";
+      if (current && !known.includes(current)) known.unshift(current);
+      const catNew = el("input", { type: "text", class: "mmlp-presetcatnew",
+        placeholder: "new category", style: { display: "none" } });
+      const cat = el("select", { class: "mmlp-presetcat",
+        onchange: () => {
+          const isNew = cat.value === "\u0000new";
+          catNew.style.display = isNew ? "" : "none";
+          if (isNew) catNew.focus();
+        } },
+        el("option", { value: "" }, "no category"),
+        known.map((c) => el("option", { value: c, selected: c === current }, c)),
+        el("option", { value: "\u0000new" }, "(new category\u2026)"));
+      cat.value = current;
+      const categoryValue = () =>
+        cat.value === "\u0000new" ? catNew.value.trim() : cat.value;
+      const go = () => this.savePreset(input.value.trim(), categoryValue());
+      const keys = (e) => {
         if (e.key === "Enter") go();
         if (e.key === "Escape") { this.presetPrompt = null; this.render(); }
-      });
+      };
+      input.addEventListener("keydown", keys);
+      catNew.addEventListener("keydown", keys);
       setTimeout(() => { input.focus(); input.select(); }, 0);
       kids.push(el("div", { class: "mmlp-presetrow" },
-        el("span", { class: "mmlp-presetlbl" }, "save as"), input,
+        el("span", { class: "mmlp-presetlbl" }, "save as"), input, cat, catNew,
         el("button", { class: "mmlp-btn mmlp-sm", onclick: go }, "Save"),
         el("button", { class: "mmlp-btn mmlp-sm",
           onclick: () => { this.presetPrompt = null; this.render(); } }, "Cancel")));

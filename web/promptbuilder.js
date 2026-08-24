@@ -402,6 +402,10 @@ const TAG_CLASS = { Subject: "subj", Picture: "pic", Video: "vid", Audio: "aud" 
 const PREF_KEY = "mmh3.editorPrefs";
 const PREF_DEFAULTS = {
   closeOnBackdrop: true, warnUnsaved: true,
+  // Closing writes the prompt to the node instead of asking about it. Off by
+  // default: the node holding something you didn't deliberately put there is
+  // a bigger surprise than being asked.
+  saveOnClose: false,
   // Window and text scale, 100%-300%. A 4K monitor makes the default window
   // small; these are per user, so they follow you into every workflow.
   windowScale: 1.0, textScale: 1.0,
@@ -555,6 +559,38 @@ export function el(tag, props = {}, ...children) {
     e.append(c.nodeType ? c : document.createTextNode(c));
   }
   return e;
+}
+
+/** Kind icons as inline SVG.
+ *
+ *  Not glyphs: ▦ ▶ ♪ depend on whatever font the browser resolves for
+ *  system-ui, and on Linux that chain frequently has no coverage for the
+ *  Geometric Shapes block — the icons simply vanish or become tofu. SVG
+ *  renders identically everywhere, scales with font-size through the `em`
+ *  sizing, and takes its colour from currentColor. */
+const KIND_SVG = {
+  picture:
+    '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" ' +
+    'stroke="currentColor" stroke-width="1.4"/>' +
+    '<circle cx="5.5" cy="6" r="1.3" fill="currentColor"/>' +
+    '<path d="M3 12l3.2-3.6 2.3 2.4 2.1-2.3L13 12z" fill="currentColor"/>',
+  video:
+    '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" ' +
+    'stroke="currentColor" stroke-width="1.4"/>' +
+    '<path d="M6.3 5.6l4.5 2.4-4.5 2.4z" fill="currentColor"/>',
+  audio:
+    '<path d="M2 9.5V6.5M5 11.5v-7M8 13V3M11 11.5v-7M14 9.5V6.5" ' +
+    'fill="none" stroke="currentColor" stroke-width="1.5" ' +
+    'stroke-linecap="round"/>',
+};
+
+function kindIcon(kind) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("class", "mmh3p-kindicon");
+  svg.setAttribute("aria-hidden", "true");
+  svg.innerHTML = KIND_SVG[kind] || "";
+  return svg;
 }
 
 function escapeHtml(s) {
@@ -2007,6 +2043,49 @@ const CSS = `
 .mmh3p-draftmsg{flex:1 1 240px;min-width:0;color:#bfe0dc;
   font-size:calc(11px * var(--mmh3-fs, 1));line-height:1.45;}
 .mmh3p-draftstatus{color:#3fb2a8;opacity:.75;}
+.mmh3p-mediapeek{width:256px;padding:0;}
+.mmh3p-peeklink{margin-top:5px;padding-top:5px;border-top:1px solid #262c36;
+  color:#8fd3c8;line-height:1.4;font-size:calc(10px * var(--mmh3-fs, 1));}
+.mmh3p-peekgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;
+  padding:6px;background:#12151b;}
+.mmh3p-peekcell{position:relative;aspect-ratio:1;background:#0e1116;
+  border-radius:4px;overflow:hidden;display:flex;align-items:center;
+  justify-content:center;}
+.mmh3p-peekcell img{width:100%;height:100%;object-fit:cover;}
+.mmh3p-peekkind{color:#6b7484;display:flex;align-items:center;
+  justify-content:center;}
+.mmh3p-peekkind .mmh3p-kindicon{width:22px;height:22px;color:#6b7484;}
+.mmh3p-peekname{position:absolute;left:0;right:0;bottom:0;padding:1px 3px;
+  background:rgba(8,10,14,.72);color:#9aa3b2;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;
+  font-size:calc(8px * var(--mmh3-fs, 1));}
+.mmh3p-libmedia{display:inline-flex;align-items:baseline;gap:5px;
+  font-size:calc(10px * var(--mmh3-fs, 1));color:#8fd3c8;
+  background:rgba(63,178,168,.14);border:1px solid rgba(63,178,168,.32);
+  border-radius:5px;padding:1px 7px;max-width:260px;overflow:hidden;
+  white-space:nowrap;cursor:help;}
+.mmh3p-libmedia:hover{background:rgba(63,178,168,.22);}
+.mmh3p-libkind{color:#8fd3c8;flex:0 0 auto;display:inline-flex;
+  align-items:baseline;gap:2px;}
+.mmh3p-kindicon{width:1.05em;height:1.05em;display:block;flex:0 0 auto;
+  color:#5e9c93;}
+.mmh3p-libkind{gap:3px;}
+.mmh3p-libsep{color:#4a7a73;flex:0 0 auto;}
+.mmh3p-libpname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mmh3p-prefitem.off{opacity:.5;}
+.mmh3p-prefitem.off .mmh3p-prefhint{color:#f0c98a;opacity:.85;}
+.mmh3p-linkrow{display:flex;align-items:flex-start;gap:7px;flex-wrap:wrap;
+  margin-top:7px;padding-top:7px;border-top:1px solid #262c36;}
+.mmh3p-linktext{display:flex;flex-direction:column;gap:1px;
+  font-size:calc(11px * var(--mmh3-fs, 1));color:#8a93a3;}
+.mmh3p-linktext b{color:#6fb3a8;font-weight:600;}
+.mmh3p-linknote{color:#6b7484;font-size:calc(10px * var(--mmh3-fs, 1));
+  line-height:1.4;}
+.mmh3p-linkname{flex:1 1 140px;min-width:0;background:#12151b;color:#dde2ea;
+  border:1px solid #2e3440;border-radius:6px;padding:4px 8px;
+  font-size:calc(11px * var(--mmh3-fs, 1));font-family:inherit;}
+.mmh3p-linkname:focus{outline:none;border-color:#4a5568;}
+.mmh3p-linkwarn{display:block;margin-top:5px;color:#f0c98a;}
 .mmh3p-draftdropped{background:#3a2a18;color:#f0c98a;border:1px solid #6b4f26;
   border-radius:5px;padding:1px 7px;flex:0 0 auto;cursor:help;
   font-size:calc(10px * var(--mmh3-fs, 1));}
@@ -2129,6 +2208,17 @@ function draftIdFor(node) {
   return node.properties.mmh3_draft_id;
 }
 
+async function presetApi(path, body) {
+  const resp = await api.fetchApi("/minimax_h3_plus/presets" + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.error || `request failed (${resp.status})`);
+  return data;
+}
+
 async function libApi(path, body) {
   const opts = body
     ? { method: "POST", body: JSON.stringify(body),
@@ -2174,6 +2264,8 @@ function libMarks(entry) {
 }
 
 class Library {
+  static _peekCache = new Map();
+
   constructor(editor) {
     this.editor = editor;
     this.entries = [];
@@ -2301,6 +2393,8 @@ class Library {
 
   close() {
     window.removeEventListener("keydown", this.escHandler);
+    // The peek lives on <body>, so it would outlive the modal that owns it.
+    this.closeMediaPeek();
     this.overlay.remove();
   }
 
@@ -2368,6 +2462,63 @@ class Library {
     const fav = el("input", { type: "checkbox" });
     const err = el("span", { class: "mmh3p-saveerr" });
 
+    // Media link. Which of the three states applies is decided by CONTENT,
+    // not by the loader's presetName: that label survives every edit short
+    // of Unload, so it happily claims "beach set" for media that stopped
+    // matching it an hour ago.
+    const linkBox = el("input", { type: "checkbox" });
+    const linkNew = el("input", { type: "text", class: "mmh3p-linkname",
+      placeholder: "new preset name\u2026" });
+    const linkRow = el("label", { class: "mmh3p-linkrow" },
+      el("span", { class: "mmh3p-linktext" }, "checking media\u2026"));
+    const link = { mode: "none", preset: null, digest: null, items: null };
+
+    (async () => {
+      const items = loaderItems(ed.node) || [];
+      if (!items.length) { linkRow.style.display = "none"; return; }
+      let match;
+      try { match = await presetApi("/match", { items }); }
+      catch (e2) { linkRow.style.display = "none"; return; }
+      link.items = items;
+      link.digest = match.digest;
+      const count = `${items.length} reference` +
+        `${items.length === 1 ? "" : "s"}`;
+      if (match.name) {
+        link.mode = "existing";
+        link.preset = match.name;
+        linkBox.checked = true;
+        linkRow.replaceChildren(linkBox,
+          el("span", { class: "mmh3p-linktext" },
+            el("b", {}, "Linked to media \u2014 " + match.name),
+            el("span", { class: "mmh3p-linknote" },
+              `The loaded media (${count}) is saved as this preset. ` +
+              "Loading this prompt will offer to load it too.")));
+      } else {
+        link.mode = "new";
+        linkNew.value = (name.value || "").trim();
+        linkRow.replaceChildren(linkBox,
+          el("span", { class: "mmh3p-linktext" },
+            el("b", {}, "Link to media \u2014 new preset"),
+            el("span", { class: "mmh3p-linknote" },
+              `The loaded media (${count}) isn't saved as a preset yet. ` +
+              "Name it and it will be saved and linked to this prompt.")),
+          linkNew);
+      }
+    })();
+
+    /** Returns { media_preset, media_digest } for the save body, creating
+     *  the preset first when the user asked for a new one. */
+    const resolveLink = async () => {
+      if (!linkBox.checked || link.mode === "none") return {};
+      if (link.mode === "existing") {
+        return { media_preset: link.preset, media_digest: link.digest };
+      }
+      const pname = linkNew.value.trim();
+      if (!pname) throw new Error("Give the media preset a name, or untick it.");
+      const res = await presetApi("/save", { name: pname, items: link.items });
+      return { media_preset: res.name, media_digest: link.digest };
+    };
+
     // Saving under a different name used to be treated as a rename, which
     // DELETED the loaded prompt — "save a variant" quietly ate the original.
     // The ambiguity is now the user's call: "Save as new" never deletes, and
@@ -2376,6 +2527,9 @@ class Library {
       const value = name.value.trim();
       if (!value) { err.textContent = "Give it a name first."; name.focus(); return; }
       const inPlace = ed.libraryId && value === ed.libraryName;
+      let linkFields;
+      try { linkFields = await resolveLink(); }
+      catch (e3) { err.textContent = e3.message; return; }
       const body = {
         name: value,
         category: categoryValue(),
@@ -2384,6 +2538,7 @@ class Library {
         refs: ed.slots.filter((s) => s.tag).length,
         prompt: generate(ed.state),
         state: ed.state,
+        ...linkFields,
       };
       if (rename) { body.rename_from = ed.libraryId; body.rename = true; }
       else if (!inPlace && !overwrite) body.expect_new = true;
@@ -2440,6 +2595,7 @@ class Library {
         saveBtn, renameBtn,
         el("button", { class: "mmh3p-btn",
           onclick: () => { this.saveOpen = false; this.paint(); } }, "Cancel")),
+      linkRow,
       err);
   }
 
@@ -2568,7 +2724,12 @@ class Library {
           onclick: () => { this.rowCat = e.id; this.paint(); } },
           e.category || "+ category"),
           ...libMarks(e),
+          e.media_preset
+            ? this.mediaBadge(e.media_preset, e.media_counts)
+            : null,
           el("span", { class: "mmh3p-libage" }, ago(e.updated))),
+        // previewFor(), not a bare .mmh3p-libprev: this fork's library has a
+        // preview-rows setting, and the row count decides how much is shown.
         this.previewFor(e)),
       el("div", { class: "mmh3p-libacts" },
         el("button", { class: "mmh3p-btn primary",
@@ -2615,10 +2776,127 @@ class Library {
       this.editor.libraryCategory = data.category || "";
       // Loading = clean against that entry; the active buffer records it.
       this.editor.noteLibraryIdentity();
+      if (data.media_preset) {
+        this.editor.offerLinkedMedia(data.media_preset, data.media_digest);
+      }
       this.editor.render();
       toast(`Loaded "${entry.name}"`);
       this.close();
     } catch (err) { toast(`Load failed: ${err.message}`); }
+  }
+
+  /** The linked-preset badge, with a hover preview of what it holds.
+   *
+   *  The contents are fetched once per preset per session and cached: the
+   *  route probes files it hasn't got metadata for, and a hover shouldn't
+   *  pay that twice. Everything here is read-only — a failed fetch just
+   *  means no preview, never a broken row. */
+  mediaBadge(presetName, counts) {
+    const badge = el("span", { class: "mmh3p-libmedia" });
+    // Kind counts instead of a label: they say "this is media" AND what
+    // media, in the same space. Zero kinds are omitted, so an all-pictures
+    // set reads "3 pictures" rather than padding with empty categories.
+    // Glyphs match the rest of the pack — the loader already counts audio
+    // with the same note, and the media peek marks video with the same
+    // play mark.
+    if (counts) {
+      for (const k of ["picture", "video", "audio"]) {
+        if (!counts[k]) continue;
+        badge.append(el("span", { class: "mmh3p-libkind" },
+          kindIcon(k), String(counts[k])));
+      }
+      if (badge.childElementCount) {
+        badge.append(el("span", { class: "mmh3p-libsep" }, "\u00b7"));
+      }
+    }
+    badge.append(el("span", { class: "mmh3p-libpname" }, presetName));
+    // Deliberately no title attribute anywhere on this badge: the OS
+    // tooltip appears over the preview and hides the thing you hovered for.
+    // The preview says it all instead.
+    let timer = null;
+    const open = async () => {
+      let info = Library._peekCache.get(presetName);
+      if (!info) {
+        try {
+          info = await presetApi("/load", { name: presetName });
+        } catch (e) {
+          info = { missing: null };          // remember the failure too
+        }
+        Library._peekCache.set(presetName, info);
+      }
+      if (!badge.isConnected || badge !== this._peekBadge) return;
+      this.closeMediaPeek();
+      const box = el("div", { class: "mmh3p-peek mmh3p-mediapeek" });
+      if (info.missing === null) {
+        box.append(el("div", { class: "mmh3p-peekmeta" },
+          el("div", { class: "mmh3p-peeksrc" },
+            `\u201c${presetName}\u201d couldn't be read \u2014 it may have ` +
+            "been deleted since this prompt was saved.")));
+      } else {
+        const items = info.items || [];
+        const grid = el("div", { class: "mmh3p-peekgrid" });
+        items.slice(0, 9).forEach((it) => {
+          const url = loaderViewURL(it.file);
+          grid.append(el("div", { class: "mmh3p-peekcell" },
+            it.kind === "picture"
+              ? el("img", { src: url, loading: "lazy" })
+              : el("span", { class: "mmh3p-peekkind" }, kindIcon(it.kind)),
+            el("span", { class: "mmh3p-peekname" }, it.name || it.file)));
+        });
+        const counts = ["picture", "video", "audio"].map((k) => {
+          const n = items.filter((i) => i.kind === k).length;
+          return n ? `${n} ${k}${n === 1 ? "" : "s"}` : null;
+        }).filter(Boolean).join(" \u00b7 ");
+        box.append(grid,
+          el("div", { class: "mmh3p-peekmeta" },
+            el("div", { class: "mmh3p-peekrow" },
+              el("span", { class: "mmh3p-libmedia" },
+                el("span", { class: "mmh3p-libpname" }, presetName)),
+              el("span", { class: "mmh3p-peekcite" },
+                counts || "empty")),
+            info.category
+              ? el("div", { class: "mmh3p-peeksrc" },
+                  "Category: " + info.category)
+              : null,
+            items.length > 9
+              ? el("div", { class: "mmh3p-peeksrc" },
+                  `\u2026 and ${items.length - 9} more`)
+              : null,
+            (info.missing || []).length
+              ? el("div", { class: "mmh3p-peeksrc" },
+                  `\u26a0 ${info.missing.length} file(s) missing`)
+              : null,
+            el("div", { class: "mmh3p-peeklink" },
+              "Linked \u2014 loading this prompt offers to load this media.")));
+      }
+      const r = badge.getBoundingClientRect();
+      box.style.left = `${Math.max(8,
+        Math.min(r.left, window.innerWidth - 268))}px`;
+      // Flip above when there isn't room below, so it never runs off-screen.
+      const below = window.innerHeight - r.bottom;
+      if (below < 220) box.style.bottom = `${window.innerHeight - r.top + 6}px`;
+      else box.style.top = `${r.bottom + 6}px`;
+      box.addEventListener("mouseenter", () => clearTimeout(this._mpClose));
+      box.addEventListener("mouseleave", () => this.closeMediaPeek());
+      document.body.append(box);
+      this._mediaPeek = box;
+    };
+    badge.addEventListener("mouseenter", () => {
+      this._peekBadge = badge;
+      timer = setTimeout(open, 320);
+    });
+    badge.addEventListener("mouseleave", () => {
+      clearTimeout(timer);
+      this._peekBadge = null;
+      this._mpClose = setTimeout(() => this.closeMediaPeek(), 180);
+    });
+    return badge;
+  }
+
+  closeMediaPeek() {
+    clearTimeout(this._mpClose);
+    this._mediaPeek?.remove();
+    this._mediaPeek = null;
   }
 
   async remove(entry) {
@@ -2662,6 +2940,7 @@ class Editor {
     this.draftEntry = null;          // the disk entry, once fetched
     this.commitPending = false;      // commit decision strip showing
     this.pullPending = false;        // pull-from-Live choice strip showing
+    this.linkOffer = null;           // linked media preset awaiting a yes/no
     this.draftStale = false;         // media snapshot diverged from loader
     this._liveHeld = null;           // live session edits parked during draft
     // What the node currently holds, to tell "edited" from "just looked".
@@ -2761,15 +3040,17 @@ class Editor {
                  "the right and copy manually", 6000);
     }}, "Copy prompt");
     const cancelBtn = el("button", { class: "mmh3p-btn",
-      onclick: () => this.requestClose() }, "Cancel");
+      title: "Close without giving the node these changes",
+      onclick: () => this.requestClose({ discard: true }) }, "Cancel");
     const saveBtn = this.saveBtn = el("button",
       { class: "mmh3p-btn primary", onclick: () => this.save() },
       "Save to node");
 
     const guideBtn = el("button", { class: "mmh3p-btn mmh3p-guidebtn",
-      title: "Open the bundled MiniMax H3 Video Prompt Writing Guide (PDF)",
+      // No longer "(PDF)": 1.6.1 replaced it with a searchable HTML page.
+      title: "Open the bundled MiniMax H3 Video Prompt Writing Guide",
       onclick: () => window.open(
-        new URL("./Video_Prompt_Writing_Guide.pdf", import.meta.url).href,
+        new URL("./video-prompt-writing-guide.html", import.meta.url).href,
         "_blank") }, "\ud83d\udcd6 Guide");
 
     this.overlay = el("div", { class: "mmh3p-overlay",
@@ -2867,10 +3148,15 @@ class Editor {
     // Both overlays listen on window, and this one registered first — so
     // without this guard Escape closed the editor out from under whatever
     // was stacked on top of it.
+    // Goes through requestClose, not close: Escape used to bypass both
+    // preferences entirely, which made "Off means ✕, Cancel and Escape
+    // discard your edits silently" false — it discarded silently either way.
     this.escHandler = (e) => {
       if (e.key !== "Escape") return;
       if (document.querySelector(".mml-overlay")) return;   // loader owns it
-      this.close();
+      // A strip is already asking a question; Escape shouldn't answer it.
+      if (this.closePending || this.clearPending || this.linkOffer) return;
+      this.requestClose();
     };
     window.addEventListener("keydown", this.escHandler);
   }
@@ -2917,18 +3203,29 @@ class Editor {
     catch (e) { return false; }
   }
 
-  /** Close, but ask first if there's unsaved work. `then`, when given,
-   *  runs once the close actually happens — however it gets resolved (an
-   *  immediate close, or Save/Discard on the unsaved-changes strip) — so a
-   *  caller that wants to close-and-then-do-something doesn't have to know
-   *  which path the close took. No caller passes one today — the Media
-   *  Loader button used to, before it started opening over the top instead
-   *  of handing over — but the wiring is what makes close-and-then safe to
-   *  ask for at all, so it stays. */
-  requestClose(then = null) {
-    this._closeThen = then;
-    if (!this.prefs.warnUnsaved || !this.isDirty()) { this.close(); return; }
-    if (this.bufferMode === "draft") {
+  /** Close, but ask first if there's unsaved work.
+   *
+   *  With "save to node when closing" on, the ordinary exits just save —
+   *  except in draft mode, where the parked Live session is still at risk
+   *  and a draft must never reach the node by closing. `discard: true` is
+   *  the Cancel button, which means the opposite and always confirms. */
+  requestClose({ discard = false } = {}) {
+    const drafting = this.bufferMode === "draft";
+    if (!discard && this.prefs.saveOnClose && !drafting) {
+      if (this.isDirty()) this.writeNode();
+      this.close();
+      return;
+    }
+    // Cancel is destructive by definition, so it asks whenever there is
+    // something to lose, even if the warning preference is off.
+    const ask = discard ? this.isDirty()
+                        : (this.prefs.warnUnsaved && this.isDirty());
+    if (!ask) {
+      if (discard) this.state = JSON.parse(this.openedWith);
+      this.close();
+      return;
+    }
+    if (drafting) {
       // The at-risk work is the parked live session; show it, then ask.
       this.exitDraft();
     }
@@ -3002,6 +3299,7 @@ class Editor {
     const scaleReset = el("button", { class: "mmh3p-btn",
       onclick: () => setScale(1, 1, 1) }, "Reset");
 
+    const rows = {};
     const item = (key, label, hint) => {
       const box = el("input", { type: "checkbox", checked: !!this.prefs[key],
         onchange: (e) => {
@@ -3011,10 +3309,29 @@ class Editor {
           if (key === "classicLayout") this.applySidebarPref();
           if (key === "tallWindow") this.applyScale();
           if (key === "hideHints") this.applyHints();
+          syncPrefDeps();
         } });
-      return el("label", { class: "mmh3p-prefitem" }, box,
-        el("span", {}, el("span", { class: "mmh3p-preflabel" }, label),
-          el("span", { class: "mmh3p-prefhint" }, hint)));
+      const hintEl = el("span", { class: "mmh3p-prefhint" }, hint);
+      const row = el("label", { class: "mmh3p-prefitem" }, box,
+        el("span", {}, el("span", { class: "mmh3p-preflabel" }, label), hintEl));
+      rows[key] = { box, row, hintEl, hint };
+      return row;
+    };
+
+    /** "Warn about unsaved changes" has nothing to say once closing saves,
+     *  so it greys out rather than sitting there implying it still applies.
+     *  The stored value is left alone — untick save-on-close and the warning
+     *  comes back exactly as it was. */
+    const syncPrefDeps = () => {
+      const w = rows.warnUnsaved;
+      if (!w) return;
+      const off = !!this.prefs.saveOnClose;
+      w.box.disabled = off;
+      w.row.classList.toggle("off", off);
+      w.hintEl.textContent = off
+        ? "Not used while closing saves \u2014 except in draft mode, and " +
+          "Cancel still asks before discarding."
+        : w.hint;
     };
     // Shown so a bug report can name the exact build rather than a version
     // number that may have covered several.
@@ -3087,11 +3404,16 @@ class Editor {
            "section's hover tooltip. Live readouts stay put."),
       item("closeOnBackdrop", "Click outside to close",
            "Off means only \u2715, Cancel and Escape close the window."),
+      item("saveOnClose", "Save to node when closing",
+           "\u2715, Escape and clicking outside give the node your changes " +
+           "instead of asking. Cancel still discards, and drafts are never " +
+           "written to the node by closing."),
       item("warnUnsaved", "Warn about unsaved changes",
            "Off means \u2715, Cancel and Escape discard your edits silently."),
       el("div", { class: "mmh3p-prefsep" }),
       draftRow,
       version);
+    syncPrefDeps();
     this.prefsMenu = menu;
     // Framed like every other button in the bar. It used to wear .mmh3p-x,
     // the frameless treatment reserved for the close ✕, which left it the one
@@ -3178,12 +3500,7 @@ class Editor {
             this.closePending = false; this.close(); } }, "Discard"),
         el("button", { class: "mmh3p-btn",
           onclick: () => {
-            // Keep editing abandons the close attempt entirely, so any
-            // pending follow-up (e.g. "then open the media loader") has to
-            // go with it — otherwise a later, unrelated close would still
-            // fire it.
             this.closePending = false;
-            this._closeThen = null;
             this.render();
           } },
           "Keep editing")));
@@ -3204,12 +3521,6 @@ class Editor {
     if (this.draftEntry) this.flushDraftSave(this.bufferMode);
     this.node._mmh3Draft = null;
     this.overlay.remove();
-    // Run and clear rather than just run: this instance is done either way,
-    // but clearing rules out a second, stale firing if close() were ever
-    // reached again from somewhere else.
-    const then = this._closeThen;
-    this._closeThen = null;
-    then?.();
   }
 
   /** Write the active state onto the node's widgets. The one and only path
@@ -3568,6 +3879,82 @@ class Editor {
       ? slotsFromItems(snap, this.draftMedia() ? "Draft media" : "Media")
       : getRefSlots(this.node);
     if (!this.slots) this.slots = getRefSlots(this.node);
+  }
+
+  /** A loaded prompt named a media preset. Never apply it silently: it
+   *  replaces whatever is in the loader, and reference numbering is
+   *  positional, so a preset edited since linking can retarget the tags in
+   *  the prompt that just loaded. */
+  async offerLinkedMedia(presetName, savedDigest) {
+    let info = null;
+    try {
+      info = await presetApi("/load", { name: presetName });
+    } catch (e) {
+      toast(`This prompt is linked to media preset \u201c${presetName}\u201d, ` +
+        "which no longer exists.", 7000);
+      return;
+    }
+    this.linkOffer = {
+      name: presetName,
+      items: info.items || [],
+      missing: info.missing || [],
+      changed: !!(savedDigest && info.digest && savedDigest !== info.digest),
+    };
+    this.render();
+  }
+
+  linkStrip() {
+    const o = this.linkOffer;
+    if (!o) return null;
+    const drafting = this.bufferMode === "draft";
+    const currentCount = drafting
+      ? (this.draftView() || []).length
+      : (loaderItems(this.node) || []).length;
+    const target = drafting ? "this draft's media" : "the Media Loader";
+    return el("div", { class: "mmh3p-commitstrip" },
+      el("span", { class: "mmh3p-commitmsg" },
+        `This prompt is linked to media preset \u201c${o.name}\u201d ` +
+        `(${o.items.length} reference${o.items.length === 1 ? "" : "s"}). ` +
+        `Loading it replaces ${currentCount} in ${target}.`,
+        o.changed
+          ? el("span", { class: "mmh3p-linkwarn" },
+              " \u26a0 That preset has changed since this prompt was saved, " +
+              "so its reference numbers may no longer line up with the tags " +
+              "in the text.")
+          : null,
+        o.missing.length
+          ? el("span", { class: "mmh3p-linkwarn" },
+              ` \u26a0 ${o.missing.length} file(s) in the preset are missing ` +
+              "and will be skipped.")
+          : null),
+      el("div", { class: "mmh3p-commitrow" },
+        el("button", { class: "mmh3p-btn primary",
+          onclick: () => this.applyLinkedMedia() }, "Load the media too"),
+        el("button", { class: "mmh3p-btn",
+          onclick: () => { this.linkOffer = null; this.render(); } },
+          "Prompt only")));
+  }
+
+  applyLinkedMedia() {
+    const o = this.linkOffer;
+    this.linkOffer = null;
+    if (!o) return;
+    if (this.bufferMode === "draft") {
+      // Never touch the executable node from inside a draft: the draft takes
+      // the set as its own, and it reaches the loader only on commit.
+      if (this.draftEntry) {
+        const v = validateDraftMedia(JSON.parse(JSON.stringify(o.items)));
+        this.draftEntry.media = v.items;
+        if (v.dropped) this.draftDropped = (this.draftDropped || 0) + v.dropped;
+        this.draftStale = this._mediaDiverged();
+        this.flushDraftSave();
+      }
+    } else {
+      this._applyMediaSnapshot(o.items);
+    }
+    this.refreshSlots();
+    this.render();
+    toast(`Loaded media preset \u201c${o.name}\u201d`);
   }
 
   /** Copy the Live prompt into the draft.
@@ -4995,7 +5382,8 @@ class Editor {
     // survive, because it's what tells you the node isn't holding what
     // you're looking at. Drawing it last made it the first casualty.
     this.draftSlot.replaceChildren(
-      this.commitPending === "guard" ? this.commitStrip()
+      this.linkOffer ? this.linkStrip()
+        : this.commitPending === "guard" ? this.commitStrip()
         : this.pullPending ? this.pullStrip()
         : (this.bufferMode === "draft" ? this.draftBar() : null) || "");
     if (this.state.mode === "REF") this.renderRef();
