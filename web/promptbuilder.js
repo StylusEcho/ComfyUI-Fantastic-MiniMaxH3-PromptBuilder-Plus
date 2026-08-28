@@ -1226,9 +1226,15 @@ ${RAISE_CSS}
    all share this rule, and the media loader mirrors it in its own sheet.
    The settings wrapper claims the header's slack... */
 .mmh3p-head .mmh3p-prefwrap{margin-left:auto;}
-/* ...which only holds if the close button stops claiming it too: with two
-   auto margins the free space splits between them and the pair ends up apart
-   rather than together. Either slack-claimer disables it. */
+/* ...but ONLY if it is the first thing in the header to do so. Two auto
+   margins split the free space between them instead of pooling it, so every
+   later claimer has to stand down: the quick editor's header carries a
+   .mmh3p-pushright Prompt Builder button, and while the settings wrapper
+   also claimed the slack the two ended up 278px apart with the space
+   halved between them — settings and close correctly paired, but marooned
+   from the button they belong beside. */
+.mmh3p-head .mmh3p-pushright ~ .mmh3p-prefwrap{margin-left:0;}
+/* Same rule for the close button, which is last and so never claims. */
 .mmh3p-head .mmh3p-pushright ~ .mmh3p-x,
 .mmh3p-head .mmh3p-prefwrap ~ .mmh3p-x{margin-left:0;}
 /* ...and where settings sits directly before it, the gap between those two

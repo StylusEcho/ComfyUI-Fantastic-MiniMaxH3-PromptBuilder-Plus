@@ -776,3 +776,25 @@ when hiding, makes it a mouse-over caption for the respective section.
     - The on-node panel has no header, so its gear stays last in the toolbar
       — the same rule ("settings sits last, by the close control") applied to
       the only row that view has.
+
+72. 🟩 in the quick editor, put the Prompt Builder button next to the settings
+    button
+    - **My own regression from item 70.** Giving `.mmh3p-prefwrap` the
+      header's `margin-left:auto` added a *second* slack-claimer to the quick
+      editor's header, which already had one on its `.mmh3p-pushright` Prompt
+      Builder button. Two auto margins split the free space rather than
+      pooling it, so each took 264px and the button ended up 278px from the
+      settings button it belongs beside — settings and close correctly
+      paired, but marooned from it. The editor and library were unaffected
+      (the editor's header is full, so there is no slack to split; the
+      library has only the one claimer), which is why item 70's measurement
+      passed.
+    - Fixed by extending the invariant that rule already relied on for the
+      close button: only the *first* slack-claimer in a header may claim, so
+      `.mmh3p-pushright ~ .mmh3p-prefwrap` stands down. The quick editor now
+      reads `Prompt Builder | 14px | ⚙ | 0 | ✕` — 14px being the header's own
+      gap, the same spacing as every other adjacent pair.
+    - The browser check now asserts the invariant directly rather than only
+      the gear/✕ gap: at most one resolved auto margin per header, and the
+      right-hand group contiguous at no more than the header's gap. Measured
+      across all four windows.
