@@ -798,3 +798,36 @@ when hiding, makes it a mouse-over caption for the respective section.
       the gear/✕ gap: at most one resolved auto margin per header, and the
       right-hand group contiguous at no more than the header's gap. Measured
       across all four windows.
+
+73. 🟩 remove the quick editor's image-size slider (it does nothing); replace
+    it with text size
+    - **Confirmed the report, and found the shape of it.** Measured at the
+      default window: `quickPicScale` 0.4 → pane 225px, 1.0 → 438px, 2.0 →
+      438px. Turning it *down* worked; turning it *up* did nothing, because
+      the fields' own 420px floor already caps the pane at that window size.
+      So half the control was dead — my earlier "50% → 200% takes the pane
+      428px → 888px" measurement was taken at a larger window, where the top
+      half does move, which is why it read as working.
+    - Removed the whole mechanism rather than just the slider: the pref, its
+      two constants, and `keyframePaneLayout`'s `picScale` parameter, which
+      nothing else fed. The pane still takes at most 65% of the width or
+      whatever leaves the fields their floor, whichever binds first.
+    - **Text size fixes a second bug the slider was hiding.** `--mmh3-fs` is
+      one global custom property, and only the *full editor* ever wrote it —
+      so opening the quick editor without opening the full one first left the
+      stored text size unapplied entirely. Measured: with `textScale: 1.6`
+      stored, the quick editor opened with `--mmh3-fs` **unset**.
+    - The new slider therefore writes the shared `textScale` pref rather than
+      a quick-edit twin: two prefs on one global property would fight, and
+      whichever window opened last would win. Window size stays per-window,
+      since the two windows are genuinely different sizes.
+    - Measured after: `--mmh3-fs` applied on open at both 1.0 and 1.6, field
+      labels 11px → 17.6px and textareas 13px → 20.8px (exactly ×1.6), the
+      menu offering "Window size" and "Text size", and the keyframe pane
+      still laying out correctly in I2VA and FL2VA with the fields at their
+      floor and the pane inside its cap.
+    - Two of my own test's assertions were wrong on the first run and are
+      noted in the script: `===` on two arrays is always false, so a correct
+      label list read as a failure; and the "fields keep their floor" check
+      subtracted the pane's width from a *sibling* column rather than reading
+      that column directly. The product was right both times.
