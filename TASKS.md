@@ -831,3 +831,33 @@ when hiding, makes it a mouse-over caption for the respective section.
       label list read as a failure; and the "fields keep their floor" check
       subtracted the pane's width from a *sibling* column rather than reading
       that column directly. The product was right both times.
+
+74. 🟩 T2VA "Used" left a large empty gap between the media toolbar and the
+    prompt fields — merge the panel and the prompt bar into one element
+    - **Root cause.** The two were separate DOM widgets whose heights had to
+      be reconciled by hand. On collapsing into T2VA's Used layout the panel's
+      *element* correctly shrank to its toolbar (`.mmlp-min`, inline height
+      cleared), but `fitPanel()` returned early for that shape and so never
+      reduced the *widget's* `computedHeight` — the node went on reserving the
+      panel's full height for an element that was no longer drawing it.
+      Reproduced: panel element collapsed to a toolbar while its widget still
+      reserved 428px. That unpainted reservation is the gap in the report.
+    - This was the third height-desync in this file (the bar's inline height,
+      the panel's stale fit, now this), so the fix is the merge rather than a
+      third patch: **one DOM widget** holding the panel and the bar, with the
+      split expressed as a flex rule instead of arithmetic. Whichever half is
+      flexible takes the slack — normally the panel, and in T2VA's Used layout
+      the bar, since the panel goes `flex:0 0 auto` when `.mmlp-min` applies.
+      No arrangement can leave a gap, by construction.
+    - `refreshBar()` no longer sets any height; it swaps content and a class.
+      `fitPanel()` lost its shape special-case entirely and just sizes the one
+      stack. `PANEL_H`/`SUMMARY_H` collapsed into a single `STACK_H` floor.
+      The bar keeps a `min-height` (a floor, not a fixed height — setting
+      `height` is what used to go stale).
+    - Measured in real Chromium across six arrangements: T2VA/Used at 900px
+      gives panel 57px + bar 843px; at 520px, 57 + 463; every other mode gives
+      panel + a 52px bar. **Zero gap and zero slack in all six.** Confirmed
+      the check catches a broken rule by deleting the expand rule: 407.8px of
+      slack, which is the reported bug.
+    - Two harness scripts asserted against the old two-widget shape and were
+      updated to read the stack.

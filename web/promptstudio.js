@@ -29,12 +29,23 @@ const SUMMARY_H = 52;   // two clamped preview lines + padding
 // cost, now that the panel collapses to just its toolbar in this state —
 // see medialoader.js's mode-shaped layout branch.
 const EDITOR_H = 340;
-/* The prompt bar is the node's last widget, so without this it sits hard
-   against the bottom edge while the panel above it is inset left and right.
-   Reported as part of the widget's height but not given to the element, so it
-   reads as a margin under the bar. fitPanel()/minSize() measure the overhead
-   rather than assuming it, so both pick this up on their own. */
+/* The stack is the node's last widget, so without this it sits hard against
+   the bottom edge while being inset left and right. Reported as part of the
+   widget's height but not given to the element, so it reads as a margin
+   underneath. fitPanel()/minSize() measure the overhead rather than assuming
+   it, so both pick this up on their own. */
 const BOTTOM_GAP = 8;
+/* The pair's floor: the panel at its own minimum with the collapsed prompt
+   bar under it. One number now, because they are one widget — which is the
+   point of the change. The media panel and the prompt bar used to be two DOM
+   widgets whose heights had to be kept in step by hand, and the arithmetic
+   was wrong in one direction: switching to T2VA's "Used" layout collapsed the
+   panel ELEMENT to its toolbar but left the WIDGET still reserving its full
+   height, so the node kept a few hundred pixels of empty space between the
+   toolbar and the prompt fields. Two heights, one of them stale. They are one
+   element now and the browser does the split, so there is no second number to
+   fall out of step. */
+const STACK_H = PANEL_H + SUMMARY_H;
 
 /** In T2VA there is no reference media, so the mode-shaped loader steps aside
  *  and the prompt bar takes the room instead — the three fields inline, using
@@ -44,8 +55,7 @@ const BOTTOM_GAP = 8;
  *  dismiss; the save is the full editor's own, so this cannot diverge. */
 function refreshBar(node) {
   const bar = node._mmh3Summary;
-  const widget = node.widgets?.find((w) => w.name === "mmh3_summary");
-  if (!bar || !widget) return;
+  if (!bar) return;
   const sh = node._mmlPanel?.shape?.();
   const expand = !!sh && sh.pictures === 0;
 
@@ -53,14 +63,6 @@ function refreshBar(node) {
     if (node._mmh3Expanded) {
       node._mmh3Expanded = false;
       bar.classList.remove("mmh3p-summary-open");
-      widget.computedHeight = SUMMARY_H + BOTTOM_GAP;
-      widget.computeSize = () => [NODE_W, SUMMARY_H + BOTTOM_GAP];
-      // The widget hints above are what the canvas/Vue layout reads; the
-      // element's own inline height is a separate, actual CSS box that has
-      // to be kept in step by hand, or it stays whatever it was last set to
-      // regardless of what computeSize() now says.
-      bar.style.height = `${SUMMARY_H}px`;
-      bar.style.minHeight = `${SUMMARY_H}px`;
     }
     updateSummary(node);
     return;
@@ -78,13 +80,6 @@ function refreshBar(node) {
   });
   bar.classList.add("mmh3p-summary-open");
   bar.replaceChildren(fields.root);
-  widget.computedHeight = EDITOR_H + BOTTOM_GAP;
-  widget.computeSize = () => [NODE_W, EDITOR_H + BOTTOM_GAP];
-  // See the comment in the collapse branch above: without this the element
-  // stays locked at its creation-time 52px regardless of what the widget
-  // hints say, and the fields render squeezed into that sliver.
-  bar.style.height = `${EDITOR_H}px`;
-  bar.style.minHeight = `${EDITOR_H}px`;
 }
 
 /** The panel widget's current height, read back off the widget rather than
@@ -92,8 +87,8 @@ function refreshBar(node) {
 function panelHeight(widget) {
   try {
     const h = widget.computeSize()[1];
-    return Number.isFinite(h) ? h : PANEL_H;
-  } catch (e) { return PANEL_H; }
+    return Number.isFinite(h) ? h : STACK_H;
+  } catch (e) { return STACK_H; }
 }
 
 /** The node's real floor: every widget at its minimum, panel included.
@@ -112,15 +107,15 @@ function minSize(node, base) {
   const heldHeight = widget?.computedHeight;
   try {
     if (widget) {
-      widget.computeSize = () => [NODE_W, PANEL_H];
-      widget.computedHeight = PANEL_H;
+      widget.computeSize = () => [NODE_W, STACK_H];
+      widget.computedHeight = STACK_H;
     }
     const out = base ? base.call(node) : null;
     const w = Math.max(NODE_W, out?.[0] || 0);
-    const h = Number.isFinite(out?.[1]) ? out[1] : PANEL_H;
+    const h = Number.isFinite(out?.[1]) ? out[1] : STACK_H;
     return [w, h];
   } catch (e) {
-    return [NODE_W, PANEL_H];
+    return [NODE_W, STACK_H];
   } finally {
     if (widget) {
       if (heldSize) widget.computeSize = heldSize;
@@ -140,24 +135,19 @@ function minSize(node, base) {
  *  harmless when it doesn't apply. */
 function fitPanel(node, base) {
   const widget = node.widgets?.find((w) => w.name === "mml_panel");
-  if (!widget) return;
-  // Minimised (T2VA): the panel is deliberately collapsed to its content and
-  // the prompt bar takes the room. Writing an inline height here would beat
-  // the class rule that collapses it and pin the panel open for good.
-  if (node._mmlPanel?.shape?.()?.pictures === 0) return;
-  const overhead = minSize(node, base)[1] - PANEL_H;
-  const height = Math.max(PANEL_H, Math.round((node.size?.[1] || 0) - overhead));
+  if (!widget || !node._mmh3Stack) return;
+  const overhead = minSize(node, base)[1] - STACK_H;
+  const height = Math.max(STACK_H, Math.round((node.size?.[1] || 0) - overhead));
   if (!Number.isFinite(height) || height === panelHeight(widget)) return;
 
   widget.computedHeight = height;
   widget.computeSize = () => [NODE_W, height];
-  // Inline styles beat .mmlp-panel's fixed height without touching the shared
-  // rule the standalone Media Loader still relies on.
-  const root = node._mmlPanel?.root;
-  if (root) {
-    root.style.height = `${height}px`;
-    root.style.minHeight = `${height}px`;
-  }
+  // One box for the pair; the flex rules inside it decide the split. There is
+  // deliberately no shape branch here any more: when the panel collapses in
+  // T2VA it stops being flexible and the bar becomes flexible instead, so the
+  // reclaimed room goes to the bar without either height being computed here.
+  node._mmh3Stack.style.height = `${height}px`;
+  node._mmh3Stack.style.minHeight = `${height}px`;
 }
 
 app.registerExtension({
@@ -213,33 +203,37 @@ app.registerExtension({
         // The prompt bar mounts flush beneath this panel, so the two square
         // off the edge they share and read as a single surface.
         this._mmlPanel.root.classList.add("mmlp-joinbelow");
-        const widget = this.addDOMWidget("mml_panel", "div",
-          this._mmlPanel.root, { serialize: false });
-        applyCanvasSizing(this, widget, NODE_W, PANEL_H);
-      } catch (e) {
-        console.error("[MiniMaxH3 PromptStudio] on-node media panel failed; "
-          + "right-click a slot, or open the loader window, instead:", e);
-      }
 
-      // The prompt bar sits under it: preview, audio marks and the mode
-      // button, with the scroll at its left opening the full editor.
-      try {
-        if (this.addDOMWidget) {
-          const summary = el("div", {
-            class: "mmh3p-summary mmh3p-joinabove",
-            title: "Quick-edit the prompt \u2014 the scroll opens the full editor",
-            style: { cursor: "pointer", height: `${SUMMARY_H}px`,
-                     minHeight: `${SUMMARY_H}px` },
-            onclick: () => openQuickEdit(this),
-          });
-          this._mmh3Summary = summary;
-          const sw = this.addDOMWidget("mmh3_summary", "div", summary,
-            { serialize: false });
-          sw.computedHeight = SUMMARY_H + BOTTOM_GAP;
-          sw.computeSize = () => [NODE_W, SUMMARY_H + BOTTOM_GAP];
-        }
+        // The prompt bar: preview, audio marks and the mode button, with the
+        // scroll at its left opening the full editor.
+        const summary = el("div", {
+          class: "mmh3p-summary mmh3p-joinabove",
+          title: "Quick-edit the prompt \u2014 the scroll opens the full editor",
+          // A floor, not a fixed height: the flex rules decide how tall the
+          // bar actually is, and setting `height` here is what used to go
+          // stale. This only stops the collapsed bar shrinking below the two
+          // preview lines it is meant to show.
+          style: { cursor: "pointer", minHeight: `${SUMMARY_H}px` },
+          onclick: () => openQuickEdit(this),
+        });
+        this._mmh3Summary = summary;
+
+        // ONE widget for the pair, not one each. They were two, and their
+        // heights had to be reconciled by hand every time the layout changed
+        // — which is exactly what went wrong: T2VA's "Used" layout collapsed
+        // the panel's element but left its widget reserving the old height,
+        // stranding a few hundred pixels of dead space between the toolbar
+        // and the fields. Inside this stack the split is a flex rule, so the
+        // browser keeps them adjacent by construction and there is no second
+        // height to go stale.
+        this._mmh3Stack = el("div", { class: "mmh3p-nodestack" },
+          this._mmlPanel.root, summary);
+        const widget = this.addDOMWidget("mml_panel", "div",
+          this._mmh3Stack, { serialize: false });
+        applyCanvasSizing(this, widget, NODE_W, STACK_H);
       } catch (e) {
-        console.error("[MiniMaxH3 PromptStudio] summary panel failed:", e);
+        console.error("[MiniMaxH3 PromptStudio] on-node panel failed; "
+          + "right-click a slot, or open the loader window, instead:", e);
       }
 
       setTimeout(() => {
@@ -282,7 +276,7 @@ app.registerExtension({
           this._mmlPanel.render();
         }
         applyCanvasSizing(this, this.widgets?.find((w) => w.name === "mml_panel"),
-          NODE_W, PANEL_H);
+          NODE_W, STACK_H);
         // Re-apply the stored text scale. It saves fine, but nothing read it
         // back on workflow load, so a node came back at its serialised size
         // with the panel inside it rebuilt at 100%. Text only — this node's

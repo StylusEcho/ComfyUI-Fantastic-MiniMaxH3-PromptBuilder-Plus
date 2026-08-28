@@ -1822,6 +1822,23 @@ ${RAISE_CSS}
   letter-spacing:.08em;color:#8a93a3;margin-bottom:5px;}
 /* The node's bar expanded into those fields: it stops being a one-line summary
    and becomes a small scrolling editor. */
+/* The node's stack: media panel above, prompt bar below, in ONE DOM widget.
+   The split is a flex rule rather than two widget heights reconciled in JS,
+   which is what stops them drifting apart — see promptstudio.js's STACK_H.
+   Whichever half is flexible takes the slack, so no arrangement can leave a
+   gap between them. */
+.mmh3p-nodestack{display:flex;flex-direction:column;width:100%;
+  box-sizing:border-box;height:100%;min-height:0;overflow:hidden;}
+/* Normally the panel takes the room and the bar is a fixed strip under it. */
+.mmh3p-nodestack>.mmlp-panel{flex:1 1 auto;min-height:0;height:auto;}
+.mmh3p-nodestack>.mmh3p-summary{flex:0 0 auto;}
+/* In T2VA's "Used" layout the panel collapses to its toolbar (.mmlp-min) and
+   the bar expands into the fields, so the two swap which one is flexible. The
+   bar then absorbs everything the panel gave up — by construction, not by
+   arithmetic, which is the bug this replaced: the panel's element collapsed
+   while its widget went on reserving the old height. */
+.mmh3p-nodestack>.mmlp-panel.mmlp-min{flex:0 0 auto;}
+.mmh3p-nodestack>.mmh3p-summary.mmh3p-summary-open{flex:1 1 auto;min-height:0;}
 .mmh3p-summary.mmh3p-summary-open{display:block;overflow-y:auto;padding:8px 10px;
   cursor:default;}
 .mmh3p-summary.mmh3p-summary-open label{margin:6px 0 3px;}
