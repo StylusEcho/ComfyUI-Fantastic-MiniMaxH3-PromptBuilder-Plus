@@ -861,3 +861,27 @@ when hiding, makes it a mouse-over caption for the respective section.
       slack, which is the reported bug.
     - Two harness scripts asserted against the old two-widget shape and were
       updated to read the stack.
+
+75. 🟩 dropdowns (settings, presets) hidden under the prompt section in the
+    merged node layout
+    - **The clip is the panel's own, and it predates the merge.** Isolated by
+      measurement: relaxing the new stack's `overflow` changed nothing (16px
+      of a 126px menu visible), relaxing `.mmlp-panel.mmlp-min`'s fixed it
+      (124px). The collapsed panel is ~57px tall and carries `overflow:hidden`
+      — right for the media grid it no longer has, wrong for the dropdowns
+      that fall out of its toolbar, which are twice its height.
+    - So the merge did not cause this; it made it *visible*. Before, the space
+      below the collapsed panel was empty reserved node space, so a clipped
+      menu just vanished into a region that already looked broken. With the
+      bar now directly under the toolbar, the bar's own content shows through
+      where the menu should be — which is exactly what the report describes.
+    - Fixed with `.mmlp-panel.mmlp-min{overflow:visible}`, scoped to the
+      collapsed state so the full panel still clips its grid. The stack's
+      `overflow:hidden` is dropped too: it would have become a second clip the
+      moment the first was lifted, and both halves clip their own content.
+      Both menus already carry a z-index, so nothing else was needed.
+    - `rig/../railcheck/dropdowns.mjs` walks each menu's full height and
+      asserts the menu is the top element at every step, across three layouts.
+      Verified it catches the fault: with the clip restored it reports
+      *"4/25 probes on top, first obscured at +23px by mmh3p-summary"* — the
+      prompt section showing through, as reported.

@@ -1827,8 +1827,11 @@ ${RAISE_CSS}
    which is what stops them drifting apart — see promptstudio.js's STACK_H.
    Whichever half is flexible takes the slack, so no arrangement can leave a
    gap between them. */
+/* overflow stays visible: the panel's dropdowns escape its own box when it
+   is collapsed, and a second clip here would put them straight back. The
+   halves clip their own content already. */
 .mmh3p-nodestack{display:flex;flex-direction:column;width:100%;
-  box-sizing:border-box;height:100%;min-height:0;overflow:hidden;}
+  box-sizing:border-box;height:100%;min-height:0;}
 /* Normally the panel takes the room and the bar is a fixed strip under it. */
 .mmh3p-nodestack>.mmlp-panel{flex:1 1 auto;min-height:0;height:auto;}
 .mmh3p-nodestack>.mmh3p-summary{flex:0 0 auto;}

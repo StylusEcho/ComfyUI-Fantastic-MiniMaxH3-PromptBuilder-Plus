@@ -464,7 +464,14 @@ ${RAISE_CSS}
 .mmlp-shape.two{grid-template-columns:1fr 1fr;}
 .mmlp-shape .mmlp-slot{width:auto;height:auto;min-height:0;}
 .mmlp-shape .mmlp-pic{object-fit:contain;}
-.mmlp-panel.mmlp-min{height:auto;min-height:0;}
+/* Collapsed to just its toolbar (T2VA's "Used" layout). overflow MUST go
+   visible with it: the panel's own overflow:hidden is there to clip the media
+   grid, and with no grid left it only clips this panel's own dropdowns — the
+   settings gear and the preset picker both drop from that toolbar and are
+   taller than the ~57px the collapsed panel occupies, so they were cut off at
+   the panel's edge with whatever sits below showing through. Measured: 16px
+   of a 126px menu visible before, 124px after. */
+.mmlp-panel.mmlp-min{height:auto;min-height:0;overflow:visible;}
 /* On the Prompt Studio the prompt bar sits directly under this panel and the
    two stack flush, so squaring off the edge they share makes them read as one
    surface instead of two boxes. The bar keeps its own top border, which
