@@ -6072,6 +6072,7 @@ export function promptFields(node) {
   // Filled in by keyframes(); relayout() is handed back to the caller so the
   // pane can be re-measured whenever the window it sits in changes size.
   let relayoutPics = () => {};
+  let widthToFillHeight = null;
   const keyframes = () => {
     if (isRef) return null;
     const cap = MODE_CAPACITY[state.mode]?.Picture || 0;
@@ -6116,6 +6117,14 @@ export function promptFields(node) {
 
     const pane = el("div", { class: "mmh3p-quickpics" },
       ...entries.map((e) => e.tile));
+
+    // The width this pane would need to stand `h` pixels tall, laid out in a
+    // single row — the arrangement that makes the pictures largest once width
+    // stops being the binding constraint. The caller uses it to decide how
+    // wide the WINDOW has to be, rather than squeezing the fields.
+    widthToFillHeight = (h) => entries.reduce(
+      (t, e) => t + (Number(e.ar) > 0 ? Number(e.ar) : 16 / 9) * h, 0)
+      + PANE_GAP * (entries.length - 1);
 
     relayoutPics = () => {
       // Measured off the scroll container, whose size comes from the window
@@ -6341,7 +6350,8 @@ export function promptFields(node) {
   // any of the .mmh3p-quick rules the fields themselves rely on.
   const pics = keyframes();
   const shell = pics ? el("div", { class: "mmh3p-quickwrap" }, pics, root) : root;
-  return { root: shell, save, state, fieldFor, relayoutPics };
+  return { root: shell, save, state, fieldFor, relayoutPics,
+           widthToFillHeight: (h) => widthToFillHeight?.(h) || 0 };
 }
 
 /** The quick-edit window, opened by clicking the node's prompt bar. The bar's
@@ -6493,8 +6503,49 @@ export function openQuickEdit(node, focusKey = null) {
       document.documentElement.style.setProperty(
         "--mmh3-fs", String(clampScale(p.textScale, TEXT_SCALE_MAX)));
     } catch (e) { /* the stylesheet's own default of 1 still applies */ }
+    growForPics(box, p);
     fields.relayoutPics?.();
   };
+
+  /** Widen the window so the preview can stand at the window's full height.
+   *
+   *  The preview is height-first: a picture should use every pixel of height
+   *  the window has. For a tall or square picture that costs nothing, but a
+   *  16:9 needs about 1.8x its height in width, which the base 900px window
+   *  cannot give it without starving the prompt fields beside it — measured,
+   *  a 16:9 reached 54% of the available height.
+   *
+   *  So the window grows instead of the fields shrinking. It is centred in
+   *  the overlay, so the extra room opens out on the picture's side; the
+   *  fields keep their own floor untouched. Clamped to the viewport, where a
+   *  very wide picture simply gets whatever the screen allows.
+   *
+   *  Only ever grows past the size the window-size preference asks for, never
+   *  below it. */
+  const growForPics = (box, prefs) => {
+    const body = overlay.querySelector(".mmh3p-quickbody");
+    if (!box || !body) return;
+    let pad = { top: 0, bottom: 0, left: 0, right: 0 };
+    try {
+      const cs = getComputedStyle(body);
+      pad = { top: parseFloat(cs.paddingTop) || 0,
+              bottom: parseFloat(cs.paddingBottom) || 0,
+              left: parseFloat(cs.paddingLeft) || 0,
+              right: parseFloat(cs.paddingRight) || 0 };
+    } catch (e) { /* measured as zero padding */ }
+    const availH = (body.clientHeight || 0) - pad.top - pad.bottom;
+    // Height is fixed by the window's own height, so it is already known here
+    // and does not depend on the width this is about to set.
+    const need = availH > 0 ? fields.widthToFillHeight?.(availH) || 0 : 0;
+    const base = Math.round(900 * clampScale(prefs.quickScale));
+    if (!(need > 0)) { box.style.width = `min(${base}px, 88vw)`; return; }
+    const chrome = Math.max(0, Math.round(
+      (box.getBoundingClientRect().width || base) - (body.clientWidth || 0)))
+      + pad.left + pad.right;
+    const want = Math.round(need + PANE_GAP + PANE_FIELDS_MIN + chrome);
+    box.style.width = `min(${Math.max(base, want)}px, 96vw)`;
+  };
+
   applyQuickScale();
 
   // The keyframe pane sizes itself to the pictures, which needs the window's
@@ -6618,12 +6669,12 @@ function keyframePaneLayout(entries, avail) {
   const availW = Number(avail?.width) || 0;
   const availH = Number(avail?.height) || 0;
   if (!availW || !availH || !entries.length) return null;
-  // Wide pictures at full height can want more width than the whole window,
-  // so the pane is capped and the pictures shrink to suit: at most 65% of the
-  // width, and never so much that the fields drop under their own floor —
-  // whichever binds first.
-  const budget = Math.max(1,
-    Math.min(availW * 0.65, availW - PANE_GAP - PANE_FIELDS_MIN));
+  // The pane may take everything except the fields' own floor. There used to
+  // be a second cap at 65% of the width; it is gone because the window now
+  // grows to fit a picture that wants to be full height (see growForPics in
+  // openQuickEdit), and that cap was then the one thing still holding the
+  // picture short of the height it had just been given room for.
+  const budget = Math.max(1, availW - PANE_GAP - PANE_FIELDS_MIN);
   // 16:9 stands in for a picture whose dimensions were never recorded; the
   // caller replaces it and re-runs once the image reports its own.
   const ars = entries.map((e) => (Number(e.ar) > 0 ? Number(e.ar) : 16 / 9));

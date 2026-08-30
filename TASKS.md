@@ -885,3 +885,36 @@ when hiding, makes it a mouse-over caption for the respective section.
       Verified it catches the fault: with the clip restored it reports
       *"4/25 probes on top, first obscured at +23px by mmh3p-summary"* — the
       prompt section showing through, as reported.
+
+76. 🟩 the quick editor's image preview should always fill the window's height
+    - **Measured the shortfall first.** Against 457px of available height: a
+      tall 9:16 already filled it, a square reached 96%, and a **wide 16:9
+      reached only 54%**. The layout was width-first — the pane was capped so
+      the fields kept their 420px floor, and the picture's height fell out of
+      whatever width was left over.
+    - Filling the height for a 16:9 needs ~813px of the 866px available, which
+      would have left 45px for the fields. Put the trade-off to the user
+      rather than picking; their answer was that **the window should widen**
+      instead of the fields shrinking.
+    - So the rule is height-first now: `growForPics()` asks the pane how wide
+      it would need to be to stand at the window's full height, and widens the
+      window to `need + gap + the fields' floor + chrome`, clamped to 96vw.
+      The window is centred in its overlay, so the extra room opens out on the
+      picture's side and the fields keep their floor untouched. The
+      window-size preference becomes a floor rather than a fixed size.
+    - **Removed the pane's 65% width cap.** With the window growing to suit,
+      that cap was the one thing still holding the picture short of the room
+      it had just been given — a 16:9 landed 6px shy of full height with it in
+      place. The fields' floor is the only width constraint now.
+    - Measured after, across four viewports: at 1600×1000 and 2560×1400 every
+      case fills the height exactly (16:9 goes 246px → 457px, the window 900 →
+      1274). On smaller screens the wide cases are genuinely screen-limited,
+      so `panefill.mjs` asserts *full height OR the window is already at its
+      viewport cap*, and additionally that the window always stays on screen,
+      never causes horizontal scrolling, never drops the fields below their
+      floor, and that **every tile still matches its picture's natural aspect**
+      — the height must not be filled by stretching or cropping. Verified the
+      check catches the regression: with the growth disabled it reports 54%,
+      59% and 65% with the window not at its cap.
+    - Two existing tests asserted the old 65% cap and were updated to the
+      fields'-floor rule they now share with the product.
