@@ -74,6 +74,17 @@ function paintToken(tok, { slotFor, subjectInfo } = {}) {
   return [el("span", { class: "mmh3p-reftag " + cls, dataset: { tag: tok } }, tok)];
 }
 
+/** The definition line for a subject tag, or null if it has none.
+ *
+ *  Shared, because the two editors used to disagree about it: the quick
+ *  editor never resolved subjects at all, so paintToken() fell through to
+ *  "unknown" — the red that means "this tag names media that isn't loaded" —
+ *  and the same <Subject 1> was green in one window and red in the other. */
+function subjectLine(state, tag) {
+  return (state?.ref?.subjectDefs || []).find(
+    (d) => !d.off && (d.text || "").trim().startsWith(tag)) || null;
+}
+
 /** Wrap a textarea so <Picture 1> and friends read as chips.
  *
  *  A textarea can't contain elements, so a mirror div renders the same
@@ -1947,6 +1958,9 @@ ${RAISE_CSS}
 /* Those two sections put the field in a flex row beside an N/A button; the
    wrapper has to claim the space the bare textarea used to. */
 .mmh3p-row .mmh3p-chipwrap{flex:1;min-width:0;}
+/* Subject-definition rows are the same shape: power toggle, field, remove
+   button. The wrapper takes the flex:1 the bare textarea had. */
+.mmh3p-defrow .mmh3p-chipwrap{flex:1;min-width:0;}
 /* Same problem one level up, in the growing sections. The section is a flex
    column whose textarea is meant to absorb all the slack, but the wrapper now
    sits between the two — so the grow has to be handed down through it, or the
@@ -4312,10 +4326,9 @@ class Editor {
   /** What a <Subject N> chip should show: the first picture its definition
    *  cites, plus every media tag that line mentions. */
   subjectInfo(tag) {
-    const defs = this.state?.ref?.subjectDefs || [];
-    const line = defs.find((d) => !d.off &&
-      (d.text || "").trim().startsWith(tag));
+    const line = subjectLine(this.state, tag);
     if (!line) return null;
+    const defs = this.state?.ref?.subjectDefs || [];
     const tags = [...new Set((line.text.match(TAG_RE) || [])
       .filter((t) => t !== tag))];
 
@@ -5699,8 +5712,13 @@ class Editor {
           placeholder: "<Subject 1> is the ... in <Picture 1>, with ...",
           oninput: (e) => { d.text = e.target.value; d.role = null; paintMini(); } });
         paintMini();
+        // Chip-wrapped like every other prompt field. This is where subjects
+        // are actually written, and it was the one field left painting them
+        // as plain text — while the mini-tags directly underneath it were
+        // already colour-coded, so the same line was coloured twice over and
+        // plain once.
         const row = el("div", { class: "mmh3p-defrow" + (d.off ? " off" : "") },
-          this.rowPower(d, drawDefs), ta,
+          this.rowPower(d, drawDefs), this.chipField(ta),
           el("button", { class: "mmh3p-btn rowx", title: "Remove line",
             onclick: () => { r.subjectDefs.splice(i, 1); drawDefs(); this.updatePreview(); },
           }, "\u2715"));
@@ -6164,12 +6182,17 @@ export function promptFields(node) {
   };
   const highlightTags = loadPrefs().highlightTags;
 
+  // Same answer the full editor gives, so a subject is the same colour in
+  // both windows. Only the truthiness is used for painting; the full editor's
+  // own subjectInfo() adds the hover-preview detail only it has room for.
+  const subjectFor = (tag) => subjectLine(state, tag);
+
   const field = (label, obj, key, rows, placeholder, cls, extra) => {
     const t = el("textarea", {
       rows, placeholder, value: obj[key] ?? "",
       oninput: (e) => { obj[key] = e.target.value; },
     });
-    const { wrap } = chipField(t, { slotFor, highlightTags });
+    const { wrap } = chipField(t, { slotFor, subjectInfo: subjectFor, highlightTags });
     const labelEl = extra
       ? el("label", { class: "act" }, label,
           // extra() may hand back one control or several; el() flattens.
@@ -6318,7 +6341,7 @@ export function promptFields(node) {
         t.dispatchEvent(new Event("input", { bubbles: true }));
       },
     }, "N/A");
-    const { wrap } = chipField(t, { slotFor, highlightTags });
+    const { wrap } = chipField(t, { slotFor, subjectInfo: subjectFor, highlightTags });
     pair.append(el("div", { class: "mmh3p-sec" },
       el("label", { class: "act" }, label,
         el("span", { class: "mmh3p-secact" }, na)),

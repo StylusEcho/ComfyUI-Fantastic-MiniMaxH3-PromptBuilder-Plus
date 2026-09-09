@@ -918,3 +918,44 @@ when hiding, makes it a mouse-over caption for the respective section.
       59% and 65% with the window not at its cap.
     - Two existing tests asserted the old 65% cap and were updated to the
       fields'-floor rule they now share with the product.
+
+77. 🟩 colour coding in the quick editor should match everything else
+    - **One token was wrong, and it was wrong in the worst possible way.**
+      The quick editor never passed `subjectInfo` to `chipField()`, so
+      `paintToken()` could not tell a defined `<Subject N>` from an undefined
+      one and fell through to `unknown` — the RED reserved for "this tag names
+      media that isn't loaded". The same `<Subject 1>` was green in the full
+      editor and red in the quick one, i.e. it read as an error.
+      Every other token — picture, video, audio, speaker, shot, and genuinely
+      undefined tags — already matched.
+    - Fixed by sharing the rule rather than copying it: a module-level
+      `subjectLine(state, tag)` is now the single answer to "is this subject
+      defined", used by the quick editor directly and by the full editor's
+      richer `subjectInfo()` (which adds the hover-preview detail only it has
+      room for).
+
+78. 🟩 subject definition fields in the reference prompt builder should get
+    colour coding too
+    - They mounted a bare textarea — the one field in the pack that painted
+      tags as plain text. Doubly odd because the mini-tags rendered directly
+      underneath each row were already colour-coded, so the same line was
+      coloured twice over and plain once.
+    - Now wrapped with the editor's own `chipField()`, so they get the same
+      chips, the same hover previews and the same highlight preference as
+      every other field. `.mmh3p-defrow .mmh3p-chipwrap{flex:1;min-width:0}`
+      restores the flex chain the wrapper interrupts — the same break noted
+      above `.mmh3p-row`'s rule, and the same one that caught item 9.
+    - **Broke the full editor while fixing this, and the test caught it.**
+      Refactoring `subjectInfo()` onto `subjectLine()` removed a `defs`
+      binding that a later line still used, so `renderRef()` threw and the
+      editor painted no chips at all. Restored the binding; without a test
+      asserting the editor's own colours this would have shipped as "the
+      quick editor is fixed".
+    - `rig/tagclass.mjs` asserts the real requirement rather than either
+      symptom: the same token gets the same class on every surface. It reads
+      the full editor's chips as the reference, checks the definition rows,
+      then compares the quick editor token for token. Reproduced both faults
+      before the fix (`<Subject 1>` = `unknown` in the quick editor; no chip
+      wrapper on any definition row) and passes after. Verified in a real
+      browser too: the wrapper takes the row's width and the mirror sits
+      exactly over the textarea (dx/dy = 0), so the chips land on their words.
