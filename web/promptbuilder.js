@@ -6,15 +6,80 @@
  */
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { LOADER_NAME, computeTags, viewURL as loaderViewURL,
+import { LOADER_NAME, STUDIO_NAME, computeTags, viewURL as loaderViewURL,
   safeCanvasFocus, openLoaderModal, isOn, TrimModal,
   fileCount, MODE_CAPACITY, hasCrop, TAG_COLORS, TAG_VARS,
-  raiseIfOpen, RAISE_CSS,
+  raiseIfOpen, RAISE_CSS, postApi, outputTargets, setterOf, linkNodes,
 } from "./medialoader.js";
+import { STACK_NAME, ENCODE_NAMES, readStack, deriveEntries, labelGroups,
+  rangeText as refmodRange, previewURL as refmodPreviewURL, KIND as REFMOD_KIND,
+  openStackModal } from "./refmodstack.js";
+
+// The node this editor is mounted on. Upstream names its own builder here;
+// in this pack the prompt and the media panel are the one Prompt Studio node,
+// so that is what a mods chain has to recognise as "a builder to step
+// through" (see modsChain).
+const NODE_NAME = STUDIO_NAME;
 
 // Private drag type: marks a drag as "reorder the rail" so a drop on another
 // card moves media, while a drop on a textarea still inserts the tag.
 const RAIL_MIME = "application/x-mmh3p-rail";
+
+/* Delivery tags — community findings, not from MiniMax's published guide.
+ * They go INSIDE a <d> block to shape performance. Kept in one table so the
+ * picker, the hover preview and section 6.1 of the bundled guide can never
+ * drift apart; if you edit this list, edit the guide's table to match.
+ *
+ * `wrap: true` marks a tag that surrounds text rather than standing alone:
+ * inserting one wraps the selection, or drops the caret between the halves. */
+const DELIVERY_TAGS = [
+  { group: "Pauses and breath", tag: "<pause>", what: "Short pause",
+    ex: "Okay, so. <pause> This is just me talking." },
+  { group: "Pauses and breath", tag: "<long pause>", what: "Longer pause",
+    ex: "I mean\u2026 <long pause> I don't even know." },
+  { group: "Pauses and breath", tag: "<breath>", what: "Breathing sound",
+    ex: "And then\u2026 <breath> it just happened." },
+  { group: "Pauses and breath", tag: "<inhale>", what: "In breath",
+    ex: "<inhale> Alright, let's do this." },
+  { group: "Pauses and breath", tag: "<exhale>", what: "Out breath",
+    ex: "<exhale> Fine. Have it your way." },
+  { group: "Pauses and breath", tag: "<catches breath>", what: "Out of breath",
+    ex: "Wait\u2026 <catches breath> hold on a sec." },
+  { group: "Pauses and breath", tag: "<deep breath>", what: "Calming down",
+    ex: "<deep breath> Okay. I can do this." },
+
+  { group: "Delivery and emphasis", tag: "<i>", what: "Emphasize 1\u20134 words",
+    ex: "I was <i>not</i> expecting that.", wrap: true },
+  { group: "Delivery and emphasis", tag: "<whisper>", what: "Whisper delivery",
+    ex: "<whisper> Don't tell anyone this.</whisper>", wrap: true },
+  { group: "Delivery and emphasis", tag: "<softer>", what: "Quieter delivery",
+    ex: "<softer> I don't think I can say it." },
+  { group: "Delivery and emphasis", tag: "<humming>", what: "Humming a tune",
+    ex: "<humming> da-da-da-beautiful-day.</humming>", wrap: true },
+  { group: "Delivery and emphasis", tag: "<stutter>", what: "Stutters the words",
+    ex: "<stutter> I ca can't believe that." },
+  { group: "Delivery and emphasis", tag: "<uh>", what: "Filler / hesitation",
+    ex: "So, like\u2026 <uh> what was I saying?" },
+
+  { group: "Non-verbal sounds", tag: "<laughs>", what: "Laughing",
+    ex: "That's\u2026 <laughs> that's actually funny." },
+  { group: "Non-verbal sounds", tag: "<chuckle>", what: "Small laugh",
+    ex: "<chuckle> You're not serious." },
+  { group: "Non-verbal sounds", tag: "<sighs>", what: "Sigh",
+    ex: "<sighs> I really tried." },
+  { group: "Non-verbal sounds", tag: "<gasp>", what: "Sharp intake",
+    ex: "<gasp> Oh my God." },
+  { group: "Non-verbal sounds", tag: "<coughs>", what: "Cough",
+    ex: "<coughs> Sorry, one sec." },
+  { group: "Non-verbal sounds", tag: "<clears throat>", what: "Throat clear",
+    ex: "<clears throat> So anyway\u2026" },
+  { group: "Non-verbal sounds", tag: "<sniff>", what: "Sniffing",
+    ex: "<sniff> It's just\u2026 really sad." },
+  { group: "Non-verbal sounds", tag: "<mhm>", what: "Agreement sound",
+    ex: "Yeah, <mhm> exactly." },
+  { group: "Non-verbal sounds", tag: "<phew>", what: "Relief",
+    ex: "<phew> That was close." },
+];
 
 /* ------------------------------------------------------------------ */
 /* Reference data straight from the guides                             */
@@ -37,6 +102,20 @@ const PAINT_RE = new RegExp([
 ].join("|"), "g");
 
 const LANG_RE = /^(\s*\[[^\]\n]+\])/;
+/* Every delivery tag, opening or closing, as one alternation — for picking
+ * them out of a <d> line so the mirror and the picker's example can colour
+ * them. Longer names first so "<long pause>" isn't cut to "<pause>". */
+const DELIVERY_RE = new RegExp("(<\\/?(?:" + [...new Set(DELIVERY_TAGS.map((t) => t.tag.slice(1, -1)))]
+  .sort((a, b) => b.length - a.length).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")>)", "g");
+
+/** Text with its delivery tags wrapped as .mmh3p-dtag spans. */
+function deliverySpans(text) {
+  // split() with a capture group alternates text, tag, text… — the parity
+  // is what says which is which, so empties are dropped only afterwards.
+  return String(text).split(DELIVERY_RE)
+    .map((part, i) => (i % 2 ? el("span", { class: "mmh3p-dtag" }, part) : part))
+    .filter((part) => part !== "");
+}
 
 /* --- reference tags as chips ------------------------------------------ */
 /* Shared by the full editor and the quick prompt editors (the popup and the
@@ -392,6 +471,49 @@ const ROLE_HINTS = [
     note: "the source structure is retained where the edit does not change it." },
 ];
 
+/* What a RefMod's saved concept says about it, in the guide's own wording.
+   `subject` lines open with <Subject N>; the others are standalone reference
+   lines. Concept names are the library's (refmods.CONCEPT_TYPES). */
+const REFMOD_CONCEPTS = {
+  identity: { subject: true, marker: "fully_preserved", task: "reference generation",
+    text: (c) => `${c.subj} is the person in ${c.tag}.`,
+    note: (c) => `${c.subj}'s identity and appearance from ${c.tag} are retained.` },
+  clothing: { subject: true, marker: "attribute_transfer", task: "reference generation",
+    text: (c) => `${c.subj} is the outfit in ${c.tag}.`,
+    note: (c) => `the garments, colours and fit of ${c.subj} from ${c.tag} are transferred.` },
+  background: { subject: true, marker: "fully_preserved", task: "reference generation",
+    text: (c) => `${c.subj} is the environment in ${c.tag}.`,
+    note: (c) => `the layout, surfaces and lighting of ${c.subj} from ${c.tag} are retained.` },
+  style: { subject: false, marker: "attribute_transfer", task: "reference generation",
+    text: (c) => `${c.tag} is the visual-style reference; its palette, lighting and rendering look guide the target video.`,
+    note: (c) => `its colour palette, lighting and rendering style are transferred; its content is not reproduced.` },
+  pose_motion: { subject: false, marker: "attribute_transfer", task: "reference generation",
+    text: (c) => `${c.tag} is the pose and motion reference; its movement and timing guide the target video.`,
+    note: (c) => `its poses and motion timing are transferred; its subject is not reproduced.` },
+  voice: { audio: true, marker: "reference", task: "audio reference",
+    text: (c) => `${c.tag} is the voice-timbre reference for ${c.subj} (${c.sx}), guiding delivery and speaking rate without copying the original signal.`,
+    note: (c) => `its vocal timbre guides the dialogue delivery of ${c.subj} without copying the original signal.`,
+    speaker: (c) => `${c.subj} is the speaker heard in ${c.tag}.` },
+  singing: { audio: true, marker: "reference", task: "audio reference",
+    text: (c) => `${c.tag} is the singing-voice timbre reference for ${c.subj} (${c.sx}), guiding vocal tone without copying the original signal.`,
+    note: (c) => `its singing timbre guides the vocal delivery of ${c.subj} without copying the original signal.`,
+    speaker: (c) => `${c.subj} is the singer heard in ${c.tag}.` },
+  music_style: { audio: true, marker: "reference", task: "audio reference",
+    text: (c) => `${c.tag} is the background-music style reference for the target video's audience-only score.`,
+    note: () => "only its instrumentation, tempo, and rhythmic feel guide the new score; the signal is not copied." },
+  sound_fx: { audio: true, marker: "reference", task: "audio reference",
+    text: (c) => `${c.tag} is the sound-effect texture reference for the target video's physical action sounds.`,
+    note: () => "only its sound-effect texture is referenced; the signal is not copied." },
+  ambience: { audio: true, marker: "reference", task: "audio reference",
+    text: (c) => `${c.tag} is the ambience reference for the target video's background sound.`,
+    note: () => "only its ambient texture is referenced; the signal is not copied." },
+};
+const VISUAL_CONCEPTS = ["identity", "clothing", "background", "style", "pose_motion"];
+const AUDIO_CONCEPTS = ["voice", "singing", "music_style", "sound_fx", "ambience"];
+const CONCEPT_LABEL = { identity: "a person / character", clothing: "an outfit", background: "a place / setting",
+  style: "a visual style", pose_motion: "a pose or motion", voice: "a speaking voice", singing: "a singing voice",
+  music_style: "a music style", sound_fx: "sound effects", ambience: "ambience" };
+
 function roleHint(text) {
   return ROLE_HINTS.find((h) => h.re.test(text || "")) || null;
 }
@@ -715,13 +837,18 @@ function viewURL(v) {
   );
 }
 
+/** The node behind an input, looked through reroutes and KJNodes' Get/Set
+ *  pairs (a Get node stands in for whatever feeds its Set node). */
 function originNode(node, slotIndex) {
   let n = node.getInputNode?.(slotIndex);
   let guard = 0;
-  while (n && /reroute/i.test(n.type || "") && guard++ < 16) {
-    const nn = n.getInputNode?.(0);
-    if (!nn) break;
-    n = nn;
+  while (n && guard++ < 16) {
+    let up = null;
+    if (/reroute/i.test(n.type || "")) up = n.getInputNode?.(0);
+    else if (n.type === "GetNode") up = setterOf(n)?.getInputNode?.(0);
+    else break;
+    if (!up) break;
+    n = up;
   }
   return n || null;
 }
@@ -847,9 +974,193 @@ function slotsFromBundle(node) {
     src.label === "Media");
 }
 
-function getRefSlots(node) {
+/** Walk a mods chain upstream from `head`. RefMod Stacks are collected in
+ *  bundle order; Prompt Builders are stepped through (their mods output is
+ *  the bundle they were given). Anything else heads the chain with entries
+ *  we cannot see, so the result is marked partial. */
+function modsChain(head) {
+  const chain = [];
+  let partial = false, n = head, guard = 0;
+  while (n && guard++ < 32) {
+    if (n.type !== STACK_NAME && n.type !== NODE_NAME) { partial = true; break; }
+    if (n.type === STACK_NAME) chain.unshift(n);
+    const up = (n.inputs || []).findIndex((i) => i.name === "mods");
+    if (up < 0 || n.inputs[up].link == null) break;
+    n = originNode(n, up);
+  }
+  return { chain, partial };
+}
+
+/** Where this builder's RefMods come from: its own mods input when that is
+ *  wired, otherwise the mods input of a RefMod Text Encode its prompt feeds
+ *  (the older wiring, still honoured). */
+function refmodSource(node) {
+  const own = (node.inputs || []).findIndex((i) => i.name === "mods");
+  if (own >= 0 && node.inputs[own].link != null)
+    return { head: originNode(node, own), direct: true };
+  const enc = outputTargets(node, 0).find((n) => ENCODE_NAMES.has(n?.type));
+  if (!enc) return { head: null, why: "encode" };
+  const mi = (enc.inputs || []).findIndex((i) => i.name === "mods");
+  if (mi < 0 || enc.inputs[mi].link == null) return { head: null, why: "mods" };
+  return { head: originNode(enc, mi), direct: false };
+}
+
+/** True when this builder's RefMods reach a Text Encode: its mods output is
+ *  wired somewhere, or a Text Encode its prompt feeds has mods of its own. */
+function refmodsReachEncode(node) {
+  const out = (node.outputs || []).findIndex((o) => o.name === "mods");
+  if (out >= 0 && outputTargets(node, out).length) return true;
+  return outputTargets(node, 0).some((enc) => ENCODE_NAMES.has(enc?.type) &&
+    (enc.inputs || []).some((i) => i.name === "mods" && i.link != null));
+}
+
+/** The RefMod Text Encodes this builder drives, through its prompt or mods output. */
+function encodersOf(node) {
+  const seen = new Set(), out = [];
+  const modsOut = (node.outputs || []).findIndex((o) => o.name === "mods");
+  for (const slot of modsOut >= 0 ? [0, modsOut] : [0]) {
+    for (const n of outputTargets(node, slot)) {
+      if (ENCODE_NAMES.has(n?.type) && !seen.has(n)) { seen.add(n); out.push(n); }
+    }
+  }
+  return out;
+}
+
+/** Where the Text Encode's media comes from: "builder" (this node's
+ *  references output), "loader" (the same Media Loader, wired straight in),
+ *  "other" (a source this builder can't see), or null (no media sent). */
+function mediaReach(node) {
+  const refIn = (node.inputs || []).findIndex((i) => i.name === "references");
+  const loader = refIn >= 0 && node.inputs[refIn].link != null ? originNode(node, refIn) : null;
+  let found = null;
+  for (const enc of encodersOf(node)) {
+    const ri = (enc.inputs || []).findIndex((i) => i.name === "references");
+    if (ri < 0 || enc.inputs[ri].link == null) continue;
+    const src = originNode(enc, ri);
+    if (src === node) return "builder";
+    if (loader && src === loader) return "loader";
+    found = found || "other";
+  }
+  return found;
+}
+
+/** The mode the node's Python side gates media by: the saved mode, or REF
+ *  (everything passes) when nothing has been saved yet — nodes.py's rule,
+ *  which differs from the editor's own T2VA starting point. */
+function gateMode(node) {
+  try {
+    const mode = JSON.parse(node.widgets?.find((w) => w.name === "builder_state")?.value || "{}").mode;
+    return MODE_CAPACITY[mode] ? mode : "REF";
+  } catch (e) { return "REF"; }
+}
+
+/** Media slots as the builder's own outputs would carry them: everything a
+ *  connected Media Loader holds, else what is wired to the picture_/video_/
+ *  audio_ inputs. */
+function mediaSlots(node) {
+  return slotsFromBundle(node) || directSlots(node);
+}
+
+/** Reference slots when this prompt uses RefMods.
+ *
+ * RefMod Text Encode (ours or ComfyUI-MiniMaxH3Mod's) labels its bundle
+ * itself: one counter per kind, in bundle order, every copy numbered. Find
+ * the stacks (see refmodSource) and reproduce that numbering. A non-stack
+ * loader at the head of the chain contributes entries we cannot see, so the
+ * result is marked partial and the numbers are best-effort.
+ */
+function refmodSlots(node, opts = {}) {
+  const src = refmodSource(node);
+  if (!src.head) return null;
+  const { chain, partial } = modsChain(src.head);
+  if (!chain.length) return null;
+  // A draft can stand in for what the nearest stack holds (its own picks, or
+  // the ones frozen when it started) and for the loader's media.
+  const nearest = chain[chain.length - 1];
+  const picksOf = (st) => (st === nearest && opts.picks ? opts.picks : readStack(st).picks);
+  const sourceLabel = opts.picks ? (opts.picksLabel || "Draft RefMods") : "RefMod Stack";
+  const media = opts.media ? slotsFromItems(opts.media, opts.mediaLabel || "Media Loader") : mediaSlots(node);
+
+  // Loader media the Text Encode also receives is labelled first, one
+  // counter per kind — the RefMods' numbers move up behind it.
+  const reach = mediaReach(node);
+  const out = [];
+  const offset = { Picture: 0, Video: 0, Audio: 0 };
+  if (reach === "builder" || reach === "loader") {
+    const cap = reach === "builder" ? MODE_CAPACITY[gateMode(node)] : MODE_CAPACITY.REF;
+    for (const m of media || []) {
+      // The builder withholds what its mode doesn't use; a loader wired
+      // straight in sends everything. Orphan soundtracks reach neither.
+      if (!m.tag || m.idx > (cap[m.kind] ?? 0)) continue;
+      out.push(m);
+      offset[m.kind] = Math.max(offset[m.kind], m.idx);
+    }
+  }
+  const allPicks = chain.flatMap((st) => picksOf(st));
+  const pickByUid = new Map(allPicks.map((p) => [p.uid, p]));
+  const groups = labelGroups(chain.flatMap((st) => deriveEntries(picksOf(st))));
+  const copyTags = new Set();
+  const firstRefmod = out.length;
+  for (const g of groups) {
+    if (!g.nums.length) continue;
+    const kind = REFMOD_KIND[g.kind].label;
+    g.nums = g.nums.map((num) => num + offset[kind]);
+    const tags = g.nums.map((num) => `<${kind} ${num}>`);
+    tags.slice(1).forEach((t) => copyTags.add(t));
+    out.push({
+      tag: tags[0], kind, idx: g.nums[0], cls: TAG_CLASS[kind],
+      note: g.key === "audio" ? "voice" : null,
+      copies: tags.slice(1), range: refmodRange(g),
+      slotName: `refmod:${g.file}`,
+      source: `${sourceLabel} \u2022 ${g.name}`,
+      preview: g.preview ? { type: "img", url: refmodPreviewURL(g.preview) } : null,
+      refmod: { uid: g.uid, name: g.name, role: g.key === "audio" ? "voice" : "look",
+        weight: weightText(pickByUid.get(g.uid)?.[g.key]), tokens: g.tokens * g.nums.length,
+        draft: !!opts.picks },
+    });
+  }
+  // A RefMod's look and voice name each other in the hover card.
+  for (const sl of out.slice(firstRefmod)) {
+    const other = out.slice(firstRefmod).find((o) => o !== sl && o.refmod.uid === sl.refmod.uid);
+    if (other) sl.refmod.pair = { role: other.refmod.role, tag: other.tag };
+  }
+  out.refmod = true;
+  out.partial = partial || reach === "other";
+  out.copyTags = copyTags;
+  out.unsent = !!src.direct && !refmodsReachEncode(node);
+  out.media = reach;
+  out.mediaUnsent = !reach && (media || []).some((m) => m.tag);
+  return out;
+}
+
+/** A stack channel's weight the way its row shows it. */
+function weightText(ch) {
+  if (!ch) return "";
+  if (ch.mode === "sc") return `strength ${Number(ch.s ?? 1).toFixed(2)} \u00d7 ${ch.c ?? 1}`;
+  return `weight ${Number(ch.w ?? 1).toFixed(2).replace(/\.?0+$/, "")}`;
+}
+
+/** The RefMod Stack this prompt's references come from (the one nearest the
+ *  builder), or null with a reason: "encode", "mods" or "other". */
+function refmodStackFor(node) {
+  const src = refmodSource(node);
+  if (!src.head) return { stack: null, why: src.why };
+  const { chain } = modsChain(src.head);
+  return chain.length ? { stack: chain[chain.length - 1] } : { stack: null, why: "other" };
+}
+
+function getRefSlots(node, opts = {}) {
+  const viaRefmod = refmodSlots(node, opts);
+  if (viaRefmod) return viaRefmod;
+  if (opts.media) return slotsFromItems(opts.media, opts.mediaLabel || "Media Loader");
   const bundled = slotsFromBundle(node);
   if (bundled) return bundled;
+  return directSlots(node);
+}
+
+/** Slots from the picture_/video_/audio_ inputs, numbered as the native
+ *  Reference to Video node numbers them. */
+function directSlots(node) {
   const group = (re) => {
     const arr = [];
     (node.inputs || []).forEach((inp, i) => {
@@ -1021,7 +1332,25 @@ function validate(state, slots) {
     );
   });
 
-  if (state.mode === "REF") {
+  if (slots.refmod) {
+    // The prompt feeds H3 RefMod Text Encode, which labels whatever the
+    // stack sends regardless of mode — none of the per-mode capacity rules
+    // below apply. What matters is that the numbers line up.
+    if (slots.unsent)
+      warn("RefMods are wired into this node, but its mods output isn't connected " +
+        "to RefMod Text Encode \u2014 wire mods into the Text Encode's mods input, " +
+        "or the model won't see them.");
+    if (slots.mediaUnsent)
+      warn("This node's media isn't sent to RefMod Text Encode \u2014 wire its " +
+        "references output into the Text Encode's references input, or the model " +
+        "won't see those pictures and clips.");
+    if (slots.media === "other")
+      info("The Text Encode's references input comes from somewhere this node can't " +
+        "see, so its media is numbered first and the labels shown here may be shifted.");
+    else if (slots.partial)
+      info("A loader that isn't a RefMod Stack heads this chain, so its entries " +
+        "are numbered first and the labels shown here may be shifted.");
+  } else if (state.mode === "REF") {
     const total = live.length;
     if (cap.total && total > cap.total) {
       err(
@@ -1112,7 +1441,7 @@ function validate(state, slots) {
   const cited = new Set([...full.matchAll(/<(Picture|Video|Audio) (\d+)>/g)]
     .map((m) => `<${m[1]} ${m[2]}>`));
   const uncited = live.filter((s) => {
-    const usable = state.mode === "REF" ||
+    const usable = slots.refmod || state.mode === "REF" ||
       (s.kind === "Picture" && s.idx <= cap.Picture);
     return usable && !cited.has(s.tag);
   }).map((s) => s.tag);
@@ -1123,9 +1452,20 @@ function validate(state, slots) {
       uncited.join(", ") + ".");
   }
   const connected = new Set(live.map((s) => s.tag));
+  const copyTags = slots.copyTags || new Set();
   for (const t of cited) {
     const [, kind, num] = t.match(/<(\w+) (\d+)>/);
-    if (cap[kind] === 0) {
+    if (slots.refmod) {
+      if (copyTags.has(t)) {
+        const owner = live.find((s) => s.copies?.includes(t));
+        info(`${t} is a copy of ${owner?.tag || "another label"} (${owner?.source || "RefMod Stack"}); citing ${owner?.tag || "the first label"} is enough.`);
+      } else if (!connected.has(t)) {
+        if (slots.partial)
+          info(`${t} is cited but no RefMod Stack in the chain provides it — the upstream loader may.`);
+        else
+          warn(`${t} is cited but the RefMod Stack does not provide it. Check the stack's order and weights.`);
+      }
+    } else if (cap[kind] === 0) {
       warn(`${t} is cited, but ${state.mode} has no ${kind.toLowerCase()} reference to bind it to.`);
     } else if (+num > cap[kind]) {
       warn(`${t} is cited, but ${state.mode} only uses ${kind} 1${cap[kind] > 1 ? `\u2013${cap[kind]}` : ""}.`);
@@ -1358,6 +1698,21 @@ ${RAISE_CSS}
    instead of every image letterboxing inside one fixed width. */
 .mmh3p-peek{position:fixed;z-index:10002;box-sizing:border-box;width:max-content;
   min-width:240px;max-width:540px;background:#1e222a;
+.mmh3p-card.refmod{position:relative;}
+.mmh3p-cardbadge{position:absolute;top:2px;left:2px;background:rgba(8,10,14,.82);color:#e692c8;
+  border:1px solid #7a4d6b;border-radius:4px;font-size:calc(9px * var(--mmh3-fs, 1));line-height:1.3;
+  padding:0 3px;pointer-events:none;}
+.mmh3p-cardvoice{position:absolute;top:22px;right:4px;color:#b48ce8;font-size:calc(12px * var(--mmh3-fs, 1));
+  text-shadow:0 0 3px #000,0 0 2px #000;pointer-events:none;}
+.mmh3p-cardgroup{display:flex;flex-direction:column;gap:3px;flex:0 0 auto;}
+.mmh3p-cardgroupcards{display:flex;gap:6px;}
+.mmh3p-cardstrip{box-sizing:border-box;width:0;min-width:100%;font-size:calc(9px * var(--mmh3-fs, 1));
+  color:#8a93a3;border:1px solid #2e3440;border-radius:4px;padding:0 5px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;}
+.mmh3p-cardgroup.refmod .mmh3p-cardstrip{color:#e692c8;border-color:#7a4d6b;background:rgba(230,146,200,.10);}
+.mmh3p-peekrefmod{display:flex;justify-content:space-between;gap:6px;font-size:calc(10px * var(--mmh3-fs, 1));
+  color:#e692c8;margin-bottom:3px;}
+.mmh3p-peekrefmod span:last-child{color:#8a93a3;}
   border:1px solid #3a4252;border-radius:9px;overflow:hidden;
   box-shadow:0 12px 32px rgba(0,0,0,.5);}
 /* auto on both axes with a cap on each: the image keeps its own proportions
@@ -1441,6 +1796,7 @@ ${RAISE_CSS}
    word count, the snapped duration, the empty-media line — and those stay. */
 .mmh3p-nohints .mmh3p-form .hint:not(.keep){display:none;}
 .mmh3p-form textarea,.mmh3p-form input[type=text],.mmh3p-form input[type=number],.mmh3p-form select{
+.mmh3p-refmodnone{font-size:calc(10.5px * var(--mmh3-fs, 1));color:#6b7484;font-style:italic;align-self:center;}
   width:100%;box-sizing:border-box;background:#12151b;color:#dde2ea;border:1px solid #2e3440;
   border-radius:6px;padding:7px 9px;font-size:calc(13px * var(--mmh3-fs, 1));font-family:inherit;}
 .mmh3p-form textarea{resize:vertical;line-height:1.5;}
@@ -1506,12 +1862,13 @@ ${RAISE_CSS}
   box-shadow:0 16px 40px rgba(0,0,0,.55);pointer-events:none;}
 .mmh3p-phrasepeekhead{display:flex;gap:8px;align-items:baseline;
   margin-bottom:5px;}
-.mmh3p-phrasepeekhead span:first-child{font-size:calc(11px * var(--mmh3-fs, 1));color:#d7dbe2;
+.mmh3p-phrasepeekhead span:first-child{font-size:calc(11px * var(--mmh3-fs, 1));color:#e692c8;
   font-weight:600;}
 .mmh3p-phrasepeekcat{font-size:calc(9px * var(--mmh3-fs, 1));color:#6b7484;text-transform:uppercase;
   letter-spacing:.06em;}
 .mmh3p-phrasepeektext{font-size:calc(12px * var(--mmh3-fs, 1));color:#a9b2c2;line-height:1.5;
   white-space:pre-wrap;max-height:220px;overflow:hidden;}
+.mmh3p-tagpeekwhat{margin-top:5px;font-size:calc(11px * var(--mmh3-fs, 1));color:#6b7484;line-height:1.45;}
 .mmh3p-ctxmenu{position:fixed;z-index:10006;min-width:190px;background:#1e222a;
   border:1px solid #3a4252;border-radius:8px;padding:4px;
   box-shadow:0 16px 40px rgba(0,0,0,.55);}
@@ -1662,6 +2019,21 @@ ${RAISE_CSS}
 .mmh3p-minitag.subj{color:var(--mmh3-tag-subj, #7ec87e);border-color:#3e6b3e;}
 .mmh3p-roles{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:-4px 0 10px 2px;}
 .mmh3p-rolelabel{font-size:calc(10px * var(--mmh3-fs, 1));text-transform:uppercase;letter-spacing:.07em;
+.mmh3p-btn.danger{border-color:#7a4a3a;color:#e0a090;}
+.mmh3p-btn.danger:hover{background:#3a2622;}
+.mmh3p-conceptover{position:fixed;inset:0;z-index:10007;background:rgba(8,10,14,.55);display:flex;
+  align-items:center;justify-content:center;}
+.mmh3p-conceptbox{width:min(440px,92vw);background:#1e222a;border:1px solid #3a4252;border-radius:10px;
+  padding:14px 16px;display:flex;flex-direction:column;gap:9px;color:#d7dbe2;
+  box-shadow:0 24px 64px rgba(0,0,0,.55);font-size:calc(12px * var(--mmh3-fs, 1));}
+.mmh3p-concepthead{font-weight:600;font-size:calc(14px * var(--mmh3-fs, 1));}
+.mmh3p-conceptrow{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.mmh3p-conceptrow span{color:#e692c8;}
+.mmh3p-conceptrow small{color:#8a93a3;}
+.mmh3p-conceptrow select{flex:0 1 220px;}
+.mmh3p-conceptbtns{display:flex;justify-content:flex-end;gap:6px;margin-top:4px;}
+.mmh3p-conceptbox .mmh3p-dim{color:#8a93a3;font-size:calc(11px * var(--mmh3-fs, 1));}
+.mmh3p-conceptbox .mmh3p-inline{display:flex;align-items:center;gap:6px;color:#a9b2c2;}
   color:#6b7484;margin-right:2px;}
 .mmh3p-rolechip{font-size:calc(11px * var(--mmh3-fs, 1));border-radius:10px;padding:2px 9px;cursor:pointer;
   background:#1d2029;border:1px solid #3a3050;color:#a99ac4;user-select:none;}
@@ -2011,6 +2383,7 @@ ${RAISE_CSS}
 .mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-dblock,
 .mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-dmark,
 .mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-dlang,
+.mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-dtag,
 .mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-dtext{
   color:transparent;background:none;box-shadow:none;}
 .mmh3p-reftag{border-radius:3px;background:color-mix(in srgb, var(--mmh3-tag-pic) 18%, transparent);color:var(--mmh3-tag-pic, #e0a94c);
@@ -2049,6 +2422,9 @@ ${RAISE_CSS}
 .mmh3p-dlang{color:#9dc0e4;background:rgba(126,167,216,.16);border-radius:3px;
   box-shadow:0 0 0 1px rgba(126,167,216,.16);}
 .mmh3p-dtext{color:#e8eef6;}
+.mmh3p-dtag{color:#e692c8;background:rgba(230,146,200,.14);border-radius:3px;
+  box-shadow:0 0 0 1px rgba(230,146,200,.28);
+  -webkit-box-decoration-break:clone;box-decoration-break:clone;}
 .mmh3p-chippeek{position:fixed;z-index:10003;width:220px;background:#1e222a;
   border:1px solid #3a4252;border-radius:9px;overflow:hidden;
   box-shadow:0 16px 40px rgba(0,0,0,.55);pointer-events:none;}
@@ -2187,8 +2563,7 @@ function toast(msg, ms = 1800) {
  * preset store except through the user's own explicit save. */
 
 async function draftApi(path, body) {
-  const resp = await api.fetchApi("/minimax_h3_plus/drafts" + path, {
-    method: "POST",
+  const resp = await postApi("/minimax_h3_plus/drafts" + path, {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -2256,6 +2631,25 @@ function validateDraftMedia(raw) {
   return { items: items.length ? items : null, dropped };
 }
 
+/** RefMod picks a draft stored — from disk, so unvalidated. Keeps what the
+ *  stack panel can show: a name and at least one channel with a file. */
+function validateDraftRefmods(raw) {
+  if (!Array.isArray(raw)) return { items: null, dropped: 0 };
+  let dropped = 0;
+  const items = [];
+  for (const p of raw) {
+    if (!p || typeof p !== "object" || Array.isArray(p)) { dropped++; continue; }
+    const chan = (c) => (c && typeof c === "object" && typeof c.file === "string" && c.file.trim()) ? { ...c } : null;
+    const visual = chan(p.visual), audio = chan(p.audio);
+    if (!visual && !audio) { dropped++; continue; }
+    const out = { ...p, visual: visual || undefined, audio: audio || undefined };
+    if (typeof out.name !== "string" || !out.name.trim()) out.name = (visual || audio).file;
+    if (typeof out.label !== "string" || !out.label.trim()) out.label = out.name.split("/").pop();
+    items.push(out);
+  }
+  return { items: items.length ? items : null, dropped };
+}
+
 /** The node's draft identity. Properties serialise by NAME in the workflow
  *  file — unlike widgets, which are positional — so this adds no widget and
  *  can't shift saved-graph value mapping. Minted once, travels with the
@@ -2270,8 +2664,7 @@ function draftIdFor(node) {
 }
 
 async function presetApi(path, body) {
-  const resp = await api.fetchApi("/minimax_h3_plus/presets" + path, {
-    method: "POST",
+  const resp = await postApi("/minimax_h3_plus/presets" + path, {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -2281,11 +2674,11 @@ async function presetApi(path, body) {
 }
 
 async function libApi(path, body) {
-  const opts = body
-    ? { method: "POST", body: JSON.stringify(body),
-        headers: { "Content-Type": "application/json" } }
-    : {};
-  const resp = await api.fetchApi("/minimax_h3_plus/prompts" + path, opts);
+  const resp = body
+    ? await postApi("/minimax_h3_plus/prompts" + path, {
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" } })
+    : await api.fetchApi("/minimax_h3_plus/prompts" + path);
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
     const err = new Error(data.error || `request failed (${resp.status})`);
@@ -2390,7 +2783,9 @@ class Library {
     // was stacked on top of it.
     this.escHandler = (e) => {
       if (e.key !== "Escape") return;
-      if (document.querySelector(".mml-overlay")) return;   // loader owns it
+      // A window opened from here owns Escape: the Media Loader, the RefMod
+      // Stack or library, or a crop editor.
+      if (document.querySelector(".mmlp-overlay, .mmrp-overlay, .mmlp-tmover")) return;
       this.close();
     };
     window.addEventListener("keydown", this.escHandler);
@@ -3032,8 +3427,13 @@ class Editor {
   }
 
   /* ---------- insertion ---------- */
-  /* opts.newline: start the insert on its own line (for block-level items
-     like shot headers), collapsing any trailing whitespace first. */
+  /** Insert a snippet at the caret.
+   *
+   *  opts.newline  — only for [Shot N]; see below.
+   *  opts.wrap     — `text` is an opening tag whose closing half is supplied
+   *                  here. Any selected text is kept and wrapped rather than
+   *                  overwritten; with no selection the caret lands between
+   *                  the two halves, ready to type. */
   insert(text, opts = {}) {
     // opts.target pins the insertion to a specific field, for controls that
     // belong to one section rather than to wherever the caret happens to be.
@@ -3054,10 +3454,21 @@ class Editor {
       pad = before && !/[\s(\u2014]$/.test(before) ? " " : "";
     }
     const after = t.value.slice(end);
-    t.value = before + pad + text + after;
     const base = before.length + pad.length;
-    const dPos = text.indexOf("</d>");
-    t.selectionStart = t.selectionEnd = dPos >= 0 ? base + dPos : base + text.length;
+
+    if (opts.wrap) {
+      const held = t.value.slice(start, end);
+      t.value = before + pad + text + held + opts.wrap + after;
+      // Selection wrapped: leave it selected so it can be re-wrapped or
+      // retyped. Nothing selected: sit between the halves.
+      t.selectionStart = base + text.length;
+      t.selectionEnd = base + text.length + held.length;
+    } else {
+      t.value = before + pad + text + after;
+      const dPos = text.indexOf("</d>");
+      t.selectionStart = t.selectionEnd =
+        dPos >= 0 ? base + dPos : base + text.length;
+    }
     t.focus();
     t.dispatchEvent(new Event("input", { bubbles: true }));
   }
@@ -3134,6 +3545,9 @@ class Editor {
               title: "Switch to the draft scratchpad \u2014 the node keeps "
                 + "the Live prompt",
               onclick: () => this.toggleDraftMode() }, "Draft \u25b6"),
+          el("button", { class: "mmh3p-btn",
+            title: "Open the RefMod Stack this prompt's references come from",
+            onclick: () => this.openRefMods() }, "\u25c8 RefMods"),
           el("button", { class: "mmh3p-btn",
             title: "Browse saved prompts",
             onclick: () => {
@@ -3228,7 +3642,9 @@ class Editor {
     // discard your edits silently" false — it discarded silently either way.
     this.escHandler = (e) => {
       if (e.key !== "Escape") return;
-      if (document.querySelector(".mml-overlay")) return;   // loader owns it
+      // A window opened from here owns Escape: the Media Loader, the RefMod
+      // Stack or library, or a crop editor.
+      if (document.querySelector(".mmlp-overlay, .mmrp-overlay, .mmlp-tmover")) return;
       // A strip is already asking a question; Escape shouldn't answer it.
       if (this.closePending || this.clearPending || this.linkOffer) return;
       this.requestClose();
@@ -3585,6 +4001,7 @@ class Editor {
     this.closePeek();
     this.closeCtx();
     this.hidePhrasePeek();
+    this.hideTagPeek();
     window.removeEventListener("keydown", this.escHandler);
     // The DRAFT buffer flushes to disk with the mode it closed in, so the
     // editor reopens where you left off. The LIVE buffer carries nothing
@@ -3645,6 +4062,52 @@ class Editor {
    *  overlay is all "Open loader…" does — so this needs no new UI, just a
    *  refresh afterwards: adding or reordering media renumbers the tags this
    *  editor renders. */
+  /** The RefMods counterpart of openMedia: the stack's own panel in a
+   *  window, with its library and Create a click away. */
+  openRefMods() {
+    let { stack, why } = refmodStackFor(this.node);
+    if (!stack && why === "other") {
+      toast("This prompt's RefMods come from a node that isn't a RefMod Stack, " +
+        "so there's no stack panel to open.", 6000);
+      return;
+    }
+    if (!stack) stack = addRefModStack(this.node, { focus: false });
+    if (!stack) return;
+    if (this.bufferMode === "draft") { this.openDraftRefMods(stack); return; }
+    openStackModal(stack, { onClose: () => {
+      // The stack may have changed under a parked draft: refresh tags and staleness.
+      this.draftRefmodsStale = this._refmodsDiverged();
+      this.refreshSlots(); this.render();
+    } });
+  }
+
+  /** The same stack panel, pointed at this draft's RefMods instead of the
+   *  node's stack: it edits a stand-in that holds the draft's picks, and
+   *  the real stack is only written when the draft is committed. Copy-on-
+   *  write like the media: looking without changing anything forks nothing. */
+  openDraftRefMods(stack) {
+    if (!this.draftEntry) return;
+    const live = readStack(stack);
+    const start = this.draftRefmodsView() || live.picks;
+    const startKey = stableStringify(start);
+    const stub = {
+      title: "Draft RefMods \u2014 applied to the stack on commit",
+      widgets: [{ name: "stack_state", value: JSON.stringify({ picks: JSON.parse(JSON.stringify(start)), budget: live.budget }) }],
+    };
+    openStackModal(stub, { onClose: () => {
+      const picks = readStack(stub).picks;
+      if (this.draftEntry && (this.draftRefmods() || stableStringify(picks) !== startKey)) {
+        const v = validateDraftRefmods(JSON.parse(JSON.stringify(picks)));
+        this.draftEntry.refmods = v.items || [];
+        if (v.dropped) this.draftDropped = (this.draftDropped || 0) + v.dropped;
+        this.draftRefmodsStale = this._refmodsDiverged();
+        this.flushDraftSave();
+      }
+      this.refreshSlots();
+      this.render();
+    } });
+  }
+
   openMedia() {
     // Prompt Studio owns its panel, so the media lives on this very node;
     // mediaSource() resolves that without caring which shape it is.
@@ -3744,7 +4207,13 @@ class Editor {
       const vb = validateDraftMedia(e.mediaBase);
       e.media = vm.items;
       e.mediaBase = vb.items;
-      this.draftDropped = vm.dropped + vb.dropped;
+      // RefMods follow the same two-field split as media. A draft written
+      // before RefMods existed simply has neither, and follows the stack.
+      const vr = validateDraftRefmods(e.refmods);
+      const vrb = validateDraftRefmods(e.refmodsBase);
+      e.refmods = Array.isArray(e.refmods) ? (vr.items || []) : null;
+      e.refmodsBase = vrb.items;
+      this.draftDropped = vm.dropped + vb.dropped + vr.dropped + vrb.dropped;
       if (this.draftDropped) {
         console.warn("[MiniMaxH3 PromptBuilder] draft media: discarded " +
           `${this.draftDropped} unusable item(s)`);
@@ -3788,10 +4257,16 @@ class Editor {
         // have wiped the loader on commit.
         mediaBase: this._snapshotMedia(),
         media: null,
+        // The RefMod picks, split the same way: refmodsBase is frozen for
+        // display, refmods is written only through the draft's own stack
+        // panel and applied to the stack on commit ([] = deliberately none).
+        refmodsBase: this._snapshotRefmods(),
+        refmods: null,
         savedTo: null,
       };
     }
     this.draftStale = this._mediaDiverged();
+    this.draftRefmodsStale = this._refmodsDiverged();
     this.node._mmh3DraftActive = true;
     this.draftDropped = this.draftDropped || 0;
     this.refreshSlots();
@@ -3833,6 +4308,8 @@ class Editor {
       state: this.draftEntry.state,
       media: this.draftEntry.media ?? null,
       mediaBase: this.draftEntry.mediaBase ?? null,
+      refmods: this.draftEntry.refmods ?? null,
+      refmodsBase: this.draftEntry.refmodsBase ?? null,
       savedTo: this.draftEntry.savedTo ?? null,
     };
   }
@@ -3853,11 +4330,11 @@ class Editor {
       this.draftEntry.mode = modeOverride;
     }
     const payload = this.draftPayload(this.draftEntry.mode);
-    // The no-empty-drafts rule: a pristine blank with no library tie isn't
-    // worth a disk entry — or an LRU slot.
+    // The no-empty-drafts rule: a pristine blank with no library tie and no
+    // media or RefMods of its own isn't worth a disk entry — or an LRU slot.
     const blank = defaultState();
     blank.mode = payload.state.mode;
-    if (!payload.savedTo &&
+    if (!payload.savedTo && !payload.media && !payload.refmods &&
         stableStringify(payload.state) === stableStringify(blank)) {
       return;
     }
@@ -3917,6 +4394,43 @@ class Editor {
     return (Array.isArray(items) && items.length) ? items : null;
   }
 
+  /** The picks of the stack this prompt's RefMods come from, or null. */
+  _snapshotRefmods() {
+    const { stack } = refmodStackFor(this.node);
+    if (!stack) return null;
+    const picks = readStack(stack).picks;
+    return picks.length ? JSON.parse(JSON.stringify(picks)) : null;
+  }
+
+  /** RefMods the draft OWNS — edited through its own stack panel, applied to
+   *  the stack on commit. Null = never edited (follows the stack); [] = the
+   *  draft deliberately has none, which does clear the stack on commit. */
+  draftRefmods() {
+    const r = this.draftEntry?.refmods;
+    return Array.isArray(r) ? r : null;
+  }
+
+  /** What the draft DISPLAYS for RefMods: its own set, else the frozen
+   *  base, else null (the stack itself). Display only. */
+  draftRefmodsView() {
+    if (!this.draftEntry) return null;
+    const own = this.draftRefmods();
+    if (own) return own;
+    const b = this.draftEntry.refmodsBase;
+    return (Array.isArray(b) && b.length) ? b : null;
+  }
+
+  /** True when the stack has moved on from the picks this draft froze. */
+  _refmodsDiverged() {
+    if (this.draftRefmods()) return false;
+    const b = this.draftEntry?.refmodsBase;
+    if (!Array.isArray(b) || !b.length) return false;
+    const { stack } = refmodStackFor(this.node);
+    if (!stack) return true;                  // stack unwired since creation
+    const strip = (picks) => picks.map(({ missing, ...p }) => p);
+    return stableStringify(strip(b)) !== stableStringify(strip(readStack(stack).picks));
+  }
+
   /** Media the draft OWNS — edited deliberately, and applied on commit.
    *  Null means the draft has never been given media of its own. Always go
    *  through this: a bare `.media` check treats [] as a real set. */
@@ -3949,11 +4463,14 @@ class Editor {
   }
 
   refreshSlots() {
-    const snap = this.bufferMode === "draft" ? this.draftView() : null;
-    this.slots = snap
-      ? slotsFromItems(snap, this.draftMedia() ? "Draft media" : "Media")
-      : getRefSlots(this.node);
-    if (!this.slots) this.slots = getRefSlots(this.node);
+    if (this.bufferMode !== "draft") { this.slots = getRefSlots(this.node); return; }
+    // A draft stands in for the loader's items and the stack's picks where it
+    // has its own (or frozen) copies; the wiring itself is always live.
+    const snap = this.draftView(), picks = this.draftRefmodsView();
+    this.slots = getRefSlots(this.node, {
+      media: snap || undefined, mediaLabel: this.draftMedia() ? "Draft media" : "Media Loader",
+      picks: picks || undefined, picksLabel: this.draftRefmods() ? "Draft RefMods" : "RefMod Stack",
+    }) || getRefSlots(this.node);
   }
 
   /** A loaded prompt named a media preset. Never apply it silently: it
@@ -4062,6 +4579,10 @@ class Editor {
       // draft OWNS is left alone — that was a deliberate choice.
       this.draftEntry.mediaBase = this._snapshotMedia();
       this.draftStale = this._mediaDiverged();
+      if (!this.draftRefmods()) {
+        this.draftEntry.refmodsBase = this._snapshotRefmods();
+        this.draftRefmodsStale = this._refmodsDiverged();
+      }
     }
     this.pullPending = false;
     this.flushDraftSave();
@@ -4119,6 +4640,7 @@ class Editor {
     // Only a set the draft OWNS is applied. The frozen base is display-only:
     // applying it would revert any media work done on Live while drafting.
     const media = this.draftMedia();
+    const refmods = this.draftRefmods();
     // Draft becomes live: adopt its state and library identity as the live
     // buffer, write the node, apply the media snapshot through the same
     // front door presets use, and consume the draft entry.
@@ -4129,6 +4651,7 @@ class Editor {
     this.state = committed;
     this.writeNode();
     if (media) this._applyMediaSnapshot(media);
+    if (refmods) this._applyRefmodSnapshot(refmods);
     clearTimeout(this._draftTimer);
     draftApi("/clear", { id: draftIdFor(this.node) }).catch(() => {});
     this.draftEntry = null;
@@ -4139,6 +4662,20 @@ class Editor {
     this.applyDraftChrome();
     toast("Draft committed to Live");
     this.render();
+  }
+
+  /** Write a draft's picks into the stack this prompt's RefMods come from,
+   *  keeping the stack's own token budget. */
+  _applyRefmodSnapshot(picks) {
+    try {
+      const { stack } = refmodStackFor(this.node);
+      if (!stack) { toast("The draft's RefMods had no stack to go to \u2014 use + RefMods first", 5000); return; }
+      const w = stack.widgets?.find((x) => x.name === "stack_state");
+      if (!w) return;
+      w.value = JSON.stringify({ picks: JSON.parse(JSON.stringify(picks)), budget: readStack(stack).budget });
+      stack._mmrPanel?.reload();
+      stack.setDirtyCanvas?.(true, true);
+    } catch (e) { console.error("[MiniMaxH3 PromptBuilder] applying draft RefMods failed:", e); }
   }
 
   _applyMediaSnapshot(items) {
@@ -4205,7 +4742,7 @@ class Editor {
         ? el("span", { class: "mmh3p-draftdropped",
             title: "Items that were missing a file or had an unknown type. " +
               "See the browser console for details." },
-            `\u26a0 ${this.draftDropped} unusable media item` +
+            `\u26a0 ${this.draftDropped} unusable reference item` +
             `${this.draftDropped === 1 ? "" : "s"} discarded`)
         : null,
       el("span", { class: "mmh3p-draftmsg" },
@@ -4218,7 +4755,13 @@ class Editor {
             : (this.draftStale
               ? " \u00b7 showing media as of when this draft was started; " +
                 "the loader has changed since"
-              : " \u00b7 following the node's media")))),
+              : " \u00b7 following the node's media")) +
+          (this.draftRefmods()
+            ? " \u00b7 has its own RefMods, applied to the stack on commit"
+            : (this._refmodsDiverged()
+              ? " \u00b7 showing RefMods as of when this draft was started; " +
+                "the stack has changed since"
+              : (this.draftEntry?.refmodsBase ? " \u00b7 following the stack's RefMods" : ""))))),
       el("div", { class: "mmh3p-draftactions" },
         el("button", { class: "mmh3p-btn",
           title: "Copy the Live prompt into this draft \u2014 " +
@@ -4523,6 +5066,8 @@ class Editor {
 
   /** Whether the current mode can use this reference at all. */
   usable(slot) {
+    // Text Encode has no per-mode caps: whatever the stack sends, it labels.
+    if (this.slots?.refmod) return true;
     const cap = MODE_CAPACITY[this.state.mode] || {};
     return (cap[slot.kind] || 0) >= slot.idx;
   }
@@ -4584,6 +5129,165 @@ class Editor {
     node = cropFrame(node, s.item?.crop);
     if (key) this._thumbs.set(key, node);
     return node;
+  }
+
+  /* --- draft definitions from RefMods ------------------------------ */
+
+  /** One definition line and one retention entry per RefMod in the stack,
+   *  worded from the concept saved in the library (a person, a place, a
+   *  style, a voice…). Names and descriptions are the user's own notes and
+   *  never go into the prompt. Loose loader media is left alone: nothing is known
+   *  about it. A RefMod whose concept was never set is asked about first,
+   *  and the answer can be written back to the library so it isn't asked
+   *  again. Labels that already have a line are skipped. */
+  async draftFromRefmods() {
+    const r = this.state.ref;
+    const slots = this.slots.filter((s) => s.refmod && s.tag);
+    if (!slots.length) { toast("No RefMods are connected"); return; }
+    let library = [];
+    try {
+      const resp = await api.fetchApi("/minimax_h3_plus/refmods", { cache: "no-store" });
+      library = (await resp.json()).items || [];
+    } catch (e) { /* the concept picker covers the gap */ }
+    const infoOf = (file) => {
+      const it = library.find((x) => x.visual?.file === file || x.audio?.file === file);
+      return { concept: it?.concept || "generic" };
+    };
+    // Group each RefMod's look and voice; a voice-only RefMod has no look.
+    const mods = [];
+    for (const s of slots) {
+      const file = s.slotName.replace(/^refmod:/, "");
+      let m = mods.find((x) => x.uid === s.refmod.uid);
+      if (!m) { m = { uid: s.refmod.uid, name: s.refmod.name, ...infoOf(file) }; mods.push(m); }
+      if (s.refmod.role === "voice") m.voice = s; else m.look = s;
+      // The concept is written to the half it describes: the look's file,
+      // or the voice's when the RefMod is a voice only.
+      if (s.refmod.role !== "voice" || !m.file) m.file = file;
+    }
+    // Existing lines: add to them, or start the two sections over.
+    const hasText = r.subjectDefs.some((d) => (d.text || "").trim()) || r.retention.some((x) => x.label);
+    if (hasText) {
+      const how = await this.askOverwrite();
+      if (!how) return;
+      if (how === "replace") { r.subjectDefs = []; r.retention = []; }
+    }
+    const defText = () => r.subjectDefs.map((d) => d.text).join("\n");
+    const cited = (tag) => defText().includes(tag);
+    const pending = mods.filter((m) => (m.look && !cited(m.look.tag)) || (m.voice && !cited(m.voice.tag)));
+    if (!pending.length) { toast("Every RefMod already has a definition line", 3000); return; }
+
+    // Ask about the ones the library can't describe.
+    const unknown = pending.filter((m) => m.look ? !VISUAL_CONCEPTS.includes(m.concept)
+                                            : !AUDIO_CONCEPTS.includes(m.concept));
+    if (unknown.length) {
+      const answers = await this.askConcepts(unknown);
+      if (!answers) return;                       // cancelled
+      for (const m of unknown) m.concept = answers.choice[m.uid];
+      if (answers.remember) {
+        for (const m of unknown) {
+          try {
+            await postApi("/minimax_h3_plus/refmods/meta", { headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ files: [m.file], concept_type: m.concept }) });
+          } catch (e) { /* the draft still goes ahead */ }
+        }
+      }
+    }
+
+    const usedSpeakers = () => new Set([...defText().matchAll(/\(S(\d+)\)/g)].map((x) => +x[1]));
+    const nextSpeaker = () => { const u = usedSpeakers(); let i = 1; while (u.has(i)) i++; return `S${i}`; };
+    const nextSubject = () => {
+      const n = [...defText().matchAll(/<Subject (\d+)>/g)].map((x) => +x[1]);
+      return `<Subject ${Math.max(0, ...n) + 1}>`;
+    };
+    const ensureRet = (label, marker, note) => {
+      if (r.retention.some((x) => x.label === label)) return;
+      r.retention.push({ label, context: "", marker, note });
+    };
+    const ensureTask = (t) => { if (!r.summaryTypes.includes(t)) r.summaryTypes.push(t); };
+    let added = 0;
+    for (const m of pending) {
+      let subj = null;
+      if (m.look && !cited(m.look.tag)) {
+        const spec = REFMOD_CONCEPTS[m.concept] || REFMOD_CONCEPTS.identity;
+        subj = spec.subject ? nextSubject() : null;
+        const ctx = { subj, tag: m.look.tag };
+        r.subjectDefs.push({ text: spec.text(ctx), role: null });
+        ensureRet(subj || m.look.tag, spec.marker, spec.note(ctx));
+        ensureTask(spec.task);
+        added++;
+      } else if (m.look) {
+        // The look is already defined: reuse its subject for the voice.
+        const line = r.subjectDefs.find((d) => d.text.includes(m.look.tag));
+        subj = (line?.text.match(/<Subject \d+>/) || [null])[0];
+      }
+      if (m.voice && !cited(m.voice.tag)) {
+        const vc = m.look ? (m.concept === "singing" ? "singing" : "voice") : m.concept;
+        const spec = REFMOD_CONCEPTS[vc] || REFMOD_CONCEPTS.voice;
+        if (spec.speaker && !subj) {
+          // A voice with no look of its own still needs someone to belong to.
+          subj = nextSubject();
+          r.subjectDefs.push({ text: spec.speaker({ subj, tag: m.voice.tag }), role: null });
+          ensureRet(subj, "fully_preserved", `${subj}'s identity is retained.`);
+        }
+        const ctx = { subj: subj || "<Subject 1>", tag: m.voice.tag, sx: nextSpeaker() };
+        r.subjectDefs.push({ text: spec.text(ctx), role: vc === "voice" ? "timbre" : null });
+        ensureRet(m.voice.tag, spec.marker, spec.note(ctx));
+        ensureTask(spec.task);
+        added++;
+      }
+    }
+    this.render();
+    toast(`Drafted ${added} definition line${added === 1 ? "" : "s"} and their retention entries \u2014 read them over`, 5000);
+  }
+
+  /** Lines already exist: resolves to "add", "replace" or null (cancelled). */
+  askOverwrite() {
+    return new Promise((resolve) => {
+      const close = (result) => { window.removeEventListener("keydown", onKey); box.remove(); resolve(result); };
+      const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(null); } };
+      const box = el("div", { class: "mmh3p-conceptover", onmousedown: (e) => { if (e.target === box) close(null); } },
+        el("div", { class: "mmh3p-conceptbox", role: "dialog", "aria-label": "Definitions already exist" },
+          el("div", { class: "mmh3p-concepthead" }, "You already have definitions"),
+          el("div", { class: "mmh3p-dim" },
+            "Add missing keeps every line you have and drafts only the RefMods that don't have one yet. " +
+            "Start over clears subject_definitions and retention_analysis and drafts them fresh from the RefMods."),
+          el("div", { class: "mmh3p-conceptbtns" },
+            el("button", { class: "mmh3p-btn", onclick: () => close(null) }, "Cancel"),
+            el("button", { class: "mmh3p-btn danger", onclick: () => close("replace") }, "Start over"),
+            el("button", { class: "mmh3p-btn primary", onclick: () => close("add") }, "Add missing"))));
+      window.addEventListener("keydown", onKey);
+      document.body.append(box);
+    });
+  }
+
+  /** A small dialog over the editor: what is each of these RefMods? Resolves
+   *  to { choice: {uid: concept}, remember } or null when cancelled. */
+  askConcepts(mods) {
+    return new Promise((resolve) => {
+      const choice = {};
+      const rows = mods.map((m) => {
+        const options = m.look ? VISUAL_CONCEPTS : AUDIO_CONCEPTS;
+        choice[m.uid] = options[0];
+        return el("label", { class: "mmh3p-conceptrow" },
+          el("span", {}, `\u25c8 ${m.name}`, el("small", {}, m.look ? " (look)" : " (voice)")),
+          el("select", { onchange: (e) => { choice[m.uid] = e.target.value; } },
+            options.map((c) => el("option", { value: c }, CONCEPT_LABEL[c] || c))));
+      });
+      const remember = el("input", { type: "checkbox", checked: true });
+      const close = (result) => { window.removeEventListener("keydown", onKey); box.remove(); resolve(result); };
+      const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(null); } };
+      const box = el("div", { class: "mmh3p-conceptover", onmousedown: (e) => { if (e.target === box) close(null); } },
+        el("div", { class: "mmh3p-conceptbox", role: "dialog", "aria-label": "What are these RefMods?" },
+          el("div", { class: "mmh3p-concepthead" }, "What are these RefMods?"),
+          el("div", { class: "mmh3p-dim" }, "The library has no concept saved for them, and the wording depends on it."),
+          ...rows,
+          el("label", { class: "mmh3p-inline" }, remember, " Save the answers to the library so this isn't asked again"),
+          el("div", { class: "mmh3p-conceptbtns" },
+            el("button", { class: "mmh3p-btn", onclick: () => close(null) }, "Cancel"),
+            el("button", { class: "mmh3p-btn primary", onclick: () => close({ choice, remember: remember.checked }) }, "Draft"))));
+      window.addEventListener("keydown", onKey);
+      document.body.append(box);
+    });
   }
 
   /* --- hover peek ------------------------------------------------- */
@@ -4782,6 +5486,11 @@ class Editor {
           + "reference tag \u2014 they may all be switched off. Commit or clear "
           + "the draft to go back to the node's own media.")].filter(Boolean);
       }
+      if (this.slots?.refmod) {
+        return el("span", { class: "mmh3p-refmodnone",
+          title: "The RefMod Stack connected to this prompt isn't sending anything yet." },
+          "No RefMods loaded");
+      }
       return [tile, el("span", { class: "hint keep" },
         "No reference media on this node yet \u2014 add some in the panel on the "
         + "node, or with the + tile here."
@@ -4826,16 +5535,40 @@ class Editor {
               "\u266a\u2192V" + (s.note.match(/\d+/) || [""])[0])
           : null);
       if (s.item && s.panel) this.railReorder(card, s);
+      if (s.refmod) {
+        card.classList.add("refmod");
+        card.append(el("span", { class: "mmh3p-cardbadge", title: `From the RefMod \u201c${s.refmod.name}\u201d` }, "\u25c8"));
+        if (s.refmod.role === "voice" && s.preview?.type === "img")
+          card.append(el("span", { class: "mmh3p-cardvoice" }, "\u266a"));
+      }
       if (ok) this.peekFor(card, s);
       // Lets a tag hovered in a text field open this card's own preview
       // rather than a separate one — see the railPeek preference.
       this._cardFor.set(s.tag, { card, slot: s });
       return card;
     });
-    // Trailing "+" tile. dropTile() returns null once the mode has no room
-    // left \u2014 roomLeft() gates on the mode's own per-kind ceiling, the loader's
-    // capacity check and the total \u2014 so it shows only when it is relevant.
-    return tile ? [...cards, tile] : cards;
+    // Trailing "+" tile. dropTile() returns null once the mode has no
+    // room left, so it shows only when it is relevant.
+    // Only worth sorting into groups when RefMods are in the mix: then each
+    // RefMod's look and voice sit together under its name, and the loader's
+    // media under its own.
+    if (!live.some((s) => s.refmod))
+      return tile ? [...cards, tile] : cards;
+    const keyOf = (s) => (s.refmod ? `r:${s.refmod.uid}:${s.refmod.name}` : `m:${(s.source || "").split(" \u2022 ")[0]}`);
+    const out = [];
+    live.forEach((s, i) => {
+      const key = keyOf(s);
+      const last = out[out.length - 1];
+      if (last && last.key === key) { last.cards.push(cards[i]); return; }
+      out.push({ key, s, cards: [cards[i]] });
+    });
+    const groups = out.map((g) => el("div", { class: "mmh3p-cardgroup" + (g.s.refmod ? " refmod" : "") },
+      el("div", { class: "mmh3p-cardgroupcards" }, ...g.cards),
+      el("div", { class: "mmh3p-cardstrip",
+        title: g.s.refmod ? `RefMod \u201c${g.s.refmod.name}\u201d${g.s.refmod.draft ? " (this draft's copy)" : ""}` : g.s.source },
+        g.s.refmod ? `\u25c8 ${g.s.refmod.name}`
+          : (/^draft/i.test(g.s.source || "") ? "Draft media" : (g.s.slotName || "").startsWith("loader:") ? "Media" : "Connected"))));
+    return tile ? [...groups, tile] : groups;
   }
 
   /** The node tile's own per-clip controls, on the editor's rail: the trim /
@@ -5016,8 +5749,98 @@ class Editor {
         ? el("div", { class: "mmh3p-subjrow" }, extraChips) : null,
       el("div", { class: "mmh3p-tools" },
         timeIn, shotBtn, camMove, camAmp, camSpd, camBtn, styleSel),
-      this.dialogueEl = this.dialogueRow(lang),
+      // The handle is this fork's: refreshDialogue() swaps this one row in
+      // place as speakers are added, rather than re-rendering the form.
+      this.dialogueSlot = el("div", { class: "mmh3p-dialogslot" },
+        this.dialogueEl = this.dialogueRow(lang)),
+      this.tagRow(),
       this.phraseRow());
+  }
+
+  /* --- delivery tags: community findings, inserted inside <d> -------- */
+
+  /** The tag picker row. Deliberately its own row rather than an extension of
+   *  the dialogue row: that one already grows with every speaker, and 24 tags
+   *  need a picker, not buttons. Sits directly under dialogue because these
+   *  tags belong inside <d>, and insert() parks the caret before </d>. */
+  tagRow() {
+    const groups = [...new Set(DELIVERY_TAGS.map((t) => t.group))];
+    this.tagGroup = this.tagGroup || groups[0];
+
+    this.tagGroupEl = el("select", { class: "mmh3p-phrasecat",
+      title: "Filter delivery tags by kind",
+      onchange: () => { this.tagGroup = this.tagGroupEl.value;
+        this.drawTags(); } });
+    this.tagEl = el("select", { class: "mmh3p-phrasesel",
+      onchange: () => this.showTagPeek(),
+      onmouseenter: () => this.showTagPeek(),
+      onmouseleave: () => this.hideTagPeek(),
+      onmousedown: () => this.hideTagPeek(),
+      onblur: () => this.hideTagPeek() });
+
+    this.tagBar = el("div", { class: "mmh3p-tools mmh3p-phraserow" },
+      el("span", { class: "mmh3p-toollabel" }, "Delivery:"),
+      this.tagGroupEl, this.tagEl,
+      el("button", { class: "mmh3p-btn",
+        title: "Insert the selected tag at the caret. Tags belong inside a " +
+               "<d> block \u2014 insert a dialogue line first.",
+        onclick: () => this.insertTag() }, "insert"));
+    this.drawTags();
+    return this.tagBar;
+  }
+
+  selectedTag() {
+    return DELIVERY_TAGS.find((t) => t.tag === this.tagEl?.value) || null;
+  }
+
+  drawTags() {
+    if (!this.tagGroupEl) return;
+    this.hideTagPeek();
+    const groups = [...new Set(DELIVERY_TAGS.map((t) => t.group))];
+    this.tagGroupEl.replaceChildren(...groups.map((g) =>
+      el("option", { value: g, selected: g === this.tagGroup }, g)));
+    const list = DELIVERY_TAGS.filter((t) => t.group === this.tagGroup);
+    this.tagEl.replaceChildren(...list.map((t) =>
+      el("option", { value: t.tag, title: t.what },
+        `${t.tag}\u2002\u2014\u2002${t.what.split(".")[0]}`)));
+  }
+
+  insertTag() {
+    const t = this.selectedTag();
+    if (!t) return;
+    if (t.wrap) {
+      const close = `</${t.tag.slice(1)}`;      // <whisper> -> </whisper>
+      this.insert(t.tag, { wrap: close });
+    } else {
+      this.insert(t.tag);
+    }
+  }
+
+  /** Show the example on hover: the picker only has room for the tag and a
+   *  few words, and the example is what tells you how it reads in a line. */
+  showTagPeek() {
+    this.hideTagPeek();
+    const t = this.selectedTag();
+    if (!t) return;
+    const box = el("div", { class: "mmh3p-phrasepeek" },
+      el("div", { class: "mmh3p-phrasepeekhead" },
+        el("span", {}, t.tag),
+        el("span", { class: "mmh3p-phrasepeekcat" }, t.group)),
+      el("div", { class: "mmh3p-phrasepeektext" }, ...deliverySpans(t.ex)),
+      el("div", { class: "mmh3p-tagpeekwhat" }, t.what));
+    document.body.append(box);
+    const r = this.tagEl.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    box.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - b.width - 8))}px`;
+    box.style.top = r.top - b.height - 6 >= 8
+      ? `${r.top - b.height - 6}px`
+      : `${r.bottom + 6}px`;
+    this._tagPeek = box;
+  }
+
+  hideTagPeek() {
+    this._tagPeek?.remove();
+    this._tagPeek = null;
   }
 
   /* --- phrases: reusable fragments, saved server-side ---------------- */
@@ -5271,8 +6094,7 @@ class Editor {
   async savePhrase(entry) {
     if (!entry.name) { toast("Give the phrase a name", 3500); return; }
     try {
-      const resp = await api.fetchApi("/minimax_h3_plus/phrases/save", {
-        method: "POST",
+      const resp = await postApi("/minimax_h3_plus/phrases/save", {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(entry),
       });
@@ -5300,8 +6122,7 @@ class Editor {
     this.drawPhraseBar();
     if (!p) return;
     try {
-      const resp = await api.fetchApi("/minimax_h3_plus/phrases/delete", {
-        method: "POST",
+      const resp = await postApi("/minimax_h3_plus/phrases/delete", {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: p.id }),
       });
@@ -5349,7 +6170,25 @@ class Editor {
    *  the next unused ID, a voiceover toggle, and the two continuity markers.
    *  Speaker IDs follow the target video's speaking order, so offering a
    *  fixed S1-S4 would invent numbers the prompt has no use for. */
+  /** Rebuild ONLY the dialogue row.
+   *
+   *  insert() can't call render(): a full rebuild replaces the textareas and
+   *  throws away the caret it just placed inside <d>…</d>. So the speaker
+   *  buttons, the pair button and the voiceover state all went stale the
+   *  moment they mattered — you clicked "+ (S1)" and the row kept offering
+   *  "+ (S1)" until some unrelated event forced a render. Swapping just this
+   *  row leaves the focused field untouched. */
+  refreshDialogueRow() {
+    if (!this.dialogueSlot?.isConnected || !this.dialogueLang) return;
+    try {
+      this.dialogueSlot.replaceChildren(this.dialogueRow(this.dialogueLang));
+    } catch (err) {
+      console.error("[MiniMaxH3 PromptBuilder] dialogue row refresh failed:", err);
+    }
+  }
+
   dialogueRow(lang) {
+    this.dialogueLang = lang;          // reused by refreshDialogueRow()
     const used = this.usedSpeakers();
     const next = `S${used.length ? Math.max(...used.map((s) => +s.slice(1))) + 1 : 1}`;
     this._spkKey = used.join(",");
@@ -5744,7 +6583,11 @@ class Editor {
         el("button", { class: "mmh3p-btn",
           onclick: () => addDef(`<Video ${nextTagN("Video")}> is `) }, "+ Video line"),
         el("button", { class: "mmh3p-btn",
-          onclick: () => addDef(`<Audio ${nextTagN("Audio")}> is `) }, "+ Audio line")),
+          onclick: () => addDef(`<Audio ${nextTagN("Audio")}> is `) }, "+ Audio line"),
+        el("button", { class: "mmh3p-btn", title: "Write a definition and a retention entry for each " +
+            "RefMod in the stack, from what the library knows about it. With lines already here you " +
+            "choose whether to add the missing ones or start over.",
+          onclick: () => this.draftFromRefmods() }, "\u25c8 Draft from RefMods")),
       el("span", { class: "hint" },
         "One line per tracked item. Focus a line, then click media chips above to assign " +
         "references to that subject. Audio lines show role chips underneath \u2014 pick one " +
@@ -5967,6 +6810,7 @@ class Editor {
 
   updatePreview() {
     this.scheduleDraftSave();      // no-op outside draft mode
+    this.refreshDialogueRow();     // speaker buttons follow the text
     this._paintSubjChips?.();
     const text = generate(this.state);
     this._citeText = text;
@@ -6043,6 +6887,102 @@ export function restoreDraftFlag(node) {
       if (res.exists) updateSummary(node);
     })
     .catch(() => { /* the flag is cosmetic; the draft itself is on disk */ });
+}
+
+/** The one place this file links two nodes. */
+function wire(from, outSlot, to, inSlot) {
+  return linkNodes(from, outSlot, to, inSlot);
+}
+
+function redraw(node) {
+  try {
+    node.setDirtyCanvas?.(true, true);
+    app.graph.setDirtyCanvas(true, true);
+  } catch (e) { /* Vue redraws itself */ }
+}
+
+/** Pass this builder's media on to a Text Encode whose references input is
+ *  empty, when the builder has a Media Loader. Returns true if it wired. */
+function feedEncoderMedia(node, enc) {
+  const refIn = (node.inputs || []).findIndex((i) => i.name === "references");
+  const refOut = (node.outputs || []).findIndex((o) => o.name === "references");
+  const ri = (enc.inputs || []).findIndex((i) => i.name === "references");
+  if (refIn < 0 || refOut < 0 || ri < 0) return false;
+  if (node.inputs[refIn].link == null || enc.inputs[ri].link != null) return false;
+  wire(node, refOut, enc, ri);
+  return true;
+}
+
+/** Wire a RefMod Stack into this builder's mods input. Focuses the stack
+ *  already there; otherwise adopts one already feeding a RefMod Text Encode
+ *  this prompt drives, or creates a new one beside the node and passes the
+ *  builder's mods output on to any such Text Encode whose mods input is
+ *  empty. Returns the stack, or null. */
+function addRefModStack(node, { focus = true } = {}) {
+  const inIdx = (node.inputs || []).findIndex((i) => i.name === "mods");
+  const outIdx = (node.outputs || []).findIndex((o) => o.name === "mods");
+  if (inIdx < 0 || outIdx < 0) {
+    toast("This Prompt Builder has no mods input \u2014 restart ComfyUI and reload the page", 6000);
+    return null;
+  }
+
+  if (node.inputs[inIdx].link != null) {
+    const { stack } = refmodStackFor(node);
+    // An older workflow may have the stack but not the media wire: finish it.
+    const fed = encodersOf(node).filter((enc) => feedEncoderMedia(node, enc)).length;
+    if (fed) redraw(node);
+    if (stack && focus && !safeCanvasFocus(stack))
+      openStackModal(stack, { onClose: () => updateSummary(node) });
+    if (!stack) toast("Something other than a RefMod Stack is on this node's mods input");
+    else if (focus) toast(fed ? "RefMod Stack already connected \u2014 wired this node's media on to RefMod Text Encode too"
+                              : "A RefMod Stack is already connected");
+    return stack;
+  }
+
+  const encoders = outputTargets(node, 0).filter((n) => ENCODE_NAMES.has(n?.type));
+  const modsInput = (enc) => (enc.inputs || []).findIndex((i) => i.name === "mods");
+  for (const enc of encoders) {
+    const mi = modsInput(enc);
+    const head = mi >= 0 && enc.inputs[mi].link != null ? originNode(enc, mi) : null;
+    if (head?.type === STACK_NAME) {
+      wire(head, 0, node, inIdx);     // slot 0 is the stack's mods bundle
+      feedEncoderMedia(node, enc);
+      redraw(node);
+      toast("Connected the RefMod Stack that already feeds RefMod Text Encode");
+      return head;
+    }
+  }
+
+  let stack = null;
+  try {
+    stack = LiteGraph.createNode(STACK_NAME);
+  } catch (e) { stack = null; }
+  if (!stack) {
+    toast("RefMod Stack node not found \u2014 restart ComfyUI");
+    return null;
+  }
+  app.graph.add(stack);
+  try {
+    // Left of the builder like the Media Loader, below it when one is there.
+    const refIdx = (node.inputs || []).findIndex((i) => i.name === "references");
+    const loader = refIdx >= 0 && node.inputs[refIdx].link != null ? originNode(node, refIdx) : null;
+    const x = node.pos[0] - ((stack.size?.[0] || 560) + 60);
+    const y = loader ? loader.pos[1] + (loader.size?.[1] || 400) + 60 : node.pos[1];
+    stack.pos = [x, y];
+  } catch (e) { /* let the renderer place it */ }
+  wire(stack, 0, node, inIdx);
+  let fed = 0;
+  for (const enc of encoders) {
+    const mi = modsInput(enc);
+    if (mi >= 0 && enc.inputs[mi].link == null) { wire(node, outIdx, enc, mi); fed++; }
+    feedEncoderMedia(node, enc);
+  }
+  redraw(node);
+  toast(fed
+    ? "RefMod Stack added and connected \u2014 its bundle goes on to RefMod Text Encode"
+    : "RefMod Stack added and connected. Wire this node's mods output into " +
+      "RefMod Text Encode's mods input.", 6000);
+  return stack;
 }
 
 export function openEditor(node) {

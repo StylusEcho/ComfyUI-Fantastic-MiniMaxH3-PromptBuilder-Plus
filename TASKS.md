@@ -959,3 +959,121 @@ when hiding, makes it a mouse-over caption for the respective section.
       wrapper on any definition row) and passes after. Verified in a real
       browser too: the wrapper takes the row's width and the mirror sits
       exactly over the textarea (dx/dy = 0), so the chips land on their words.
+
+---
+
+## Upstream sync — 1.6.3 → 1.7.1 (RefMods)
+
+79. 🟩 pull in the latest upstream changes (1.6.3, 1.6.4, 1.7.0, 1.7.1)
+    - 14 commits, ~13,500 insertions, 25 conflicts in `web/promptbuilder.js`
+      alone plus `medialoader.js`, `nodes.py`, `web_api.py`, `pyproject.toml`
+      and `README.md`. Version → **2.6.0**.
+    - **RefMods came in whole**: six Python modules, `web/refmodstack.js`
+      (2,279 lines), the library UI, the Create/Edit/Inspect queue path, and
+      the editor's RefMod-aware rail (chips, groups, badges, per-draft picks).
+      See item 80 — this changes what the pack *is*, and is flagged for a
+      decision rather than assumed.
+    - **Namespaced for coexistence**, the same policy the rest of the fork
+      follows: 10 routes → `/minimax_h3_plus/`, 495 `mmr-` + 30 `mmh3-` + 6
+      `mml-` CSS class references → `mmrp-`/`mmh3p-`/`mmlp-`, and all six node
+      type IDs → `MiniMaxH3Studio…` with display names on "MiniMax H3 …"
+      rather than "Fantastic H3 …". The three `registerExtension` names moved
+      to `MiniMaxH3Plus.*` too — `promptbuilder.js` was still registering as
+      `MiniMaxH3.PromptBuilder`, a pre-existing clash with upstream that this
+      merge made worth fixing. The `--mmh3-*`/`--mml-*` custom properties keep
+      their unprefixed names, shared with upstream by design.
+    - **Re-pointed at this fork's node shape**, as with 1.6.0. Upstream hangs
+      the RefMod library's context-menu entry off its standalone Media Loader
+      and the `+ RefMods` button off its standalone Prompt Builder — neither
+      node exists here, so both would have installed on nothing and the
+      feature would have looked present and been unreachable. The menu entry
+      now hooks Prompt Studio (which owns the `media_state` it reads), and the
+      editor header's existing **◈ RefMods** button is the way in. A new
+      exported `STUDIO_NAME` in `medialoader.js` is the single place that
+      string lives, so `promptbuilder.js`'s `modsChain()` and
+      `refmodstack.js`'s extension can recognise the node without importing
+      the module that registers it.
+    - **Dropped as dead here**: `addMediaLoader()` and the whole
+      `app.registerExtension({name:"MiniMaxH3.PromptBuilder"})` block upstream
+      keeps at the end of `promptbuilder.js`. In this fork that file is a
+      shared module, not a node registration — `promptstudio.js` owns the
+      node — and the block referenced `NODE_NAME` and `addMediaLoader`,
+      neither of which exists here, so it would have thrown on load.
+    - **A merge-helper of mine damaged one hunk and I had to repair it.** The
+      script I use to merge CSS conflicts rule-by-rule guards on brace count
+      and an `.mmh3` substring; a *JavaScript* conflict containing four braced
+      blocks and a class name matched it, and the rule-extractor ran over
+      code. It silently dropped `function redraw(node)`'s header, both braces
+      of a `try`, and the `= {}) {` from `addRefModStack`'s signature — a
+      syntax error that is *why* it was caught, but content loss was possible
+      beyond it. Repaired by regenerating the conflict from the index
+      (`git show :1/:2/:3` + `git merge-file`) and re-resolving that hunk from
+      the real sides, then coverage-checking all 25 hunks line by line against
+      the working file to confirm nothing else was lost.
+    - **`SECURITY.md` and `REFMODS.md` were adapted, not just copied.**
+      SECURITY.md documented upstream's route paths and three sinks this pack
+      does not have (`/browse`, `/mkdir`, the Filename Prefix node's
+      `filename_prefix` widget) — a security document that names routes that
+      don't exist is worse than none. REFMODS.md is written throughout for
+      upstream's two-node layout; its text is re-pointed at Prompt Studio and
+      it opens with a note that the screenshots still show two nodes.
+    - **Verified.** `py_compile` on all 10 Python modules; a stubbed import of
+      the package registers exactly 7 nodes with a display name each; all four
+      JS modules parse as ES modules, load under a DOM stub, and register the
+      three extensions expected; the Prompt Studio node builds its widget
+      stack, opens and closes the full editor (with the RefMods button in its
+      header) and the quick editor; the RefMod Stack node builds its panel;
+      the library menu entry installs on Prompt Studio and *not* on upstream's
+      loader; every one of the 21 pack routes the frontend calls resolves to a
+      declared route (the only unmatched ones are ComfyUI core's `/view`,
+      `/prompt`, `/history/` and `/models/vae`); all 24 POST routes carry
+      `@_guard`; no duplicate route registrations.
+
+80. ❓ RefMods takes this pack from one node to seven — confirm that's wanted
+    - **This needs a decision, and I've merged it in rather than out so the
+      choice is reversible either way.** 2.0.0 deliberately dropped the
+      standalone Prompt Builder, Media Loader, Reference Splitter and Filename
+      Prefix nodes so the pack installed exactly one node, and the README said
+      so in as many words. RefMods cannot be one node — it needs somewhere to
+      hold the picks, something to encode them, and three more to make and
+      inspect the files — so taking 1.7.0 reverses that.
+    - Arguments for keeping it: it's a genuinely new capability, not the
+      return of the nodes 2.0.0 removed; five of the six are only met through
+      the library window; and leaving it out means declining the largest
+      change upstream has made and diverging permanently.
+    - Arguments for dropping it: "one node" is a stated design principle of
+      this fork, and six new entries under conditioning → video_models is not
+      a small change to what a user sees.
+    - If you'd rather not have it, say so and I'll strip it: the six Python
+      modules, `web/refmodstack.js`, the `__init__.py` registration and the
+      RefMod-aware branches threaded through the editor's rail, draft mode and
+      header. Not a one-line revert, but tractable, and better done now than
+      after more work lands on top.
+
+81. 🟦 rebuild the test harness — it was lost with the container
+    - The 39-script headless rig and the five Playwright suites lived in the
+      session scratchpad, never in the repo, and the container was reclaimed
+      and re-cloned before this merge. They're gone.
+    - This merge was verified with a new, much smaller smoke rig (module load,
+      node construction, editor open/close, route and guard cross-checks —
+      see item 79) which covers the classes of fault a merge introduces, but
+      not the behavioural regressions the old suites covered.
+    - **The fix is to commit the harness**, not to rebuild it into another
+      scratchpad. Proposed: `tests/rig/` for the DOM-stub scripts and
+      `tests/browser/` for the Playwright ones, with the stub's fidelity
+      fixes from items 60 and 68 preserved. Say the word and I'll rebuild them
+      into the repo.
+
+82. 🟦 the three example workflows are built on the original pack's nodes
+    - `MMH3PromptBuilder_AIO_Example.json` has been in this state since 2.0.0
+      (it needs `MiniMaxH3PromptBuilder`, `MiniMaxH3MediaLoader` and two
+      `MiniMaxH3ReferenceSplitter`), and 1.7.0's two RefMod examples arrive
+      the same way. All three need the original pack installed alongside this
+      one to load at all. Their RefMod node types have been renamed to match
+      this pack, so those nodes resolve; the builder and loader still don't.
+    - Documented rather than hidden: a new **Example workflows** section in
+      the README says plainly that all three need the other pack.
+    - Rebuilding them on Prompt Studio is real work — the slot mapping is
+      different, since Prompt Studio merges the builder, the loader and the
+      splitter — and it isn't something I can test end to end here. Worth
+      doing as its own task.

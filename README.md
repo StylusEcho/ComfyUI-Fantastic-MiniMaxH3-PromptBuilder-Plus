@@ -12,7 +12,8 @@ rewriting model (`H3-Context-IR`) turns your idea into it. That rewriter wasn't
 open-sourced. This pack is the hand-driven replacement: fillable templates for
 every mode, live checking against the guide's rules, and a media panel that
 keeps your reference tags straight — all on **MiniMax H3 Prompt Studio**, the
-one node this pack installs.
+one node you need to install this pack for. (Six more come with it since
+2.6.0, for [RefMods](#refmods); you only meet those if you use them.)
 
 This is a companion to
 [Adudeguyman's Fantastic H3 Prompt Builder](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder),
@@ -42,6 +43,114 @@ glance which preset matches it. Hover the thumbnail for the exact figures.
 
 *Trim and crop clips on the fly without touching the original files, and pull
 any frame straight out of a video into your picture references.*
+
+![The RefMod library](docs/refmods/01-library.png)
+
+*Now supports creating, editing, organizing, and tagging
+[RefMods](REFMODS.md).*
+
+---
+
+## What's new in 2.6.0
+
+Folds in upstream's 1.6.3, 1.6.4, 1.7.0 and 1.7.1. **This is the release that
+stops being a one-node pack** — see [RefMods](#refmods) below, and
+[Upgrading](#upgrading-from-1x) for what it means for a workflow you already
+have.
+
+### RefMods (upstream 1.7.0 and 1.7.1)
+
+**Save a character, a place, a look or a voice once and use it in any prompt
+after that** — no re-uploading, no re-cropping. A RefMod is a small file in
+`models/refmods`; the model reads it the same way it reads a reference
+picture or clip. New to them? Start with the
+[RefMods how-to guide](REFMODS.md).
+
+This is a whole subsystem, and it brings **six new nodes** with it. Until now
+this pack installed exactly one node, on purpose. RefMods needs more than one
+— a node to hold the picks, a node to encode them, and three that make and
+inspect the files — so the count went from one to seven:
+
+| Node | What it's for |
+|---|---|
+| **MiniMax H3 RefMod Stack** | Holds the RefMods a prompt uses, with a weight per pick. **Browse library…** picks from what you've saved. |
+| **MiniMax H3 RefMod Text Encode** | Stands in for *MiniMax H3 Reference to Video*. Sends the RefMods and Prompt Studio's media to the model together, numbered in one sequence, and hands back the empty latent. |
+| **MiniMax H3 RefMod Apply** | Appends references to conditioning encoded elsewhere, for workflows that already have their own text encoding. |
+| **MiniMax H3 Create RefMod** | The node the library queues when you create one. Works by hand in a graph too. |
+| **MiniMax H3 Inspect RefMod** | Decodes a RefMod so you can see what's actually stored in it. |
+| **MiniMax H3 Edit RefMod** | Drops, reorders or adds frames, and swaps the voice. |
+
+**Prompt Studio's editor** gets a **◈ RefMods** button in its header. It adds
+and wires a stack for you (or opens the one you already have), shows RefMods
+as chips beside your media, warns when something isn't reaching the Text
+Encode, and keeps a draft's RefMods separate from Live — the same way it
+already handles media. Right-clicking the Prompt Studio node has a **RefMod
+library** entry that sends the node's loaded media straight to the Create tab.
+
+**The library** is where RefMods are made and looked after. Drop in pictures,
+clips or audio (or pull them off the node's media panel), choose Full or
+Compressed, and create. Several photos become one RefMod; a clip's soundtrack
+or an audio file becomes its voice. Later you can rename it, give it a
+description and a preview image, see what's stored inside it, drop or reorder
+its frames, add more, swap the voice, or save the result as a copy.
+
+RefMods made from a **video clip** hold real motion: Create and Edit take the
+first frames of the clip on H3's own frame grid — 22 frames store 7, 39 store
+12, 56 store 17 — rather than evenly spaced picks that stored only 2.
+
+Two ready-made workflows show the whole chain,
+`MMH3_RefMod_Vanilla_Stack_Example.json` and
+`MMH3_RefMod_Fully_Fantastic_Example.json`. **Both are built on the original
+pack's Prompt Builder and Media Loader** rather than on Prompt Studio, so they
+need that pack installed alongside this one to load — see
+[Example workflows](#example-workflows).
+
+The format comes from
+[ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod)
+and is shared with it, so the two packs mix freely in one graph. Single-file
+RefMod bundles saved by ComfyUI-MiniMaxH3Mod 0.2.6 show up in the library and
+can be used and inspected (not edited) here.
+
+### Delivery tags (upstream 1.6.4)
+
+A new **Delivery** row in the editor, under the dialogue row, inserts the
+community-found performance tags that shape how a line is spoken: pauses and
+breaths, emphasis and whispering, and non-verbal sounds such as laughs, sighs
+and gasps. Pick a group, pick a tag, and hover the picker to preview an
+example line before inserting it. Tags that wrap text, like `<i>` and
+`<whisper>`, wrap whatever you have selected and leave it selected; with
+nothing selected the caret lands between the two halves, ready to type.
+
+These tags aren't in MiniMax's published guide, so results may vary — the
+bundled writing guide lists them in a **Community Discoveries** section,
+clearly marked as community findings.
+
+Delivery tags show in pink in the prompt, in the picker's preview and in the
+guide, so they stand out from the words being spoken. `<pants>` and
+`<smacks lips>` are gone; they didn't do anything.
+
+### Fixes (upstream 1.6.3, 1.7.0 and 1.7.1)
+
+- The crop frame now follows the picture when you rotate it. Turning a picture
+  that had an active crop left the marquee stranded in the black area beside
+  the image, wrongly shaped, and it could barely be dragged and never over the
+  picture itself.
+- Weight sliders on a long stack no longer jump the list back to the top.
+- Set/Get nodes between Prompt Studio and the Text Encode are followed, so
+  labels and warnings stay right on tidy graphs.
+- A draft with its own media or RefMods but no text yet is saved to disk like
+  any other draft (it used to be lost on reload).
+- Deleting a RefMod closes its details panel.
+
+### Coexistence
+
+Everything RefMods added has been renamed for this pack, the same way the rest
+of it already was: the six node types, their frontend CSS and their server
+routes all carry this pack's own names, so installing it alongside
+[the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)
+still works with no clashes. The **RefMod files themselves are shared** — both
+packs read and write `models/refmods` — which is the point: a RefMod you make
+in one is usable in the other, and in ComfyUI-MiniMaxH3Mod.
 
 ---
 
@@ -126,6 +235,12 @@ properly on a phone.
 
 **Fixes:**
 
+- Rotating a picture or clip in the crop editor no longer paints outside the
+  window. A quarter turn used to spill over the toolbar and cover the rotate
+  button itself, so the turn couldn't be undone.
+- The dialogue row's speaker buttons now keep up with your text. Inserting a
+  line for (S1) offers (S2) next, as it always should have — the row was only
+  rebuilt when something else redrew the editor.
 - Escape now respects your preferences. It used to close the editor directly,
   discarding unsaved edits even with *Warn about unsaved changes* switched
   on — which is the opposite of what that setting says.
@@ -194,6 +309,7 @@ through the unsaved-changes prompt.
 ## Contents
 
 - [What you get](#what-you-get)
+  — [Example workflows](#example-workflows)
 - [Requirements](#requirements)
 - [Install](#install)
 - [Prompt Studio](#prompt-studio)
@@ -203,27 +319,60 @@ through the unsaved-changes prompt.
 - [Draft mode](#draft-mode)
 - [Reference mode](#reference-mode)
 - [FAQ: wiring reference media](#faq-wiring-reference-media)
+- [RefMods](#refmods) (step-by-step: [RefMods how-to guide](REFMODS.md))
 - [Dated output folders](#dated-output-folders)
 - [Troubleshooting](#troubleshooting)
 - [Credits](#credits)
 - [License](#license)
 
----
-
 ## What you get
 
-One node, under **conditioning → video_models**:
+Under **conditioning → video_models**. **One node does the prompt and the
+media** — that's the pack:
 
 | Node | What it's for |
 |---|---|
 | **MiniMax H3 Prompt Studio** | The prompt editor and the reference-media panel in one node. No inputs required — prompt, the gated reference bundle, two keyframe images, a mode flag, and a routed MODEL all come out. Start here. |
 
 That's deliberate: this pack exists so you don't need two nodes wired together
-for the common case. If you also install
+for the common case.
+
+The other six are the [RefMods](#refmods) subsystem, added in 2.6.0. You only
+meet them if you use RefMods, and even then mostly through windows rather than
+by wiring:
+
+| Node | What it's for |
+|---|---|
+| **MiniMax H3 RefMod Stack** | Holds the RefMods a prompt uses. Prompt Studio's **◈ RefMods** button adds and wires one for you. |
+| **MiniMax H3 RefMod Text Encode** | Stands in for *MiniMax H3 Reference to Video* when RefMods are in play. |
+| **MiniMax H3 RefMod Apply** | Attaches references to conditioning encoded elsewhere. |
+| **MiniMax H3 Create RefMod** | Makes a RefMod. The library queues this for you. |
+| **MiniMax H3 Inspect RefMod** | Decodes a RefMod to see what's stored in it. |
+| **MiniMax H3 Edit RefMod** | Changes a RefMod's frames or voice. |
+
+If you also install
 [the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder),
 its Prompt Builder, Media Loader, Reference Splitter, and Filename Prefix
-nodes appear alongside Prompt Studio with no name clashes — the two packs are
-built to coexist.
+nodes appear alongside these with no name clashes — the two packs are built to
+coexist, RefMod nodes included, and both read the same `models/refmods`
+folder.
+
+### Example workflows
+
+Three ship in `example_workflows`, loadable from ComfyUI's workflow browser
+(Workflows → Browse Templates → this pack):
+
+| Workflow | What it shows |
+|---|---|
+| `MMH3PromptBuilder_AIO_Example.json` | The Set/Get fan-out pattern — one media source driving an fl2va and a ref2va pipeline. See [One loader, two pipelines](#one-loader-two-pipelines). |
+| `MMH3_RefMod_Vanilla_Stack_Example.json` | The RefMod chain with core ComfyUI nodes only. |
+| `MMH3_RefMod_Fully_Fantastic_Example.json` | The same chain plus the Fantastic LoRA loader and seed nodes from [comfyui-fantastic-loras](https://github.com/Adudeguyman/comfyui_fantastic-loras). |
+
+**All three came from the original pack and are built on its standalone Prompt
+Builder and Media Loader, not on Prompt Studio**, so they need that pack
+installed alongside this one to load at all. They're kept because the patterns
+they show are worth having; Prompt-Studio-native rebuilds are on the list and
+aren't done yet.
 
 Highlights:
 
@@ -352,6 +501,19 @@ picture link moved**: L2VA's one loaded picture used to travel on the
 not the first. **Reconnect L2VA's picture wire to the new `last_frame`
 output**; I2VA and FL2VA are unaffected, since their pictures already came out
 on these same two slots.
+
+**2.6.0 adds six nodes and breaks no existing workflow.** Everything already
+on your canvas keeps working exactly as it did — Prompt Studio's own inputs,
+outputs and slot order are untouched. What changes is that
+[RefMods](#refmods) arrives, and with it six more node types under
+**conditioning → video_models**. If you don't use RefMods you can ignore them
+entirely; if you do, start at **◈ RefMods** in the prompt editor's header.
+
+One thing to know if you also run
+[the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder):
+its RefMod nodes and this pack's are **separate node types with separate
+names**, so a workflow saved against one won't pick up the other's nodes. The
+RefMod *files* are shared, so your library is the same either way.
 
 ---
 
@@ -617,6 +779,14 @@ A draft's media is in one of three states, and the banner always says which:
 The distinction matters: a draft you never edited media in will never change
 the node's media on commit, so improving your Live references while a draft
 sits open is safe.
+
+RefMods get the same treatment. A draft remembers the stack's picks as of
+when it started, so its `<Video N>` labels keep meaning the same files while
+you rework the Live stack; **◈ RefMods** in draft mode opens the stack panel
+on the draft's own copy of the picks (with the library and Create a click
+away as usual), and only a set you edited that way is written to the RefMod
+Stack when you commit. The banner says which state the draft's RefMods are
+in, just as it does for media.
 
 Because a draft's media is the one thing that can reach the Media Loader
 without having been uploaded through it, it's checked when the draft loads.
@@ -1221,6 +1391,168 @@ a valid one.
 
 ---
 
+## RefMods
+
+> **New to RefMods? Start with the [RefMods how-to guide](REFMODS.md).** It
+> walks through making, saving, editing and using them step by step. This
+> section is the detailed reference.
+
+RefMods are saved reference files for H3: a character's look, a voice, a
+place or a style, compressed once into a small latent and reused without
+re-encoding the source media. The format comes from
+[ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod)
+(MIT), and this pack can make, keep and use them on its own: the nodes below
+carry their own copy of that pack's runtime, credited in `refmod_core.py`
+and `refmod_create.py`, and share its `H3_REF_MODS` bundle type, so the two
+mix freely in one graph — our stack into its Step Curve or Inspect, its
+loaders into our Text Encode.
+
+### The library
+
+**MiniMax H3 RefMod Stack** holds every pick in one node. **Browse
+library…** opens the library: a thumbnail grid of everything under your
+`refmods` folders (including any mapped in `extra_model_paths.yaml`), with
+search, folders and a type filter. A card shows the file's token cost
+before you add it, and a look-and-voice pair saved as two files —
+`hero_visual` + `hero_audio`, or the H3RefMods fork's `hero_Video` +
+`hero_Audio` — appears as one card and one row. Click a card for its
+details, where you can rename it, move it to another folder, edit its
+description and concept, replace its preview image, or delete it. A
+preview is any `.png`, `.jpg` or `.webp` saved beside the file with the
+same name.
+
+The details panel also has **Show what's stored**. A RefMod holds a latent,
+not a picture, so this runs it back through the H3 VAE (through the queue,
+like Create) and shows what the model is actually given: each stored frame
+as a thumbnail — right for a stack of photos — or the frames played as a
+clip, and the voice as an audio player. The **Strength** slider previews
+the softening a weight below 1 applies, so you can see what 0.5 really
+looks like. **MiniMax H3 Inspect RefMod** does the same in a graph.
+
+**Edit frames & voice…** in the details panel pulls a RefMod back into
+the Create tab. Its stored frames are listed first as sources — untick or
+remove the ones you don't want, drag to reorder, and drop new pictures or
+clips in to add them; they're encoded to the file's own size and style and
+the previews show how each one is trimmed or squeezed to fit. Frames you
+keep are copied exactly as they are, never decoded and re-encoded. The
+voice is a source too: untick it to remove it, or add an audio file (or
+tick a clip's soundtrack) to replace it — the first *Voice seconds* are
+kept. **Save changes** writes the result through the queue and the library
+reselects the file; tick **Save as a copy** and give it a name to leave the
+original alone and write the result as a new RefMod (its voice and preview
+come along). A RefMod that had no voice is renamed to the
+`_visual`/`_audio` pair when one is added. **MiniMax H3 Edit RefMod** is
+the node behind it, should you want it in a graph.
+
+The **Create** tab makes new ones. Drop pictures, clips or audio anywhere
+on the library, or pull the items from any Prompt Studio in the workflow
+(the node's right-click menu has *RefMod library* for the same thing), so
+a clip you have already trimmed and cropped goes in as it stands. By
+default everything becomes **one RefMod**: six photos of a character are
+stacked into a single reference, one frame per photo, and any voices —
+audio files, or clips whose soundtrack you keep — are joined into one voice
+saved beside it. Every photo in it takes the first one's shape (portrait,
+landscape or square): in Full the others have their edges trimmed to fit,
+in Compressed they are squeezed to fit. Each photo's preview shows exactly
+what will be trimmed or how it will be squeezed, so drag your best-framed
+one to the top. Rather than accept the automatic trim, click **Crop to
+fit…** on any other photo: the crop editor opens locked to the first
+photo's shape, and you drag the box over the part you want to keep. Every
+row also has **Crop…** (or **Crop / trim…** for a clip) for rotating,
+mirroring and trimming. These edits apply to the RefMod only; the node's
+media panel keeps its own settings. A stacked RefMod is cited in prompts as one
+video, like `<Video 1>`. Switch to **One
+per source** to turn a batch of unrelated items into separate RefMods
+instead.
+
+A clip contributes its first `latent_frames` frames (after its trim in the
+media panel), consecutive so the motion is real; H3's video VAE stores 2
+frames for up to 17 and 5 more per further 17, so 22 frames store 7, 39
+store 12, 56 store 17, and other counts are cut down to the nearest of
+those. The setting's caption shows the result live.
+
+Under the Create button the tab shows how many frames and tokens the
+result will have. If that goes over the token limit, Create is blocked
+until you raise the limit, lower the resolution, switch to Compressed or
+leave some sources out — it never quietly drops photos to fit. Creation
+runs through the queue like any workflow, so ComfyUI manages memory and you
+can follow it in the queue panel, and the new card appears in the library
+when it lands, with a preview image written beside the file.
+
+**MiniMax H3 Create RefMod** is the node the library queues. It also
+works by hand in a graph with IMAGE and AUDIO inputs, and its `source`
+field takes a media-panel item, or a list of them to stack, as JSON. Not carried over from the
+original pack: masks, multi-reference merging, motion-only mode and
+presets.
+
+**Full or Compressed?** Full keeps as much of your picture or clip as
+possible, so faces, characters, products and text come through clearly,
+but it makes generation slower. Compressed keeps the overall look (colours,
+layout, shapes and style) and drops the fine detail, which makes it much
+lighter; it suits settings, styles and moods, or using many references at
+once. If you're not sure, make one of each and try them with the same
+prompt.
+
+### Weights and labels
+
+Each stack row has a weight per channel. Up to 1 is plain strength. Above
+1 adds copies: 2.7 sends two full copies and a third at 0.7, and the
+readout next to the slider spells that out along with the token cost.
+Switch a channel to **S × C** for several copies at the same reduced
+strength. Rows can be switched off without removing them, and dragged to
+reorder, which matters because order sets the label numbers. The footer
+shows the bundle's total, an optional `max_total_tokens` limit that the
+queue will enforce, and the labels the next node will assign.
+
+To use RefMods, open **Edit prompt…** on Prompt Studio and click
+**◈ RefMods** in the editor's header. It adds a RefMod Stack wired into the
+node's `mods` input (or connects the stack already feeding your Text Encode),
+and Prompt Studio passes the bundle on through its own `mods` output. Wire the
+node's `prompt`, `mods` and `references` outputs into RefMod Text Encode — the
+button does the `mods` and `references` halves itself when the Text Encode is
+already there, and the editor warns when either bundle doesn't reach one. A
+stack wired straight to the Text Encode still works: the node finds it by
+following its `prompt` output. Loaded media and RefMods can be used together
+this way; the editor numbers the media first, then the RefMods, matching Text
+Encode.
+
+**MiniMax H3 RefMod Text Encode** stands in for *MiniMax H3 Reference to
+Video*. It takes the H3 CLIP, a prompt, the RefMod bundle on `mods`, and a
+reference bundle on `references` — Prompt Studio's `references` output, or a
+Media Loader's own — with the video VAE for pictures and clips
+and the audio VAE for voices. It presents every reference to the model's own
+encoder during tokenization, so the prompt can cite `<Picture n>`,
+`<Video n>` and `<Audio n>`: loaded media is labelled first, the
+RefMods after it, one counter per kind with every copy numbered, and the
+map is reported on `reference_map`. Loaded media is sized as the native
+node sizes it (`width`, `height`, `length` and `ref_image_size` are the
+same settings); RefMods keep the size they were saved at. Connect its
+conditioning straight to the sampler — it has already attached the
+references — and its `latent` output is the empty AV latent to sample
+from, so no separate Empty Latent node is needed. The editor shows the same
+labels on its reference chips, media and RefMods together, groups a pick's
+copies under its first label (citing `<Picture 1>` is enough when 1–3 are
+the same file), and warns when the prompt cites a label the stack doesn't
+send. The stack's `labels` output carries the same map as text, and its
+optional `mods` input appends to another stack or loader, whose entries are
+numbered first.
+
+**MiniMax H3 RefMod Apply** appends the references to conditioning encoded
+elsewhere, with a `retention` multiplier on every entry. The model sees them,
+but the prompt cannot name them — use it when a workflow already has its
+own text encoding.
+
+Files from the H3RefMods fork's older "combined" format keep a voice inside
+the visual file; they load with the visual half only and are marked
+*embedded audio ignored* in the library. ComfyUI-MiniMaxH3Mod 0.2.6's
+single-file **bundles** (format version 5, several references in one file)
+are listed with a *bundle* badge and addressed as `name#index`; the first
+look and first voice inside become the card's channels. They can be picked,
+inspected, renamed, described and deleted here, but not edited — use that
+pack's Save H3 RefMods node to split one into standalone files first.
+
+---
+
 ## Dated output folders
 
 Save nodes expand date tokens from their own widget, so a prefix like
@@ -1262,8 +1594,8 @@ script failing, and almost always one of:
    registering. Open the browser console (F12) — the first red error usually
    names the culprit, and it often isn't this pack.
 3. **A partial install.** `custom_nodes/<this pack>/web/` should contain
-   `promptbuilder.js`, `medialoader.js`, `promptstudio.js` and
-   `video-prompt-writing-guide.html`.
+   `promptbuilder.js`, `medialoader.js`, `promptstudio.js`,
+   `refmodstack.js` and `video-prompt-writing-guide.html`.
 
 If this pack itself is the one failing, the node now shows a **⚠ UI failed**
 button — click it for the error, and include that text in a bug report.
@@ -1302,6 +1634,11 @@ Prompt structure follows MiniMax's official *Video Prompt Writing Guide*, which
 ships with this pack — click 📖 in the editor to read it.
 
 Built against ComfyUI's native MiniMax H3 support.
+
+RefMods: the format and the encode/apply runtime are adapted from
+[ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod)
+by Luisa (luisacaotica), MIT License; the library's layout took cues from
+FranckyB's [ComfyUI-H3RefMods](https://github.com/FranckyB/ComfyUI-H3RefMods).
 
 ## License
 
