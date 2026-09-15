@@ -503,11 +503,14 @@ output**; I2VA and FL2VA are unaffected, since their pictures already came out
 on these same two slots.
 
 **2.6.0 adds six nodes and breaks no existing workflow.** Everything already
-on your canvas keeps working exactly as it did — Prompt Studio's own inputs,
-outputs and slot order are untouched. What changes is that
-[RefMods](#refmods) arrives, and with it six more node types under
-**conditioning → video_models**. If you don't use RefMods you can ignore them
-entirely; if you do, start at **◈ RefMods** in the prompt editor's header.
+on your canvas keeps working exactly as it did. Prompt Studio itself gains
+one new optional input (`mods`) and one new trailing output (`mods`) so it
+can actually carry a RefMod bundle — both appended after everything that was
+already there, so no existing slot moves and no existing wire is disturbed.
+The rest of the change is [RefMods](#refmods) arriving, with six more node
+types under **conditioning → video_models**. If you don't use RefMods you
+can ignore all of it entirely; if you do, start at **◈ RefMods** in the
+prompt editor's header.
 
 One thing to know if you also run
 [the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder):
@@ -524,16 +527,19 @@ panel on one node. There's nothing to wire between them: the media lives on
 the same node that writes the prompt, so the tags the editor offers are always
 the tags the output actually carries.
 
-It takes **no required inputs**, and has six outputs:
+It takes **no required inputs** — one optional `mods` for
+[RefMods](#refmods), alongside the two optional checkpoint inputs below — and
+has seven outputs:
 
 | Output | Type | Goes to |
 |---|---|---|
 | `model` | `MODEL` | the sampler, once you've wired both checkpoints in (see below) |
-| `prompt` | `STRING` | the `prompt` input on **Image to Video** or **Reference to Video** |
+| `prompt` | `STRING` | the `prompt` input on **Image to Video**, **Reference to Video**, or **RefMod Text Encode** |
 | `references` | `H3_REFS` | a **Reference Splitter**, whose slots feed **Reference to Video** — from the original pack, if you have it installed too |
 | `first_frame` | `IMAGE` | `first_frame` on **Image to Video** |
 | `last_frame` | `IMAGE` | `last_frame` on **Image to Video** |
 | `ref2va_needed` | `BOOLEAN` | a switch node, to pick which H3 node runs |
+| `mods` | `H3_REF_MODS` | whatever was wired into this node's own `mods` input, passed straight through — usually **RefMod Text Encode**'s `mods` input, wired for you by **◈ RefMods** |
 
 `ref2va_needed` is true only in **Reference** mode — the one mode whose prompt
 goes to **Reference to Video** instead of **Image to Video**. Feed it to a
@@ -566,6 +572,12 @@ actually runs on (`ref2va` in Reference mode, `fl2va` everywhere else). Both
 are lazy, so the checkpoint the mode isn't using is never pulled into memory —
 wire both in once and let the mode decide, instead of rewiring the sampler by
 hand every time you switch modes.
+
+A third optional input, `mods`, takes a [RefMod](#refmods) bundle — usually
+from **◈ RefMods** in the prompt editor, which finds or creates the stack and
+wires this input for you — and passes it straight through to the node's own
+`mods` output for **RefMod Text Encode**. Not lazy: unlike the checkpoints,
+reading it costs nothing beyond the stack's own already-cheap parse.
 
 The node carries no buttons — everything is reachable from the panel itself.
 The media panel sits at the top; drag the node's bottom edge and it grows with

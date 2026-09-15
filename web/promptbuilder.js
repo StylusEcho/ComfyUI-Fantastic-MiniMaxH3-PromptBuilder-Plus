@@ -11,7 +11,7 @@ import { LOADER_NAME, STUDIO_NAME, computeTags, viewURL as loaderViewURL,
   fileCount, MODE_CAPACITY, hasCrop, TAG_COLORS, TAG_VARS,
   raiseIfOpen, RAISE_CSS, postApi, outputTargets, setterOf, linkNodes,
 } from "./medialoader.js";
-import { STACK_NAME, ENCODE_NAMES, readStack, deriveEntries, labelGroups,
+import { STACK_NAME, STACK_NAMES, ENCODE_NAMES, readStack, deriveEntries, labelGroups,
   rangeText as refmodRange, previewURL as refmodPreviewURL, KIND as REFMOD_KIND,
   openStackModal } from "./refmodstack.js";
 
@@ -974,7 +974,8 @@ function slotsFromBundle(node) {
     src.label === "Media");
 }
 
-/** Walk a mods chain upstream from `head`. RefMod Stacks are collected in
+/** Walk a mods chain upstream from `head`. RefMod Stacks — this pack's own
+ *  or the original Adudeguyman pack's, see STACK_NAMES — are collected in
  *  bundle order; Prompt Builders are stepped through (their mods output is
  *  the bundle they were given). Anything else heads the chain with entries
  *  we cannot see, so the result is marked partial. */
@@ -982,13 +983,23 @@ function modsChain(head) {
   const chain = [];
   let partial = false, n = head, guard = 0;
   while (n && guard++ < 32) {
-    if (n.type !== STACK_NAME && n.type !== NODE_NAME) { partial = true; break; }
-    if (n.type === STACK_NAME) chain.unshift(n);
+    if (!STACK_NAMES.has(n.type) && n.type !== NODE_NAME) { partial = true; break; }
+    if (STACK_NAMES.has(n.type)) chain.unshift(n);
     const up = (n.inputs || []).findIndex((i) => i.name === "mods");
     if (up < 0 || n.inputs[up].link == null) break;
     n = originNode(n, up);
   }
   return { chain, partial };
+}
+
+/** The "prompt" output's slot index. Upstream's own Prompt Builder has it at
+ *  slot 0 (its first output), which is why the RefMod-chain code below was
+ *  written against a bare `0` — but this fork's Prompt Studio moved `model`
+ *  to slot 0 at 2.0.0, well before RefMods existed, so a literal `0` here
+ *  would target Prompt Studio's MODEL output instead. Finding it by name
+ *  keeps this correct on either node shape. */
+function promptOutIdx(node) {
+  return (node.outputs || []).findIndex((o) => o.name === "prompt");
 }
 
 /** Where this builder's RefMods come from: its own mods input when that is
@@ -998,7 +1009,7 @@ function refmodSource(node) {
   const own = (node.inputs || []).findIndex((i) => i.name === "mods");
   if (own >= 0 && node.inputs[own].link != null)
     return { head: originNode(node, own), direct: true };
-  const enc = outputTargets(node, 0).find((n) => ENCODE_NAMES.has(n?.type));
+  const enc = outputTargets(node, promptOutIdx(node)).find((n) => ENCODE_NAMES.has(n?.type));
   if (!enc) return { head: null, why: "encode" };
   const mi = (enc.inputs || []).findIndex((i) => i.name === "mods");
   if (mi < 0 || enc.inputs[mi].link == null) return { head: null, why: "mods" };
@@ -1010,15 +1021,16 @@ function refmodSource(node) {
 function refmodsReachEncode(node) {
   const out = (node.outputs || []).findIndex((o) => o.name === "mods");
   if (out >= 0 && outputTargets(node, out).length) return true;
-  return outputTargets(node, 0).some((enc) => ENCODE_NAMES.has(enc?.type) &&
+  return outputTargets(node, promptOutIdx(node)).some((enc) => ENCODE_NAMES.has(enc?.type) &&
     (enc.inputs || []).some((i) => i.name === "mods" && i.link != null));
 }
 
 /** The RefMod Text Encodes this builder drives, through its prompt or mods output. */
 function encodersOf(node) {
   const seen = new Set(), out = [];
+  const promptOut = promptOutIdx(node);
   const modsOut = (node.outputs || []).findIndex((o) => o.name === "mods");
-  for (const slot of modsOut >= 0 ? [0, modsOut] : [0]) {
+  for (const slot of modsOut >= 0 ? [promptOut, modsOut] : [promptOut]) {
     for (const n of outputTargets(node, slot)) {
       if (ENCODE_NAMES.has(n?.type) && !seen.has(n)) { seen.add(n); out.push(n); }
     }
@@ -1063,7 +1075,8 @@ function mediaSlots(node) {
 
 /** Reference slots when this prompt uses RefMods.
  *
- * RefMod Text Encode (ours or ComfyUI-MiniMaxH3Mod's) labels its bundle
+ * RefMod Text Encode (ours, the original Adudeguyman pack's, or
+ * ComfyUI-MiniMaxH3Mod's) labels its bundle
  * itself: one counter per kind, in bundle order, every copy numbered. Find
  * the stacks (see refmodSource) and reproduce that numbering. A non-stack
  * loader at the head of the chain contributes entries we cannot see, so the
@@ -6939,12 +6952,12 @@ function addRefModStack(node, { focus = true } = {}) {
     return stack;
   }
 
-  const encoders = outputTargets(node, 0).filter((n) => ENCODE_NAMES.has(n?.type));
+  const encoders = outputTargets(node, promptOutIdx(node)).filter((n) => ENCODE_NAMES.has(n?.type));
   const modsInput = (enc) => (enc.inputs || []).findIndex((i) => i.name === "mods");
   for (const enc of encoders) {
     const mi = modsInput(enc);
     const head = mi >= 0 && enc.inputs[mi].link != null ? originNode(enc, mi) : null;
-    if (head?.type === STACK_NAME) {
+    if (STACK_NAMES.has(head?.type)) {
       wire(head, 0, node, inIdx);     // slot 0 is the stack's mods bundle
       feedEncoderMedia(node, enc);
       redraw(node);

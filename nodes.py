@@ -262,8 +262,12 @@ class MiniMaxH3PromptStudio:
 
     Same two panels, no wiring between them: the prompt editor and the media
     panel share this node's own state, so the tags the editor offers are the
-    tags the bundle will carry. Deliberately input-less — reference media
-    comes from the panel, not from upstream slots.
+    tags the bundle will carry. Deliberately input-less for reference media —
+    that comes from the panel, not from upstream slots. RefMods are a
+    different resource (a saved file, picked on a separate Stack node rather
+    than loaded here) and do take a real input: `mods`, passed straight
+    through to its own output for RefMod Text Encode, exactly as the optional
+    model inputs pass their checkpoint through unmodified.
 
     Emits the prompt, the mode-gated bundle, and the loaded keyframe(s) on
     their own first_frame / last_frame IMAGE outputs, so a plain I2VA / L2VA /
@@ -278,8 +282,10 @@ class MiniMaxH3PromptStudio:
         "prompt STRING, an H3_REFS bundle holding only what the chosen mode "
         "can actually send, the loaded keyframe(s) as first_frame / "
         "last_frame IMAGEs (I2VA fills first_frame, L2VA fills last_frame, "
-        "FL2VA fills both, T2VA and full-reference fill neither), and a "
-        "ref2va_needed BOOLEAN that is true in full-reference mode."
+        "FL2VA fills both, T2VA and full-reference fill neither), a "
+        "ref2va_needed BOOLEAN that is true in full-reference mode, and "
+        "whatever RefMod bundle was wired into 'mods', passed straight "
+        "through for RefMod Text Encode."
     )
 
     # model leads, matching the order the chain is actually wired in: the
@@ -291,10 +297,12 @@ class MiniMaxH3PromptStudio:
     # deliberate one-off, taken in the same breaking release that dropped the
     # standalone nodes rather than spent as a second break later. Anything
     # added from here on gets appended last, as references and the pictures
-    # originally were.
-    RETURN_TYPES = ("MODEL", "STRING", "H3_REFS", "IMAGE", "IMAGE", "BOOLEAN")
+    # originally were — mods included, so a workflow saved before RefMods
+    # existed here is unaffected.
+    RETURN_TYPES = ("MODEL", "STRING", "H3_REFS", "IMAGE", "IMAGE", "BOOLEAN",
+                    "H3_REF_MODS")
     RETURN_NAMES = ("model", "prompt", "references", "first_frame", "last_frame",
-                    "ref2va_needed")
+                    "ref2va_needed", "mods")
     # model carries whichever checkpoint the saved mode runs on — ref2va in
     # full-reference mode, fl2va everywhere else — so both can stay wired and
     # the mode picks between them.
@@ -329,6 +337,14 @@ class MiniMaxH3PromptStudio:
             "optional": {
                 "fl2va_model": ("MODEL", {"lazy": True}),
                 "ref2va_model": ("MODEL", {"lazy": True}),
+                # A RefMod Stack's bundle, passed straight through to this
+                # node's own `mods` output for RefMod Text Encode — the
+                # editor's ◈ RefMods button wires and finds this same input.
+                # Not lazy: unlike the checkpoints, reading it costs nothing
+                # more than the stack's own already-cheap JSON parse.
+                "mods": ("H3_REF_MODS", {"tooltip":
+                    "A RefMod Stack's bundle. Passes through to the 'mods' "
+                    "output for RefMod Text Encode."}),
             },
             "hidden": {"prompt": "PROMPT", "unique_id": "UNIQUE_ID"},
         }
@@ -364,7 +380,7 @@ class MiniMaxH3PromptStudio:
         return validate_media_state(media_state)
 
     def build(self, prompt_text="", builder_state="{}", media_state="[]",
-              fl2va_model=None, ref2va_model=None,
+              fl2va_model=None, ref2va_model=None, mods=None,
               prompt=None, unique_id=None):
         mode = _mode_of(builder_state)
         bundle = build_bundle(media_state, label="Studio")
@@ -408,8 +424,12 @@ class MiniMaxH3PromptStudio:
                   "input is empty — the model output carries nothing.")
         else:
             print(f"[MiniMaxH3 Studio] mode {mode} -> passing {want} through.")
+        # An unwired mods input passes an empty bundle, which Text Encode
+        # treats as "no RefMods" rather than an error — same rule the
+        # standalone Prompt Builder's own passthrough uses.
+        out_mods = mods if mods is not None else []
         return (model, prompt_text.strip(), gated, first_frame, last_frame,
-                mode == "REF")
+                mode == "REF", out_mods)
 
 
 NODE_CLASS_MAPPINGS = {

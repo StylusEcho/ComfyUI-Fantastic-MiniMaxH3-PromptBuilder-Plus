@@ -9,9 +9,20 @@ import { api } from "../../scripts/api.js";
 import { applyCanvasSizing, postApi, STUDIO_NAME, viewURL, openCropEditor } from "./medialoader.js";
 
 export const STACK_NAME = "MiniMaxH3StudioRefModStack";
-// Either pack's Text Encode labels a bundle the same way.
+// The RefMod Stack types this builder recognises when walking a mods chain
+// (see modsChain() in promptbuilder.js) — this pack's own, and the original
+// Adudeguyman pack's `MiniMaxH3RefModStack`. The two packs are meant to sit
+// side by side, so a stack a workflow already made with either family is
+// adopted rather than getting a second, parallel stack of the other's type.
+// STACK_NAME alone (not this set) is what gets created when neither is
+// found: creating a node needs one concrete type, recognising one doesn't.
+export const STACK_NAMES = new Set([STACK_NAME, "MiniMaxH3RefModStack"]);
+// Every Text Encode whose bundle this builder can drive and label from:
+// this pack's own, the original Adudeguyman pack's, and
+// ComfyUI-MiniMaxH3Mod's `MiniMaxH3RefModTextEncode` — all three number and
+// label a bundle the same way.
 export const ENCODE_NAMES = new Set(["MiniMaxH3StudioRefModTextEncode",
-  "MiniMaxH3RefModTextEncode"]);
+  "MiniMaxH3FantasticRefModTextEncode", "MiniMaxH3RefModTextEncode"]);
 export const MAX_WEIGHT = 10;
 export const MAX_COPIES = 10;
 export const KIND = {

@@ -1077,3 +1077,76 @@ when hiding, makes it a mouse-over caption for the respective section.
       different, since Prompt Studio merges the builder, the loader and the
       splitter — and it isn't something I can test end to end here. Worth
       doing as its own task.
+
+---
+
+## Follow-up round 11
+
+83. 🟩 RefMods with both packs installed: recognise the original pack's
+    Stack/Text Encode instead of only this pack's own
+    - **The redundancy was real, asked about, and confirmed by the user.**
+      The README documents installing both packs side by side; for RefMods
+      that meant two node families doing the identical job over the identical
+      `models/refmods` files, unable to appear in the same mods chain,
+      because `modsChain()`/`refmodSource()`/`addRefModStack()` all did exact
+      `n.type === STACK_NAME` / `ENCODE_NAMES.has(n.type)` checks against only
+      this pack's own renamed types.
+    - Fixed by widening recognition rather than merging the node types (which
+      ComfyUI's registration model doesn't allow across packs anyway):
+      `refmodstack.js` now exports `STACK_NAMES` (this pack's own type plus
+      the original pack's unrenamed `MiniMaxH3RefModStack`) alongside the
+      existing `ENCODE_NAMES`, into which the original pack's
+      `MiniMaxH3FantasticRefModTextEncode` was added — `ENCODE_NAMES` already
+      carried a third entry for ComfyUI-MiniMaxH3Mod's own Text Encode type,
+      so this follows a pattern already in the file rather than inventing
+      one. `STACK_NAME` (singular) is kept separate and unchanged for the one
+      place that still needs exactly one concrete type: creating a brand new
+      stack when nothing exists to adopt.
+    - **Testing this exposed two much larger bugs, both fixed in the same
+      pass**, because a synthetic graph shaped like the real node was needed
+      to test the recognition fix at all:
+      - **RefMods could not be wired onto Prompt Studio in any form.** The
+        Python node class has no `mods` input or output — the merge kept this
+        fork's `MiniMaxH3PromptStudio` (whose shape predates RefMods by
+        several releases) at every `nodes.py` conflict without ever adding
+        the socket RefMods needs, unlike upstream's own Prompt Builder, which
+        has always had it. `addRefModStack()` would hit `outIdx < 0` and
+        toast "no mods input" on every real attempt, regardless of the
+        recognition fix above. Fixed: `mods` (`H3_REF_MODS`, optional, not
+        lazy — cheap to read, unlike the checkpoint inputs) added to
+        `INPUT_TYPES`, `RETURN_TYPES`/`RETURN_NAMES` (appended last, so no
+        existing slot moves), and `build()`, which passes it through
+        unchanged exactly as upstream's own node does
+        (`out_mods = mods if mods is not None else []`). Verified directly
+        against the class: `RETURN_NAMES[-1] == "mods"`, an unwired call
+        returns `[]`, a wired call returns the exact same object passed in,
+        and `INPUT_TYPES()["optional"]["mods"]` is present and not lazy.
+      - **Every "what does this builder's prompt output feed" check used a
+        hardcoded output slot 0.** Correct for upstream's own Prompt Builder,
+        whose first output really is `prompt` — wrong for this fork's Prompt
+        Studio, which has put `model` at slot 0 since 2.0.0, well before
+        RefMods existed. `refmodSource()`, `refmodsReachEncode()`,
+        `encodersOf()` and `addRefModStack()` all inherited this from
+        upstream unmodified, so on the real node they would have looked for a
+        Text Encode downstream of the MODEL output instead of the prompt
+        output — silently finding nothing, or worse, something unrelated.
+        Fixed with one `promptOutIdx(node)` helper (finds the "prompt" output
+        by name) used everywhere the code previously wrote a bare `0`.
+    - Verified end to end with a synthetic graph exercising the exact
+      scenario from the question — this pack's Prompt Studio wired to the
+      *original* pack's unrenamed `MiniMaxH3RefModStack` and
+      `MiniMaxH3FantasticRefModTextEncode`: the editor recognises the chain
+      (not partial), reads the real pick and labels it `<Picture 1>`, and
+      reports the bundle as reaching the encode. A second graph — two
+      encoders reachable from the prompt output, a decoy wired to the MODEL
+      output that a slot-0 bug would misread, the first encoder's mods
+      unwired, the second already wired to an original-pack stack — confirms
+      `addRefModStack()`'s adopt loop finds and wires that stack into
+      Prompt Studio's own `mods` input rather than creating a second one.
+      Reverting either fix independently was confirmed to fail the
+      corresponding checks (5 of 6 without the recognition widening, 1 of 6
+      — the two-encoder case specifically — without the slot fix), so the
+      tests are known to catch both bugs rather than passing by construction.
+      `nodes.py`: `py_compile`, and `build()` exercised directly against a
+      real package import (stubbing only heavy third-party deps) for the
+      unwired/wired/appended-slot/non-lazy claims above.
