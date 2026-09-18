@@ -51,6 +51,89 @@ any frame straight out of a video into your picture references.*
 
 ---
 
+## What's new in 2.7.0
+
+Folds in upstream's 1.7.2 and 1.7.3. No breakage of saved workflows.
+
+### Subjects get a name (upstream 1.7.2 and 1.7.3)
+
+Each `<Subject N>` definition line now has a **name box**. Give a subject a
+name and the prompt writes "Their name is Ann." into their definition, and
+**`!Ann` works as shorthand anywhere else** — it expands to `<Subject 1> Ann`
+in description text, and to just "Ann" inside a spoken `<d>` line, where a
+label would otherwise be read aloud. Names are case-insensitive, so `!ann`,
+`!Ann` and `!ANN` all find the same subject.
+
+Start typing one and **press Tab to finish it**: `!cas` shows the rest of
+`!castle_with_moat` in grey, Tab accepts it with the saved spelling, Escape
+dismisses it. The editor paints a `!Name` as a subject chip in the same
+colour as `<Subject N>` itself, and warns about a name nobody has, a name
+with spaces, or a name on a line that isn't a subject. The `!` is a ⚙
+setting if it clashes with how you write.
+
+In this pack that completion and colouring work **in the quick editor and the
+subject definition rows as well as the full editor**, because all three go
+through the one shared chip field (see 2.5.0's colour-coding work) rather
+than each implementing it separately.
+
+### RefMods remember who they are (upstream 1.7.2)
+
+A RefMod can now store a **subject name, an appearance description and a
+voice description** in its header. Set them on the Create tab (for the whole
+batch or per source), in edit mode, or in the library's details panel; search
+finds them. **Draft from RefMods** then writes the appearance into the
+subject line and fills the voice box for you, and with everything already
+drafted it offers *Start over* or *Fill names and voices* rather than
+refusing. Character retention gained "Face, facial features, body type."
+
+Voice-timbre lines get a **voice box**, and the prompt adds "It is a …".
+Speaker buttons for a subject with a described voice become **split
+buttons**: a plain line, or one naming the voice ("in the low, husky voice
+referenced from `<Audio 1>`"). The choice is remembered per speaker and
+saved with the prompt.
+
+### Right-click any tag (upstream 1.7.3)
+
+Right-click a `<Picture>`, `<Video>`, `<Audio>` or `<Subject>` tag, a
+`!Name`, or a speaker ID to **replace it with another of the same kind, swap
+the two, or remove it**. *This tag*, *Field* and *Everywhere* set the reach,
+each showing a count, with unused tags listed first. Removing a subject or
+media tag everywhere also deletes its definition line and retention row.
+*This tag* and *Field* edits go through the browser, so **Ctrl+Z undoes
+them**.
+
+Speaker IDs are edited at the ID level, inside group tags too, and the next
+unused ID is offered as new. A line that came from a speaker button's voice
+option keeps its name and voice clause with the speaker: hand it to another
+speaker and they get theirs, remove the ID and the clause goes too.
+
+### The RefMod Stack node, rebuilt (upstream 1.7.3)
+
+The stack is now a grid of **twelve fixed slots** in two columns. Adding or
+removing RefMods never resizes the node; empty slots open the library. Cards
+show a thumbnail, name, on/off switch, an orange position badge over the
+options menu, and **a slider per channel labelled with its tag**, with knobs
+coloured by channel. The header shows slots used, token total, and
+"stack 2 / 3" when stacks are chained; the footer lists every label in send
+order, upstream stacks first and dimmed. **⤢ Size** sets node and text
+scale and is remembered for new nodes.
+
+**RefMod presets** save a stack — picks, weights and switches — with
+categories and a searchable picker, and a prompt in the library can be
+linked to one and offer to load it. Colours match the media panel.
+
+### Also
+
+- The Quick start now builds the workflow before you write the prompt, so
+  your media is already there as thumbnails when the editor opens.
+- The bundled 📖 Guide gains Part C (Prompt Builder) and Part D (RefMods).
+- Upstream ships its category sentinels (`"\0new"`, `"\0none"`) as raw NUL
+  bytes, which makes `refmodstack.js` read as a binary file to git, grep and
+  most editors. They are written here as the `\0` escape instead — the
+  identical string at runtime, in a file that stays text.
+
+---
+
 ## What's new in 2.6.0
 
 Folds in upstream's 1.6.3, 1.6.4, 1.7.0 and 1.7.1. **This is the release that
@@ -595,26 +678,19 @@ and the mode button turns red when you're over a limit.
 
 ## Quick start
 
-This is the same for every mode.
+This is the same for every mode. Build the workflow first, then write the
+prompt into it:
 
-1. Add a **MiniMax H3 Prompt Studio**.
-2. Drop your keyframe or reference media onto the panel, if your mode needs
-   any (T2VA needs none).
-3. Click the prompt bar (or double-click the node) to open the editor, pick
-   your mode along the top, and fill in the fields. The finished prompt builds
-   live in the right-hand panel.
-4. Click **Save to node**.
-5. Connect the node's `prompt` output to the `prompt` input on whichever H3
-   node you're using:
+1. Start from ComfyUI's own MiniMax H3 template for your mode. It already has
+   the loaders, sampler, decode and save nodes.
+2. Add a **MiniMax H3 Prompt Studio**. Connect its `prompt` output to the
+   `prompt` input on the template's H3 node:
    - **MiniMax H3 Image to Video** for T2VA, I2VA, FL2VA, and L2VA
    - **MiniMax H3 Reference to Video** for reference mode
 
    If `prompt` shows as a widget rather than an input, right-click it and choose
    *Convert widget to input*.
-6. Set `width`, `height`, and `length` on that node. For first/last-frame modes
-   the editor shows the exact frame count to use — H3 only accepts certain
-   values, and the editor already rounds to a valid one.
-7. Wire up whatever your mode needs:
+3. Wire up whatever your mode needs:
    - **T2VA** — nothing else; the prompt is the whole input.
    - **I2VA / FL2VA / L2VA** — connect the node's own `first_frame` (and
      `last_frame` for FL2VA/L2VA) outputs to **Image to Video**:
@@ -622,7 +698,17 @@ This is the same for every mode.
      - **FL2VA** — `first_frame` → `first_frame`, `last_frame` → `last_frame`
      - **L2VA** — `last_frame` → `last_frame`
    - **Reference mode** — see [Reference mode](#reference-mode) below.
-8. Queue it.
+4. Set `width`, `height`, and `length` on the H3 node.
+5. Drop your keyframe or reference media onto Prompt Studio's own panel, if
+   your mode needs any (T2VA needs none). There is nothing to wire: the panel
+   is part of the node that writes the prompt.
+6. Click the prompt bar (or double-click the node) to open the editor, pick
+   the same mode along the top, and fill in the fields. The finished prompt
+   builds live in the right-hand panel, and the media you loaded shows up as
+   thumbnails to click. For first/last-frame modes the editor shows the exact
+   frame count to use — H3 only accepts certain values, and the editor already
+   rounds to a valid one — so match `length` to it.
+7. Click **Save to node**, then queue it.
 
 The rest of the workflow — loaders, samplers, VAE decode, save — is unchanged
 from ComfyUI's built-in MiniMax H3 templates. This pack only replaces how the
@@ -650,6 +736,20 @@ prompt live as you type.
 **Things the toolbar does for you:** inserts numbered shots with correctly
 formatted cut times, writes camera moves as proper sentences, wraps dialogue
 with the right language tags and speaker IDs, and drops in reference tags.
+
+**Right-click a tag** — a `<Picture 2>`, `<Subject 1>`, `!Ann` or `(S1)` — to put
+another of the same kind in its place, swap the two, or remove it. **This
+tag**, **Field** and **Everywhere** set how far the change reaches, and each
+shows how many copies it would change. Tags nothing in the prompt cites yet
+are listed first, marked *unused*. Removing a subject or media tag
+everywhere also deletes the definition line and retention row for it.
+Speaker IDs work inside group tags too: swapping S1 and S2 everywhere turns
+`(S1,S2)` into `(S2,S1)`, and the next unused ID is offered as *new*. A
+line inserted with a speaker button's voice option moves as a whole: give it
+another speaker and its name and voice clause become theirs, and removing
+the ID drops the voice clause but keeps the name. Swapping IDs everywhere
+only renumbers, so every line keeps its speaker.
+This tag and Field can be undone with Ctrl+Z.
 
 **Things it checks:** shots numbered in order, cut times increasing and inside
 your video's length, `[Shot 1]` not carrying a timestamp, dialogue tags balanced
@@ -859,6 +959,11 @@ H3 Reference to Video** and the `ref2va` checkpoint.
    alongside this one, add its **Fantastic H3 Reference Splitter**, and wire
    `references` → the splitter → the matching slots on **Reference to Video**.
 
+   Using [RefMods](#refmods)? **RefMod Text Encode** takes the `references`
+   bundle whole and stands in for **Reference to Video**, so no splitter is
+   needed at all — and **◈ RefMods** in the editor makes that connection for
+   you.
+
 ### What the media panel shows you
 
 Every reference gets a tag like `<Picture 1>` or `<Audio 2>`, and your prompt
@@ -955,6 +1060,71 @@ a click. The **Phrases** row sits under the dialogue controls:
 Phrases are stored with ComfyUI rather than in the workflow, so they follow the
 install and are shared by every prompt you write. They're plain text — for
 saving a whole prompt, use the [prompt library](#prompt-library) instead.
+
+### Naming a subject
+
+Every `<Subject N>` line has a small **name** box beside it. Give a subject
+a name — say `Bob` — and two things happen:
+
+- The generated prompt adds *Their name is Bob.* to that definition line, so
+  the model ties the name to the label. The line you edit stays as you
+  wrote it.
+- **`!Bob`** works as shorthand in every other field. In the editor it shows
+  as a green subject tag, keeping the text easy to read; in the prompt it
+  becomes `<Subject 1> Bob`, which restates the identity every time the
+  name comes up. Inside a spoken `<d>…</d>` line it becomes just `Bob`, so
+  nobody says a label out loud.
+
+The chip bar shows the name on the subject's chip and adds a `!Bob` chip
+that inserts the shorthand. Names are one word (letters, digits, `-` and
+`_`); `!bob`, `!Bob` and `!BOB` all work and the prompt uses the spelling
+you gave the subject. Start typing one, like `!cas` for `castle_with_moat`,
+and the rest appears in grey after the cursor: press **Tab** to fill it in,
+or Escape to dismiss it. Hover a `!Bob` tag and you get the same pop-up card as
+the subject itself — its picture and what it cites. A `!Name` nobody is
+called, or a name on a line that is switched off, gets a warning rather
+than a silent gap in the prompt. Names save with the prompt.
+
+Prefer a different trigger than `!`? The ⚙ menu has **Subject name prefix**,
+with `@`, `#`, `$`, `%`, `&`, `*`, `~`, `+`, `=` and `^` to choose from. It's
+a per-browser setting like the rest of that menu, and it doesn't rewrite
+shorthand already typed with the old character.
+
+A RefMod can carry a name of its own. Set **Subject name** on the Create
+tab as you make it, in edit mode, or in its library details panel, and the
+name is stored inside the `.safetensors` file's header, so it travels with the file. **◈ Draft from
+RefMods** then fills the name box on that RefMod's `<Subject N>` line.
+Pressing it again with nothing left to draft offers **Fill names and voices** for any
+name or voice box that's empty, or **Start over** to clear all of both
+sections and draft them fresh. A name you've typed yourself is never replaced. The card
+shows the name as a badge, and search finds it.
+
+A RefMod can also carry an **Appearance** and a **Voice** description, set
+in the same three places. Draft from RefMods writes the appearance straight
+into the subject's line (*…in `<Picture 1>`, with shoulder-length auburn
+hair and a green wool coat.*) and puts the voice description in the voice
+box on its `<Audio N>` line. Both are one line of up to 300 characters.
+
+### Describing a voice
+
+Every voice-timbre line in `subject_definitions`, the kind that reads
+`<Audio 1> is the voice-timbre reference for <Subject 1> (S1), …`, has a
+**voice** box beside it. Describe the voice there, like `low, husky voice
+with a slow, warm pace`, and the prompt adds *It is a low, husky voice with
+a slow, warm pace.* after the line. Singing lines don't get one.
+
+The speaker button for that ID in the dialogue row becomes a split button.
+Its arrow offers two lines:
+
+- **Just (S1)** inserts `!Ann (S1) says: <d>[English] </d>`.
+- **(S1) with voice** inserts `!Ann (S1), in the low, husky voice with a
+  slow, warm pace referenced from <Audio 1>, says: <d>[English] </d>`.
+
+Clicking the button itself repeats whichever you last picked for that
+speaker; each speaker remembers its own choice, and it saves with the prompt. Voiceover
+works the same way, with its off-screen wording and lips-closed clause. The
+`!Ann` part appears when that subject has a name. Lines you've already
+inserted keep their wording if you change the voice box later.
 
 ### Switching lines off
 
@@ -1429,7 +1599,8 @@ before you add it, and a look-and-voice pair saved as two files —
 `hero_visual` + `hero_audio`, or the H3RefMods fork's `hero_Video` +
 `hero_Audio` — appears as one card and one row. Click a card for its
 details, where you can rename it, move it to another folder, edit its
-description and concept, replace its preview image, or delete it. A
+description and concept, give it a subject name, appearance and voice
+description, replace its preview image, or delete it. A
 preview is any `.png`, `.jpg` or `.webp` saved beside the file with the
 same name.
 
@@ -1453,7 +1624,9 @@ kept. **Save changes** writes the result through the queue and the library
 reselects the file; tick **Save as a copy** and give it a name to leave the
 original alone and write the result as a new RefMod (its voice and preview
 come along). A RefMod that had no voice is renamed to the
-`_visual`/`_audio` pair when one is added. **MiniMax H3 Edit RefMod** is
+`_visual`/`_audio` pair when one is added. The **Subject name**, **Appearance** and
+**Voice** boxes in the settings pane set or clear those fields; when that's the
+only change, just the file headers are rewritten. **MiniMax H3 Edit RefMod** is
 the node behind it, should you want it in a graph.
 
 The **Create** tab makes new ones. Drop pictures, clips or audio anywhere
@@ -1505,16 +1678,38 @@ lighter; it suits settings, styles and moods, or using many references at
 once. If you're not sure, make one of each and try them with the same
 prompt.
 
-### Weights and labels
+### The stack node
 
-Each stack row has a weight per channel. Up to 1 is plain strength. Above
-1 adds copies: 2.7 sends two full copies and a third at 0.7, and the
-readout next to the slider spells that out along with the token cost.
-Switch a channel to **S × C** for several copies at the same reduced
-strength. Rows can be switched off without removing them, and dragged to
-reorder, which matters because order sets the label numbers. The footer
-shows the bundle's total, an optional `max_total_tokens` limit that the
-queue will enforce, and the labels the next node will assign.
+The stack is a grid of twelve slots, two to a row, and it never resizes
+itself: adding or removing RefMods fills or empties slots, and only
+**⤢ Size** or the resize handle changes the node. Click an empty slot to
+open the library.
+
+Each card shows the RefMod's thumbnail and name, an on/off switch, **⋯**
+and **×**, and a slider per channel labelled with the tag it will get —
+`<Video 1>` for the look, `<Audio 1>` for the voice. Up to 1 is plain
+strength. Above 1 adds copies: 2.7 sends two full copies and a third at
+0.7, and hovering the tag spells that out along with the token cost. The
+card's **⋯** menu switches a channel to **S × C** for several copies at the
+same reduced strength. Drag the grip to reorder, which matters because
+order sets the label numbers.
+
+The header shows how many slots are used and the token total, and **⋯**
+there holds `max_total_tokens`, a limit the queue enforces. **⤢ Size** sets
+the node and text scale, remembered for new nodes the way the Media
+Loader's is. The footer lists every label the next node will assign.
+
+**Chaining.** Wire one stack's `mods` output into another's `mods` input
+and the second stack sends both sets on. The header then reads
+*stack 2 / 2*, and the footer lists the upstream labels first, dimmed, so
+you can see the numbering the Text Encode will use across the chain.
+
+**Presets.** The preset row saves the stack — picks, weights and switches —
+under a name and an optional category, and loads it back into any stack
+node. The picker searches and filters by category like the media preset
+picker. The prompt library's save form can link a prompt to the RefMod
+preset the stack currently matches, the way it links media presets, and
+loading that prompt offers to load the RefMods too.
 
 To use RefMods, open **Edit prompt…** on Prompt Studio and click
 **◈ RefMods** in the editor's header. It adds a RefMod Stack wired into the

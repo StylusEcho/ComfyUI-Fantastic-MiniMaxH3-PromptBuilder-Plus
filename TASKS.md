@@ -1150,3 +1150,98 @@ when hiding, makes it a mouse-over caption for the respective section.
       `nodes.py`: `py_compile`, and `build()` exercised directly against a
       real package import (stubbing only heavy third-party deps) for the
       unwired/wired/appended-slot/non-lazy claims above.
+
+---
+
+## Upstream sync — 1.7.2 / 1.7.3
+
+84. 🟩 update with the latest upstream changes (1.7.2 and 1.7.3)
+    - Six commits, ~4,300 insertions. Version → **2.7.0**. Subject names
+      (`!Name` shorthand with Tab completion), RefMods that carry a subject
+      name / appearance / voice description, voiced speaker split buttons,
+      the right-click tag menu, and the rebuilt twelve-slot RefMod Stack node
+      with presets and seven new `refmod_presets` routes.
+    - **Merged by normalising the namespace first, rather than resolving 56
+      conflicts by hand.** Git's three-way merge was comparing this fork's
+      `mmrp-`/`mmh3p-`/`/minimax_h3_plus/` dialect against upstream's own on
+      every touched line, so most "conflicts" were pure rename noise. Applying
+      the fork's mechanical transform to the *base* and *theirs* sides first
+      (never to ours) and re-running `git merge-file` took `refmodstack.js`
+      from 20 conflicts to 1 and `promptbuilder.js` from 17 to 6 — and the
+      seven that remained were all genuine design decisions rather than
+      renames. Worth doing this way every time from here.
+    - **The two features had to be ported, not merged.** Upstream implements
+      `!Name` painting and Tab-completion *inline* in the Editor class; this
+      fork routes the full editor, the quick editor and the subject
+      definition rows through one shared `chipField()`/`paintToken()` (items
+      77 and 78, so the same token can't be one colour in one window and
+      another elsewhere). Pasting upstream's inline version back would have
+      reintroduced exactly the split those items fixed — a `!Name` resolving
+      in the full editor and painting red "unknown" in the quick editor. So
+      the `!Name` branch, the named `<d>` spans and the ghost-suggestion
+      machinery went into the shared functions instead, behind two new
+      options (`names()`, a callback because definitions change while a field
+      is open, and `nameSuggestion`), with upstream's `nameSuggestion()`
+      Editor method lifted to a module-level `nameSuggestionFor(box, state)`
+      for the same reason `subjectLine()` is module-level.
+    - Namespaced as usual: 7 new routes to `/minimax_h3_plus/`, the new CSS
+      to `mmrp-`/`mmh3p-`, RefMod node types kept on `MiniMaxH3Studio*`. The
+      interop sets from item 83 survived the merge intact and are still
+      asserted.
+    - **`refmodstack.js` was a binary file, and now isn't.** Upstream writes
+      its category sentinels as *raw NUL bytes* (`"<NUL>new"`, `"<NUL>none"`)
+      rather than the `\0` escape, which makes git, grep and most editors
+      treat the whole 3,000-line file as binary — `git diff` shows nothing
+      useful, and the merge audit below could not read it as text. Written
+      here as `\0` instead: verified identical at runtime
+      (`String.fromCharCode(0)+"new" === "\0new"`), 11 occurrences, and the
+      file is text again. Worth raising upstream.
+    - **Audited for silent loss rather than trusting the merge**, after last
+      round's damaged hunk: every line upstream added that is absent from the
+      result was listed and accounted for — 10 in `promptbuilder.js` (the
+      import line, and the inline chipField pieces deliberately relocated to
+      their shared homes) and 12 in `refmodstack.js` (the import line, plus
+      the 11 NUL sentinels, each confirmed present in escaped form).
+    - **Docs re-pointed, not just copied.** The bundled 📖 Guide's new Part C
+      listed upstream's four nodes as "the nodes this pack adds", which is
+      simply wrong here; its RefMod node names were upstream's too. Both
+      tables fixed, `+ RefMods` corrected to `◈ RefMods`, and the same
+      screenshot/layout caveat REFMODS.md carries added to Part C. SECURITY.md
+      took upstream's new RefMod-preset rows while keeping this fork's
+      namespaced paths and still omitting the three sinks it doesn't have.
+      The README's Quick start adopts upstream's better ordering (build the
+      workflow, then write into it) in Prompt-Studio shape.
+    - Verified: all 10 Python modules compile and the package still registers
+      exactly 7 nodes; all four web modules parse, load and register the three
+      expected extensions; the existing studio and interop suites still pass;
+      all three example workflows are valid JSON; every pack route the
+      frontend calls resolves (39 declared, 7 of them the new preset routes,
+      all POSTs guarded); no raw NULs remain in any tracked text file.
+    - New `names.mjs` covers the ported features on the surfaces that matter:
+      `!Casper` paints as a resolved subject chip in the full editor **and the
+      quick editor**, an undefined `!Nobody` still paints unknown, a half-typed
+      `!Cas` offers "per" as a ghost, Tab fills the saved spelling, and Escape
+      dismisses the suggestion without closing the editor. Confirmed it
+      catches the port being missing: deleting the `!Name` branch from the
+      shared `paintToken` fails both painting checks with `unknown` — the
+      exact regression item 77 was about.
+    - Harness stub gained three more fidelity fixes, all of which had been
+      masking real code paths: `textContent` now aggregates from child nodes
+      (every chip read as `""`, so no assertion about chip text could ever
+      have been honest), and `createTreeWalker`/`NodeFilter`/`nodeValue`/
+      `splitText`/`after` were missing entirely, so `insertGhost()` — the
+      whole ghost-suggestion render path — threw on contact. Item 81 still
+      stands: these live in the scratchpad, not the repo.
+
+85. 🟦 the bundled guide's prose still describes the two-node layout
+    - Part C and Part D mention "the Prompt Builder" and "the Media Loader"
+      about 22 times in body text. The node tables, node names and the
+      RefMods entry point are fixed, and Part C now opens with a note saying
+      to read those as the one node you have — but the prose itself is
+      unchanged.
+    - Not rewritten here on purpose: the file is generated from upstream's
+      README (the part header still credits `README.md` as its source), so
+      hand-editing 22 prose sites diverges from however upstream regenerates
+      it, for a gain the caveat note mostly already delivers. Worth doing
+      deliberately, as its own task, if this pack is going to keep its own
+      copy of the guide long-term.

@@ -6,7 +6,8 @@
  */
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { applyCanvasSizing, postApi, STUDIO_NAME, viewURL, openCropEditor } from "./medialoader.js";
+import { postApi, STUDIO_NAME, viewURL, openCropEditor, keepNameChars, outputTargets, setterOf,
+         clampScale, SCALE_MIN, SCALE_MAX, TEXT_SCALE_MAX } from "./medialoader.js";
 
 export const STACK_NAME = "MiniMaxH3StudioRefModStack";
 // The RefMod Stack types this builder recognises when walking a mods chain
@@ -30,8 +31,132 @@ export const KIND = {
   video: { label: "Video", cls: "vid", short: "VID" },
   audio: { label: "Audio", cls: "aud", short: "AUD" },
 };
-const NODE_W = 560;
-const PANEL_H = 430;
+/* The node holds twelve fixed slots and one fixed size. Adding or removing
+   RefMods never resizes it: only the Size control or the resize handle do. */
+const SLOTS = 12;
+const NODE_W = 600;
+const PANEL_H = 620;
+
+/* Node and text scale, remembered per user like the Media Loader's. */
+const STACK_SCALE_KEY = "mmh3.stackScale";
+
+function loadStackScale() {
+  try {
+    const v = JSON.parse(localStorage.getItem(STACK_SCALE_KEY) || "{}");
+    return { node: clampScale(v.node ?? 1), text: clampScale(v.text ?? 1, TEXT_SCALE_MAX) };
+  } catch (e) { return { node: 1, text: 1 }; }
+}
+
+function saveStackScale(prefs) {
+  try { localStorage.setItem(STACK_SCALE_KEY, JSON.stringify(prefs)); } catch (e) { /* private mode */ }
+}
+
+/** Size the node to a scale factor. With growOnly (workflow load) a node
+ *  the user dragged larger keeps its size; otherwise the size is exact. */
+function applyStackSize(node, factor, { growOnly = false } = {}) {
+  const f = clampScale(factor);
+  const w = Math.round(NODE_W * f), h = Math.round(PANEL_H * f);
+  try {
+    const widget = node._mmrWidget;
+    if (widget) {
+      widget.computedHeight = h;
+      widget.computeSize = () => [w, h];
+      const elx = widget.element || widget.inputEl;
+      if (elx?.style) { elx.style.height = `${h}px`; elx.style.minHeight = `${h}px`; }
+    }
+    if (node._mmrPanel?.root?.style) {
+      node._mmrPanel.root.style.height = `${h}px`;
+      node._mmrPanel.root.style.minHeight = `${h}px`;
+    }
+    const min = node.computeSize?.();
+    if (growOnly) {
+      node.size[0] = Math.max(w, node.size[0] || 0);
+      node.size[1] = Math.max(min?.[1] || 0, h, node.size[1] || 0);
+    } else {
+      const target = [w, Math.max(min?.[1] || 0, h)];
+      if (typeof node.setSize === "function") node.setSize(target);
+      else { node.size[0] = target[0]; node.size[1] = target[1]; }
+      node.onResize?.(node.size);
+    }
+    node.setDirtyCanvas?.(true, true);
+    node.graph?.setDirtyCanvas?.(true, true);
+  } catch (e) { /* Vue owns layout in Nodes 2.0; the panel's CSS keeps it usable */ }
+}
+
+/** Text size on this panel only: the Prompt Builder sets the same variable
+ *  on the document, and the panel's own value wins inside it. */
+function applyStackText(panel, factor) {
+  try { panel?.root?.style.setProperty("--mmh3-fs", String(clampScale(factor, TEXT_SCALE_MAX))); } catch (e) { /* nothing */ }
+}
+
+function applyStoredStackScale(node, { force = false } = {}) {
+  const sp = loadStackScale();
+  applyStackText(node._mmrPanel, sp.text);
+  applyStackSize(node, sp.node, { growOnly: !force });
+}
+
+/* The chain: stacks wired in series through their mods input and output. */
+
+/** The node behind an input, looked through reroutes and Set/Get pairs. */
+function inputOrigin(node, slot) {
+  let n = node.getInputNode?.(slot), guard = 0;
+  while (n && guard++ < 16) {
+    let up = null;
+    if (/reroute/i.test(n.type || "")) up = n.getInputNode?.(0);
+    else if (n.type === "GetNode") up = setterOf(n)?.getInputNode?.(0);
+    else break;
+    if (!up) break;
+    n = up;
+  }
+  return n || null;
+}
+
+function stackAbove(node) {
+  const i = (node.inputs || []).findIndex((x) => x.name === "mods");
+  if (i < 0 || node.inputs[i].link == null) return null;
+  return inputOrigin(node, i);
+}
+
+/** { up: stacks before this one (farthest first), down: stacks after it,
+ *  partial: something that isn't a stack heads the chain }. */
+function chainOf(node) {
+  const up = [];
+  let n = stackAbove(node), guard = 0, partial = false;
+  while (n && guard++ < 32) {
+    if (n.type !== STACK_NAME) { partial = true; break; }
+    up.unshift(n);
+    n = stackAbove(n);
+  }
+  const down = [];
+  let cur = node;
+  guard = 0;
+  while (cur && guard++ < 32) {
+    const slot = (cur.outputs || []).findIndex((o) => o.name === "mods");
+    const next = slot < 0 ? null : outputTargets(cur, slot).find((t) => t?.type === STACK_NAME);
+    if (!next || down.includes(next)) break;
+    down.push(next);
+    cur = next;
+  }
+  return { up, down, partial };
+}
+
+/* Presets: a saved stack. */
+
+async function refmodPresetApi(path, body) {
+  const resp = body
+    ? await postApi("/minimax_h3_plus/refmod_presets" + path, { body: JSON.stringify(body), headers: { "Content-Type": "application/json" } })
+    : await api.fetchApi("/minimax_h3_plus/refmod_presets" + path, { cache: "no-store" });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.error || `request failed (${resp.status})`);
+  return data;
+}
+
+/** What the model receives from a set of picks, for telling a loaded
+ *  preset from one that has since been edited. */
+function picksKey(picks) {
+  return JSON.stringify((picks || []).filter((p) => p && p.on !== false).map((p) =>
+    [p.name, ...["visual", "audio"].map((k) => p[k] ? [p[k].file, channelStrengths(p[k])] : null)]));
+}
 
 /* ---------------------------------------------------------------- utils */
 
@@ -160,78 +285,169 @@ function readout(g, ch) {
 
 const CSS = `
 .mmrp-panel{font-family:system-ui,sans-serif;color:#d7dbe2;font-size:calc(12px * var(--mmh3-fs, 1));
-  display:flex;flex-direction:column;gap:7px;height:100%;min-height:0;box-sizing:border-box;padding:6px 8px 8px;}
+  background:#191c22;border:1px solid #2a2f3a;border-radius:8px;
+  display:flex;flex-direction:column;gap:6px;height:620px;min-height:620px;box-sizing:border-box;padding:8px;
+  position:relative;overflow:hidden;}
 .mmrp-panel *{box-sizing:border-box;}
 .mmrp-btn{background:#2b3140;border:1px solid #3a4252;color:#d7dbe2;border-radius:6px;
   padding:4px 10px;font-size:calc(11px * var(--mmh3-fs, 1));cursor:pointer;white-space:nowrap;font-family:inherit;}
-.mmrp-btn:hover{background:#343b4c;}
-.mmrp-btn.primary{background:#3f5a86;border-color:#4d6ea6;color:#fff;}
-.mmrp-btn.primary:hover{background:#48679a;}
+.mmrp-btn:hover{background:#333b4d;}
+.mmrp-btn.primary{background:#1f4f7d;border-color:#3d7fbf;color:#dbeafe;}
+.mmrp-btn.primary:hover{background:#265d92;}
+.mmrp-btn.on{border-color:#6f86b8;}
+.mmrp-btn.danger{border-color:#7a3a3a;color:#f0a0a0;} .mmrp-btn.danger:hover{background:#3a2020;}
 .mmrp-btn:disabled{opacity:.45;cursor:default;}
-.mmrp-toolbar{display:flex;align-items:center;gap:6px;flex:0 0 auto;}
-.mmrp-count{margin-left:auto;font-size:calc(11px * var(--mmh3-fs, 1));color:#8a93a3;font-variant-numeric:tabular-nums;}
-.mmrp-stack{display:flex;flex-direction:column;gap:5px;flex:1 1 auto;min-height:0;overflow:auto;}
-.mmrp-row{display:grid;grid-template-columns:16px 44px minmax(0,1fr) auto;gap:7px;align-items:start;
-  background:#191c22;border:1px solid #303642;border-radius:7px;padding:5px 7px 5px 3px;}
-.mmrp-row.off{opacity:.45;}
-.mmrp-row.dragging{outline:1px dashed #4d6ea6;}
-.mmrp-row.drop-before{box-shadow:0 -2px 0 #4d6ea6;}
-.mmrp-row.missing{border-color:#7a4a3a;}
-.mmrp-grip{border:0;background:none;color:#6b7484;cursor:grab;padding:2px 0;font-size:calc(13px * var(--mmh3-fs, 1));
-  line-height:1;align-self:center;font-family:inherit;}
-.mmrp-thumb{width:44px;height:44px;border-radius:5px;background:#101217;object-fit:cover;display:flex;
-  align-items:center;justify-content:center;font-family:ui-monospace,monospace;font-size:calc(9px * var(--mmh3-fs, 1));
-  font-weight:600;color:#6b7484;overflow:hidden;}
-.mmrp-main{min-width:0;display:flex;flex-direction:column;gap:3px;}
-.mmrp-title{display:flex;align-items:baseline;gap:8px;min-width:0;}
-.mmrp-name{font-weight:600;font-size:calc(12px * var(--mmh3-fs, 1));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.mmrp-path{font-family:ui-monospace,monospace;font-size:calc(9.5px * var(--mmh3-fs, 1));color:#6b7484;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
-.mmrp-warn{color:#e3a64a;font-size:calc(10px * var(--mmh3-fs, 1));}
-.mmrp-chan{display:grid;grid-template-columns:32px auto minmax(0,1fr);gap:5px;align-items:center;}
-.mmrp-kind{font-family:ui-monospace,monospace;font-weight:600;font-size:calc(9px * var(--mmh3-fs, 1));letter-spacing:.05em;
-  text-align:center;border-radius:4px;padding:2px 0;border:1px solid;}
-.mmrp-kind.pic{color:#e0a94c;border-color:#8a6a2c;} .mmrp-kind.vid{color:#4cc3e0;border-color:#2c6f81;}
-.mmrp-kind.aud{color:#b48ce8;border-color:#5d4a86;}
-.mmrp-mode{display:inline-flex;border:1px solid #3a4252;border-radius:5px;overflow:hidden;}
-.mmrp-mode button{border:0;background:#12151b;color:#8a93a3;font-size:calc(10px * var(--mmh3-fs, 1));padding:2px 6px;
-  cursor:pointer;font-family:inherit;}
-.mmrp-mode button.on{background:#2b3140;color:#d7dbe2;}
-.mmrp-ctl{display:flex;align-items:center;gap:5px;min-width:0;}
-.mmrp-ctl input[type=range]{flex:1;min-width:50px;accent-color:#4d6ea6;margin:0;}
-.mmrp-num{width:56px;background:#12151b;border:1px solid #3a4252;border-radius:5px;padding:2px 5px;
-  font-size:calc(11px * var(--mmh3-fs, 1));font-variant-numeric:tabular-nums;color:#d7dbe2;font-family:inherit;}
-.mmrp-num.sm{width:54px;}
+.mmrp-btn.mmrp-sm{padding:3px 8px;font-size:calc(10px * var(--mmh3-fs, 1));}
+.mmrp-toolbar{display:flex;align-items:center;gap:5px;flex:0 0 auto;flex-wrap:nowrap;min-width:0;}
+.mmrp-count{font-size:calc(10px * var(--mmh3-fs, 1));color:#8a93a3;font-variant-numeric:tabular-nums;white-space:nowrap;
+  font-family:ui-monospace,monospace;}
+.mmrp-count.over{color:#e3a64a;}
+.mmrp-chainpos{color:#9db4dc;}
 .mmrp-dim{color:#6b7484;}
-.mmrp-meta{grid-column:2/-1;display:flex;flex-wrap:wrap;gap:3px 10px;align-items:baseline;
-  font-size:calc(10px * var(--mmh3-fs, 1));color:#8a93a3;font-variant-numeric:tabular-nums;}
-.mmrp-tag{font-family:ui-monospace,monospace;}
-.mmrp-tag.pic{color:#e0a94c;} .mmrp-tag.vid{color:#4cc3e0;} .mmrp-tag.aud{color:#b48ce8;}
-.mmrp-side{display:flex;flex-direction:column;align-items:center;gap:5px;}
-.mmrp-sw{position:relative;width:28px;height:16px;display:inline-block;cursor:pointer;}
+.mmrp-warn{color:#e3a64a;font-size:calc(10px * var(--mmh3-fs, 1));}
+/* the grid: twelve slots of one height, scrolling inside the fixed panel */
+.mmrp-slots{flex:1 1 auto;min-height:0;overflow:auto;display:grid;grid-template-columns:1fr 1fr;
+  grid-auto-rows:minmax(calc(72px * var(--mmh3-fs, 1)), 1fr);gap:6px;align-content:stretch;padding-right:2px;}
+.mmrp-slot{height:auto;min-height:calc(72px * var(--mmh3-fs, 1));display:flex;flex-direction:column;gap:calc(3px * var(--mmh3-fs, 1));background:#12151b;border:1px solid #2e3440;border-radius:6px;
+  padding:5px 7px 5px 4px;min-width:0;overflow:hidden;}
+.mmrp-slot.empty{align-items:center;justify-content:center;border:1px dashed #2b313d;background:#141820;color:#5c6472;
+  font-size:calc(11px * var(--mmh3-fs, 1));cursor:pointer;}
+.mmrp-slot.empty:hover,.mmrp-slot.empty:focus-visible{border-color:#59637a;color:#8a93a3;outline:none;}
+.mmrp-slot.pic{border-color:#6d5527;} .mmrp-slot.vid{border-color:#255c6b;} .mmrp-slot.aud{border-color:#4c3d6e;}
+.mmrp-slot.off{opacity:.45;}
+.mmrp-slot.dragging{outline:1px dashed #6f86b8;background:#1b2230;}
+.mmrp-slot.drop-before{box-shadow:-3px 0 0 #6f86b8;}
+.mmrp-slot.missing{border-color:#7a4a3a;}
+.mmrp-slothead{display:flex;align-items:center;gap:5px;min-width:0;}
+.mmrp-grip{border:0;background:none;color:#6b7484;cursor:grab;padding:0;font-size:calc(13px * var(--mmh3-fs, 1));
+  line-height:1;font-family:inherit;flex:0 0 auto;}
+.mmrp-sthumb{width:calc(28px * var(--mmh3-fs, 1));height:calc(28px * var(--mmh3-fs, 1));border-radius:4px;background:#0d1015;object-fit:cover;display:flex;flex:0 0 auto;
+  align-items:center;justify-content:center;font-family:ui-monospace,monospace;font-size:calc(8px * var(--mmh3-fs, 1));
+  font-weight:600;color:#6b7484;overflow:hidden;}
+.mmrp-slotname{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;line-height:1.2;}
+.mmrp-name{font-weight:600;font-size:calc(11.5px * var(--mmh3-fs, 1));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mmrp-path{font-family:ui-monospace,monospace;font-size:calc(8.5px * var(--mmh3-fs, 1));color:#6b7484;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+.mmrp-sw{position:relative;width:calc(26px * var(--mmh3-fs, 1));height:calc(15px * var(--mmh3-fs, 1));display:inline-block;cursor:pointer;flex:0 0 auto;}
 .mmrp-sw input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer;}
 .mmrp-sw span{position:absolute;inset:0;background:#2a2f3a;border:1px solid #3a4252;border-radius:9px;}
-.mmrp-sw span::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:#8a93a3;
+.mmrp-sw span::after{content:"";position:absolute;top:calc(2px * var(--mmh3-fs, 1));left:calc(2px * var(--mmh3-fs, 1));width:calc(9px * var(--mmh3-fs, 1));height:calc(9px * var(--mmh3-fs, 1));border-radius:50%;background:#8a93a3;
   transition:transform .15s;}
-.mmrp-sw input:checked+span{background:#34507d;border-color:#4d6ea6;}
-.mmrp-sw input:checked+span::after{transform:translateX(12px);background:#e9eef7;}
-.mmrp-x{border:0;background:none;color:#6b7484;cursor:pointer;font-size:calc(15px * var(--mmh3-fs, 1));line-height:1;padding:0 3px;}
-.mmrp-x:hover{color:#e07a6a;}
-.mmrp-empty{border:1px dashed #3a4252;border-radius:7px;padding:14px;text-align:center;color:#8a93a3;}
-.mmrp-foot{display:grid;grid-template-columns:1fr auto;gap:5px 12px;border-top:1px solid #303642;padding-top:6px;
-  align-items:start;flex:0 0 auto;}
-.mmrp-total{font-size:calc(11px * var(--mmh3-fs, 1));font-variant-numeric:tabular-nums;}
-.mmrp-total b{font-weight:600;}
-.mmrp-budget{display:flex;align-items:center;gap:5px;font-size:calc(10px * var(--mmh3-fs, 1));color:#8a93a3;}
-.mmrp-budget .mmrp-num{width:72px;}
-.mmrp-over{grid-column:1/-1;color:#e3a64a;font-size:calc(11px * var(--mmh3-fs, 1));}
-.mmrp-labels{grid-column:1/-1;background:#12151b;border:1px solid #23272f;border-radius:6px;padding:5px 8px;
-  font-family:ui-monospace,monospace;font-size:calc(10.5px * var(--mmh3-fs, 1));line-height:1.55;color:#8a93a3;
-  max-height:84px;overflow:auto;}
-.mmrp-labels .lh{font-family:system-ui,sans-serif;font-weight:600;font-size:calc(9px * var(--mmh3-fs, 1));
-  letter-spacing:.07em;text-transform:uppercase;color:#6b7484;margin-bottom:2px;}
+.mmrp-sw input:checked+span{background:#2a4a2e;border-color:#5a9a5a;}
+.mmrp-sw input:checked+span::after{transform:translateX(calc(11px * var(--mmh3-fs, 1)));background:#7ec87e;}
+.mmrp-more,.mmrp-x{border:0;background:none;color:#6b7484;cursor:pointer;line-height:1;padding:0 2px;font-family:inherit;flex:0 0 auto;}
+.mmrp-more{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;
+  font-size:calc(13px * var(--mmh3-fs, 1));} .mmrp-more:hover{color:#d7dbe2;}
+.mmrp-pos{font-family:ui-monospace,monospace;font-weight:600;font-size:calc(8.5px * var(--mmh3-fs, 1));
+  color:#ffb84d;line-height:1;font-variant-numeric:tabular-nums;}
+.mmrp-dots{line-height:.7;}
+.mmrp-x{font-size:calc(15px * var(--mmh3-fs, 1));} .mmrp-x:hover{color:#e07a6a;}
+.mmrp-chrow{display:grid;grid-template-columns:calc(28px * var(--mmh3-fs, 1)) minmax(0, calc(88px * var(--mmh3-fs, 1))) minmax(calc(64px * var(--mmh3-fs, 1)), 1fr);
+  gap:4px;align-items:center;height:calc(16px * var(--mmh3-fs, 1));}
+.mmrp-kind{font-family:ui-monospace,monospace;font-weight:600;font-size:calc(8.5px * var(--mmh3-fs, 1));letter-spacing:.05em;
+  text-align:center;border-radius:4px;padding:1px 0;border:1px solid;line-height:1.2;}
+.mmrp-kind.pic{color:#e0a94c;border-color:#8a6a2c;} .mmrp-kind.vid{color:#4cc3e0;border-color:#2c6f81;}
+.mmrp-kind.aud{color:#b48ce8;border-color:#5d4a86;}
+.mmrp-chtag{font-family:ui-monospace,monospace;font-size:calc(10px * var(--mmh3-fs, 1));white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;min-width:0;}
+.mmrp-tag{font-family:ui-monospace,monospace;}
+.mmrp-tag.pic{color:#e0a94c;} .mmrp-tag.vid{color:#4cc3e0;} .mmrp-tag.aud{color:#b48ce8;}
+.mmrp-ctl{display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden;}
+/* The frontend styles bare inputs; the card's controls set every size
+   themselves so the knob and the number box stay inside the card. */
+.mmrp-chrow{--mmr-knob:#8a93a3;}
+.mmrp-chrow.pic{--mmr-knob:#e0a94c;} .mmrp-chrow.vid{--mmr-knob:#4cc3e0;} .mmrp-chrow.aud{--mmr-knob:#b48ce8;}
+.mmrp-panel .mmrp-ctl input[type=range]{-webkit-appearance:none;appearance:none;flex:1 1 auto;min-width:calc(18px * var(--mmh3-fs, 1));
+  height:calc(12px * var(--mmh3-fs, 1));margin:0;padding:0;background:transparent;border:0;box-shadow:none;cursor:pointer;}
+.mmrp-panel .mmrp-ctl input[type=range]:focus{outline:none;}
+.mmrp-panel .mmrp-ctl input[type=range]::-webkit-slider-runnable-track{height:3px;background:#2a2f3a;border-radius:2px;border:0;}
+.mmrp-panel .mmrp-ctl input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:calc(10px * var(--mmh3-fs, 1));height:calc(10px * var(--mmh3-fs, 1));
+  margin-top:calc(1.5px - 5px * var(--mmh3-fs, 1));border-radius:50%;background:var(--mmr-knob);border:0;box-shadow:none;}
+.mmrp-panel .mmrp-ctl input[type=range]::-moz-range-track{height:3px;background:#2a2f3a;border-radius:2px;border:0;}
+.mmrp-panel .mmrp-ctl input[type=range]::-moz-range-thumb{width:calc(10px * var(--mmh3-fs, 1));height:calc(10px * var(--mmh3-fs, 1));border-radius:50%;background:var(--mmr-knob);
+  border:0;box-shadow:none;}
+.mmrp-panel .mmrp-ctl input[type=range]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 2px rgba(111,134,184,.6);}
+.mmrp-panel .mmrp-num{-moz-appearance:textfield;appearance:textfield;width:calc(42px * var(--mmh3-fs, 1));height:calc(16px * var(--mmh3-fs, 1));min-height:0;box-sizing:border-box;
+  background:#12151b;border:1px solid #2e3440;border-radius:4px;padding:0 4px;margin:0;line-height:calc(14px * var(--mmh3-fs, 1));
+  font-size:calc(10px * var(--mmh3-fs, 1));font-variant-numeric:tabular-nums;color:#d7dbe2;font-family:inherit;text-align:right;}
+.mmrp-panel .mmrp-num::-webkit-inner-spin-button,.mmrp-panel .mmrp-num::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
+.mmrp-panel .mmrp-num:focus{outline:none;border-color:#4a5568;}
+.mmrp-panel .mmrp-num.sm{width:calc(38px * var(--mmh3-fs, 1));}
+.mmrp-popmenu .mmrp-num{width:calc(72px * var(--mmh3-fs, 1));}
+/* popovers: card options, the token limit */
+.mmrp-popmenu{position:absolute;z-index:32;min-width:230px;max-width:calc(100% - 8px);background:#1e222a;border:1px solid #3a4252;
+  border-radius:8px;padding:6px;box-shadow:0 16px 40px rgba(0,0,0,.55);display:flex;flex-direction:column;gap:5px;}
+.mmrp-pophead{font-weight:600;font-size:calc(11px * var(--mmh3-fs, 1));padding:0 2px 2px;border-bottom:1px solid #2a2f3a;}
+.mmrp-poprow{display:flex;align-items:center;gap:6px;font-size:calc(10.5px * var(--mmh3-fs, 1));}
+.mmrp-popread{flex:1 1 auto;min-width:0;color:#8a93a3;font-variant-numeric:tabular-nums;font-size:calc(10px * var(--mmh3-fs, 1));}
+.mmrp-popnote{font-size:calc(10px * var(--mmh3-fs, 1));line-height:1.35;}
+.mmrp-mode{display:inline-flex;border:1px solid #2e3440;border-radius:4px;overflow:hidden;flex:0 0 auto;}
+.mmrp-mode button{border:0;background:#12151b;color:#8a93a3;font-size:calc(10px * var(--mmh3-fs, 1));padding:2px 6px;
+  cursor:pointer;font-family:inherit;}
+.mmrp-mode button.on{background:#3a2f56;color:#e2d6f8;}
+/* footer: every label, upstream first */
+.mmrp-foot{flex:0 0 auto;display:flex;flex-direction:column;gap:4px;border-top:1px solid #303642;padding-top:5px;}
+.mmrp-over{color:#e3a64a;font-size:calc(10.5px * var(--mmh3-fs, 1));}
+.mmrp-labels{background:#1a2230;border:1px solid #2b3a52;border-radius:6px;padding:4px 8px;
+  font-family:ui-monospace,monospace;font-size:calc(10px * var(--mmh3-fs, 1));line-height:1.5;color:#9db4dc;}
+.mmrp-labels .lh{font-family:system-ui,sans-serif;font-weight:500;font-size:calc(9px * var(--mmh3-fs, 1));
+  letter-spacing:.07em;text-transform:uppercase;color:#6f86b8;margin-bottom:1px;}
+.mmrp-lablist{display:flex;flex-wrap:wrap;gap:1px 12px;max-height:48px;overflow:auto;}
+.mmrp-lab{white-space:nowrap;} .mmrp-lab.up{color:#5c6472;} .mmrp-lab.up .mmrp-tag{opacity:.7;}
+/* size popover: never scales with the text setting */
+.mmrp-scalewrap{position:relative;display:inline-block;flex:0 0 auto;}
+.mmrp-scalemenu{--mmh3-fs:1;position:absolute;right:0;top:100%;margin-top:6px;z-index:30;display:none;width:268px;
+  background:#1e222a;border:1px solid #3a4252;border-radius:9px;padding:8px;box-shadow:0 16px 40px rgba(0,0,0,.55);}
+.mmrp-scalemenu.on{display:block;}
+.mmrp-scalerow{display:flex;align-items:center;gap:8px;padding:5px 4px;}
+.mmrp-scalelabel{font-size:calc(10px * var(--mmh3-fs, 1));color:#8a93a3;width:62px;flex:0 0 auto;white-space:nowrap;}
+.mmrp-scalerange{flex:1;min-width:0;}
+.mmrp-scaleval{font-size:calc(10px * var(--mmh3-fs, 1));color:#d7dbe2;font-family:ui-monospace,monospace;width:58px;text-align:right;flex:0 0 auto;
+  background:#12151b;border:1px solid #2e3440;border-radius:5px;padding:2px 4px;}
+.mmrp-scalepct{font-size:calc(10px * var(--mmh3-fs, 1));color:#6b7484;flex:0 0 auto;margin-left:-2px;}
+.mmrp-scalefoot{display:flex;align-items:center;gap:6px;border-top:1px solid #2a2f3a;margin-top:6px;padding-top:7px;
+  font-size:calc(9px * var(--mmh3-fs, 1));color:#6b7484;}
+.mmrp-scalefoot span{flex:1;min-width:0;line-height:1.25;}
+/* presets */
+.mmrp-presetrow{flex:0 0 auto;display:flex;align-items:center;gap:5px;min-width:0;flex-wrap:nowrap;height:24px;}
+.mmrp-presetlbl{flex:0 0 auto;white-space:nowrap;font-size:calc(9px * var(--mmh3-fs, 1));text-transform:uppercase;
+  letter-spacing:.07em;color:#6b7484;}
+.mmrp-presetname,.mmrp-presetcatnew{flex:1;min-width:0;background:#12151b;color:#dde2ea;border:1px solid #4a5568;border-radius:6px;
+  padding:3px 7px;font-size:calc(11px * var(--mmh3-fs, 1));font-family:inherit;}
+.mmrp-presetname:focus,.mmrp-presetcatnew:focus{outline:none;border-color:#6f86b8;}
+.mmrp-presetwarn{flex:1;min-width:0;font-size:calc(10px * var(--mmh3-fs, 1));color:#e0a94c;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;}
+.mmrp-presetwrap{position:relative;flex:1 1 0;min-width:0;display:flex;}
+.mmrp-presetbtn{flex:1 1 0;min-width:0;text-align:left;background:#12151b;color:#c9cfda;border:1px solid #2e3440;border-radius:6px;
+  padding:3px 22px 3px 7px;font-size:calc(11px * var(--mmh3-fs, 1));font-family:inherit;cursor:pointer;position:relative;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mmrp-presetbtn:after{content:"\\25be";position:absolute;right:7px;top:50%;transform:translateY(-50%);color:#6b7484;}
+.mmrp-presetbtn:hover,.mmrp-presetbtn.on,.mmrp-presetbtn:focus{border-color:#4a5568;outline:none;}
+.mmrp-presetmenu{display:none;position:absolute;left:0;right:0;top:100%;margin-top:4px;background:#161a21;border:1px solid #2e3440;
+  border-radius:6px;z-index:40;overflow:hidden;box-shadow:0 12px 32px rgba(0,0,0,.5);}
+.mmrp-presetmenu.on{display:block;}
+.mmrp-presetbar{display:flex;gap:5px;align-items:center;padding:6px 7px;border-bottom:1px solid #2e3440;background:#12151b;}
+.mmrp-presetfilter{flex:1 1 auto;min-width:0;background:#191c22;color:#dde2ea;border:1px solid #2e3440;border-radius:6px;
+  padding:4px 7px;font-size:calc(11px * var(--mmh3-fs, 1));font-family:inherit;}
+.mmrp-presetrenamerow{display:flex;gap:5px;align-items:center;padding:0 7px;}
+.mmrp-presetrenamerow:not(:empty){padding:6px 7px;border-bottom:1px solid #2e3440;}
+.mmrp-presetlist{max-height:200px;overflow:auto;}
+.mmrp-presethead{padding:5px 8px 2px;color:#6b7484;letter-spacing:.05em;text-transform:uppercase;font-size:calc(9px * var(--mmh3-fs, 1));
+  position:sticky;top:0;background:#161a21;}
+.mmrp-presetitem{display:flex;align-items:baseline;gap:6px;padding:4px 8px;font-size:calc(11px * var(--mmh3-fs, 1));color:#c9cfda;
+  cursor:pointer;overflow:hidden;white-space:nowrap;}
+.mmrp-presetitem:hover{background:#232a35;} .mmrp-presetitem.on{color:#fff;}
+.mmrp-presetitemname{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;}
+.mmrp-presetitemn{flex:0 0 auto;color:#5c6472;font-size:calc(9px * var(--mmh3-fs, 1));}
+.mmrp-presetcatbtn{flex:0 0 auto;background:none;border:0;color:#4a5568;cursor:pointer;padding:0 2px;font-size:calc(10px * var(--mmh3-fs, 1));}
+.mmrp-presetitem:hover .mmrp-presetcatbtn{color:#8a93a3;} .mmrp-presetcatbtn:hover{color:#dde2ea;}
+.mmrp-presetitem.editing{background:#1d2430;gap:5px;align-items:center;}
+.mmrp-presetitem.editing .mmrp-presetitemname{flex:0 1 auto;max-width:38%;}
+.mmrp-presetitem.editing .mmrp-sel{flex:0 1 150px;min-width:0;}
+.mmrp-presetitem.editing .mmrp-presetcatnew{flex:1 1 90px;min-width:0;}
+.mmrp-presetempty{padding:8px;color:#6b7484;font-size:calc(11px * var(--mmh3-fs, 1));}
 .mmrp-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(12px);opacity:0;pointer-events:none;
-  background:#232a38;border:1px solid #4d6ea6;color:#d7dbe2;font:calc(12px * var(--mmh3-fs, 1)) system-ui,sans-serif;
+  background:#2b3140;border:1px solid #4a5568;color:#fff;font:calc(12px * var(--mmh3-fs, 1)) system-ui,sans-serif;
   padding:7px 14px;border-radius:7px;transition:opacity .2s,transform .2s;z-index:10200;}
 .mmrp-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
@@ -351,7 +567,7 @@ const CSS = `
 .mmrp-stackmodal{width:min(720px,94vw);height:min(640px,90vh);display:flex;flex-direction:column;background:#191c22;
   border:1px solid #303642;border-radius:10px;box-shadow:0 24px 64px rgba(0,0,0,.55);overflow:hidden;}
 .mmrp-stackbody{flex:1;min-height:0;display:flex;flex-direction:column;}
-.mmrp-stackbody .mmrp-panel{flex:1;height:auto;padding:10px 12px 12px;}
+.mmrp-stackbody .mmrp-panel{flex:1;height:auto;min-height:0;padding:10px 12px 12px;border:0;border-radius:0;}
 .mmrp-modal.dropping::after{content:"Drop to add to Create";position:absolute;inset:6px;z-index:5;pointer-events:none;
   display:flex;align-items:center;justify-content:center;border:2px dashed #4d6ea6;border-radius:8px;
   background:rgba(27,33,48,.82);color:#d7dbe2;font-size:calc(15px * var(--mmh3-fs, 1));font-weight:600;}
@@ -370,6 +586,14 @@ const CSS = `
 .mmrp-sprevtag{position:absolute;right:5px;bottom:4px;font-size:calc(9px * var(--mmh3-fs, 1));color:#d7dbe2;
   background:rgba(8,10,14,.7);border-radius:4px;padding:1px 5px;pointer-events:none;}
 .mmrp-srcmain{display:flex;flex-direction:column;gap:4px;min-width:0;}
+.mmrp-subjrows{display:flex;flex-direction:column;gap:4px;}
+.mmrp-subjrow{display:flex;align-items:center;gap:6px;min-width:0;}
+.mmrp-subjrow span{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:none;letter-spacing:normal;font-weight:400;font-size:calc(12px * var(--mmh3-fs, 1));}
+.mmrp-subjrow .mmrp-search{flex:0 0 120px;width:120px;}
+.mmrp-descfields{display:flex;flex-direction:column;gap:8px;}
+.mmrp-subjitem{display:flex;flex-direction:column;gap:4px;padding:0 0 6px;border-bottom:1px solid #262b35;}
+.mmrp-subjitem:last-child{border-bottom:0;padding-bottom:0;}
+.mmrp-subjitem > .mmrp-search{width:100%;box-sizing:border-box;}
 .mmrp-form{display:flex;flex-direction:column;gap:8px;background:#191c22;border:1px solid #303642;border-radius:8px;padding:10px;}
 .mmrp-grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
 .mmrp-note{display:flex;flex-direction:column;gap:6px;background:#12151b;border:1px solid #23272f;border-radius:6px;
@@ -429,7 +653,38 @@ class StackPanel {
     injectCSS();
     this.root = el("div", { class: "mmrp-panel" });
     this.dragUid = null;
+    this.presets = [];
+    this.presetCats = [];
+    this.presetName = "";
+    this.presetSnapshot = null;
+    this.presetPrompt = null;      // "save" | "delete" while confirming inline
+    this._catFilter = "";
+    this._catRename = false;
+    this._catEdit = null;
+    // Menus the panel owns close on a click anywhere else in it.
+    this.root.addEventListener("mousedown", (e) => {
+      if (!e.target.closest(".mmrp-scalewrap")) this.closeScaleMenu();
+      if (!e.target.closest(".mmrp-presetwrap")) this.closePresetMenu();
+      if (!e.target.closest(".mmrp-popmenu, .mmrp-popanchor")) this.closePop();
+    });
+    // A press anywhere outside the panel — the canvas included, which
+    // never bubbles to the panel — closes every menu it owns.
+    this._outside = (e) => {
+      if (this.root.contains(e.target)) return;
+      this.closePop(); this.closeScaleMenu(); this.closePresetMenu();
+    };
+    window.addEventListener("pointerdown", this._outside, true);
+    applyStackText(this, loadStackScale().text);
+    StackPanel.all.add(this);
     this.render();
+    this.refreshPresets();
+  }
+
+  /** Drop the panel's global listeners and registry entry. */
+  destroy() {
+    this.closePop();
+    window.removeEventListener("pointerdown", this._outside, true);
+    StackPanel.all.delete(this);
   }
 
   widget() { return this.node.widgets?.find((w) => w.name === "stack_state"); }
@@ -438,6 +693,12 @@ class StackPanel {
     const w = this.widget();
     if (w) w.value = JSON.stringify(this.state);
     try { this.node.setDirtyCanvas?.(true, true); app.graph?.setDirtyCanvas?.(true, true); } catch (e) { /* Vue */ }
+    // A stack further down the chain numbers its labels after ours, and a
+    // second panel on this node (the modal) shows the same picks.
+    for (const p of StackPanel.all) {
+      if (p === this || !p.root.isConnected) continue;
+      if (p.node === this.node) p.reload(); else p.render();
+    }
   }
 
   reload() {
@@ -448,6 +709,10 @@ class StackPanel {
 
   /** Add a library item. Both channels start at weight 1. */
   add(item) {
+    if (this.state.picks.length >= SLOTS) {
+      toast(`All ${SLOTS} slots are full — remove a RefMod first`, 4000);
+      return;
+    }
     const chan = (c) => c ? { file: c.file, kind: c.kind, tokens: c.tokens || 0,
       seconds: c.seconds, mode: "weight", w: 1, s: 1, c: 1,
       embedded_audio_ignored: !!c.embedded_audio_ignored } : undefined;
@@ -479,69 +744,60 @@ class StackPanel {
     this.write(); this.render();
   }
 
-  groups() { return labelGroups(deriveEntries(this.state.picks)); }
+  /* ---- the chain: stacks wired before and after this one */
+
+  chain() { return chainOf(this.node); }
+
+  /** Every entry Text Encode will see, numbered in send order: upstream
+   *  stacks first (from = their position in the chain), then this node's
+   *  own picks (from = 0). */
+  allGroups(chain = this.chain()) {
+    const entries = [];
+    chain.up.forEach((st, i) => {
+      for (const e of deriveEntries(readStack(st).picks)) entries.push({ ...e, from: i + 1 });
+    });
+    for (const e of deriveEntries(this.state.picks)) entries.push({ ...e, from: 0 });
+    return labelGroups(entries);
+  }
+
+  groups() { return this.allGroups().filter((g) => g.from === 0); }
+
+  /* ---- render */
 
   render() {
     const { picks, budget } = this.state;
-    const groups = this.groups();
-    const rows = picks.length ? picks.map((p) => this.row(p, groups)) :
-      [el("div", { class: "mmrp-empty" }, "No RefMods yet. Use Browse library… to add some.")];
+    const chain = this.chain();
+    const all = this.allGroups(chain);
+    const own = all.filter((g) => g.from === 0);
+    const tokens = own.reduce((n, g) => n + g.strengths.length * g.tokens, 0);
+    this.closePop();
 
-    const entries = groups.reduce((n, g) => n + g.strengths.length, 0);
-    const tokens = groups.reduce((n, g) => n + g.strengths.length * g.tokens, 0);
-    const live = groups.filter((g) => g.nums.length);
-    const foot = el("div", { class: "mmrp-foot" },
-      el("div", { class: "mmrp-total" }, "Bundle: ", el("b", {}, String(entries)),
-        ` ${entries === 1 ? "entry" : "entries"} · `, el("b", {}, fmt(tokens)), " tokens"),
-      el("label", { class: "mmrp-budget" }, "max_total_tokens",
-        el("input", { class: "mmrp-num", type: "number", min: 0, step: 256, value: budget,
-          oninput: (e) => { this.state.budget = Math.max(0, parseInt(e.target.value, 10) || 0);
-            this.write(); this.renderFootOnly(); } }),
-        el("span", {}, "0 = no limit")),
-      budget > 0 && tokens > budget
-        ? el("div", { class: "mmrp-over" },
-            `⚠ ${fmt(tokens)} tokens is over the ${fmt(budget)} limit — the queue will refuse this bundle.`)
-        : null,
-      el("div", { class: "mmrp-labels" },
-        el("div", { class: "lh" }, "Labels Text Encode will assign"),
-        live.length ? live.map((g) => el("div", {},
-          el("span", { class: `mmrp-tag ${KIND[g.kind].cls}` }, rangeText(g)), ` = ${g.name}`,
-          g.key === "audio" && picks.find((p) => p.uid === g.uid)?.visual ? " (voice)" : "",
-          g.nums.length > 1 ? el("span", { class: "mmrp-dim" },
-            ` · ${g.nums.length - 1} ${g.nums.length === 2 ? "copy" : "copies"}`) : null))
-        : el("div", { class: "mmrp-dim" }, "Nothing is being sent.")));
-
-    // A re-render swaps the whole list, which would throw a scrolled panel
+    // A re-render swaps the whole grid, which would throw a scrolled grid
     // back to the top and drop focus from the control being used — so put
     // both back where they were.
-    const scrolled = [this.root.querySelector(".mmrp-stack"), this.root, this.root.parentElement]
-      .map((n) => [n, n ? n.scrollTop : 0]);
-    const focused = document.activeElement, focusRow = focused && focused.closest ? focused.closest(".mmrp-row") : null;
-    const focusKey = focusRow && this.root.contains(focusRow) ? {
-      uid: focusRow.dataset.uid, ch: focused.closest(".mmrp-chan")?.querySelector(".mmrp-meta")?.dataset.ch || "",
+    const grid0 = this.root.querySelector(".mmrp-slots");
+    const scrolled = grid0 ? grid0.scrollTop : 0;
+    const focused = document.activeElement, focusSlot = focused && focused.closest ? focused.closest(".mmrp-slot") : null;
+    const focusKey = focusSlot && this.root.contains(focusSlot) ? {
+      uid: focusSlot.dataset.uid, ch: focused.closest(".mmrp-chrow")?.dataset.ch || "",
       sel: `${focused.tagName.toLowerCase()}${focused.className ? "." + String(focused.className).trim().split(/\s+/).join(".") : ""}` +
         (focused.type ? `[type="${focused.type}"]` : ""),
       title: focused.title || "" } : null;
 
-    setChildren(this.root,
-      el("div", { class: "mmrp-toolbar" },
-        el("button", { class: "mmrp-btn primary", onclick: () => openLibrary(this) }, "Browse library…"),
-        el("button", { class: "mmrp-btn", title: "Make a RefMod from a picture, clip or voice",
-          onclick: () => openLibrary(this, { tab: "create" }) }, "Create…"),
-        el("button", { class: "mmrp-btn", onclick: () => this.refresh() }, "Refresh"),
-        el("span", { class: "mmrp-count" }, `${picks.length} pick${picks.length === 1 ? "" : "s"}`)),
-      el("div", { class: "mmrp-stack" }, rows),
-      foot);
-    this.footEl = foot;
+    const cards = [];
+    for (let i = 0; i < SLOTS; i++) cards.push(i < picks.length ? this.card(picks[i], i, own) : this.emptySlot(i));
 
-    const list = this.root.querySelector(".mmrp-stack");
-    for (const [node, top] of scrolled) {
-      const target = node === scrolled[0][0] ? list : node;
-      if (target && top) target.scrollTop = top;
-    }
+    setChildren(this.root,
+      this.toolbar(picks, tokens, budget, chain),
+      this.presetRow(),
+      el("div", { class: "mmrp-slots" }, cards),
+      this.foot(all, chain, tokens, budget));
+
+    const grid = this.root.querySelector(".mmrp-slots");
+    if (grid && scrolled) grid.scrollTop = scrolled;
     if (focusKey) {
-      const row = this.root.querySelector(`.mmrp-row[data-uid="${focusKey.uid}"]`);
-      const scope = focusKey.ch ? row?.querySelector(`.mmrp-meta[data-ch="${focusKey.ch}"]`)?.closest(".mmrp-chan") : row;
+      const slot = this.root.querySelector(`.mmrp-slot[data-uid="${focusKey.uid}"]`);
+      const scope = focusKey.ch ? slot?.querySelector(`.mmrp-chrow[data-ch="${focusKey.ch}"]`) : slot;
       let again = null;
       try {
         const cands = scope ? [...scope.querySelectorAll(focusKey.sel)] : [];
@@ -551,51 +807,81 @@ class StackPanel {
     }
   }
 
-  renderFootOnly() { this.render(); }
+  toolbar(picks, tokens, budget, chain) {
+    const pos = chain.up.length + 1, total = chain.up.length + 1 + chain.down.length;
+    const over = budget > 0 && tokens > budget;
+    return el("div", { class: "mmrp-toolbar" },
+      el("button", { class: "mmrp-btn primary", onclick: () => openLibrary(this) }, "Browse library…"),
+      el("button", { class: "mmrp-btn", title: "Make a RefMod from a picture, clip or voice",
+        onclick: () => openLibrary(this, { tab: "create" }) }, "Create…"),
+      el("button", { class: "mmrp-btn", title: "Re-read the RefMod folder", onclick: () => this.refresh() }, "Refresh"),
+      el("span", { class: "mmrp-grow" }),
+      el("span", { class: "mmrp-count", title: "RefMods in this node's slots" }, `${picks.length} / ${SLOTS}`),
+      el("span", { class: "mmrp-count" + (over ? " over" : ""),
+        title: over ? `Over the ${fmt(budget)}-token limit` : "Reference tokens this node adds, copies included" },
+        `${fmt(tokens)} tok`),
+      total > 1 ? el("span", { class: "mmrp-count mmrp-chainpos",
+        title: `${chain.up.length} stack${chain.up.length === 1 ? "" : "s"} wired before this one, ` +
+          `${chain.down.length} after. Labels number through the whole chain.` }, `stack ${pos} / ${total}`) : null,
+      this.scaleControl(),
+      el("button", { class: "mmrp-btn mmrp-sm mmrp-popanchor", title: "Token limit", "aria-label": "More settings",
+        onclick: (e) => { e.stopPropagation(); this.settingsMenu(e.currentTarget); } }, "⋯"));
+  }
 
-  row(p, groups) {
+  emptySlot(i) {
+    return el("div", { class: "mmrp-slot empty", role: "button", tabindex: 0,
+      title: "Add a RefMod from the library",
+      onclick: () => openLibrary(this),
+      onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openLibrary(this); } } },
+      `refmod ${i + 1}`);
+  }
+
+  card(p, i, groups) {
     const chans = [];
     for (const key of ["visual", "audio"]) {
       if (!p[key]) continue;
-      const g = groups.find((x) => x.uid === p.uid && x.key === key);
-      chans.push(this.channel(p, key, g));
+      chans.push(this.channelRow(p, key, groups.find((x) => x.uid === p.uid && x.key === key)));
     }
-    const path = [p.visual?.file, p.audio?.file].filter(Boolean)
-      .map((f) => f.split("/").pop()).join(" + ");
+    const files = [p.visual?.file, p.audio?.file].filter(Boolean).map((f) => f.split("/").pop()).join(" + ");
     const folder = (p.name || "").includes("/") ? p.name.slice(0, p.name.lastIndexOf("/")) + "/" : "";
     const thumb = p.preview
-      ? el("img", { class: "mmrp-thumb", src: previewURL(p.preview), alt: "" })
-      : el("div", { class: "mmrp-thumb" }, KIND[p.visual?.kind || "audio"]?.short || "REF");
-    const row = el("div", { class: "mmrp-row" + (p.on === false ? " off" : "") + (p.missing ? " missing" : ""),
-      dataset: { uid: String(p.uid) } },
-      el("button", { class: "mmrp-grip", draggable: true, title: "Drag to reorder (or arrow keys)",
-        onkeydown: (e) => this.keyMove(e, p) }, "⠇"),
-      thumb,
-      el("div", { class: "mmrp-main" },
-        el("div", { class: "mmrp-title" },
+      ? el("img", { class: "mmrp-sthumb", src: previewURL(p.preview), alt: "" })
+      : el("div", { class: "mmrp-sthumb" }, KIND[p.visual?.kind || "audio"]?.short || "REF");
+    const kindCls = p.visual ? (KIND[p.visual.kind] || KIND.image).cls : "aud";
+    const card = el("div", { class: `mmrp-slot ${kindCls}` + (p.on === false ? " off" : "") + (p.missing ? " missing" : ""),
+      dataset: { uid: String(p.uid) }, title: p.missing ? `Not found on disk: ${p.missing.join(", ")}` : null },
+      el("div", { class: "mmrp-slothead" },
+        el("button", { class: "mmrp-grip", draggable: true, title: "Drag to reorder (or arrow keys)",
+          onkeydown: (e) => this.keyMove(e, p) }, "⠇"),
+        thumb,
+        el("div", { class: "mmrp-slotname" },
           el("span", { class: "mmrp-name" }, p.label || p.name),
-          el("span", { class: "mmrp-path", title: `${folder}${path}` }, `${folder}${path}`)),
-        p.missing ? el("div", { class: "mmrp-warn" }, `⚠ Not found on disk: ${p.missing.join(", ")}`) : null,
-        chans),
-      el("div", { class: "mmrp-side" },
-        el("label", { class: "mmrp-sw", title: "On / off" },
+          el("span", { class: "mmrp-path", title: `${folder}${files}` }, `${folder}${files}`)),
+        el("label", { class: "mmrp-sw", title: p.on === false ? "Off: sends nothing" : "On" },
           el("input", { type: "checkbox", checked: p.on !== false,
             onchange: (e) => { p.on = e.target.checked; this.write(); this.render(); } }),
           el("span")),
+        el("button", { class: "mmrp-more mmrp-popanchor",
+          title: `RefMod ${i + 1} of ${this.state.picks.length} in this stack · strength and copies, details`,
+          "aria-label": `Options for ${p.label || p.name}, RefMod ${i + 1} of ${this.state.picks.length}`,
+          onclick: (e) => { e.stopPropagation(); this.cardMenu(e.currentTarget, p); } },
+          el("span", { class: "mmrp-pos" }, `${i + 1}/${this.state.picks.length}`),
+          el("span", { class: "mmrp-dots" }, "⋯")),
         el("button", { class: "mmrp-x", title: "Remove", onclick: () => {
           this.state.picks = this.state.picks.filter((x) => x !== p); this.write(); this.render();
-        } }, "×")));
-    row.addEventListener("dragstart", (e) => {
+        } }, "×")),
+      chans);
+    card.addEventListener("dragstart", (e) => {
       if (!e.target.closest(".mmrp-grip")) { e.preventDefault(); return; }
-      this.dragUid = p.uid; row.classList.add("dragging");
+      this.dragUid = p.uid; card.classList.add("dragging");
       try { e.dataTransfer.setData("text/plain", String(p.uid)); e.dataTransfer.effectAllowed = "move"; } catch (_) {}
     });
-    row.addEventListener("dragover", (e) => {
+    card.addEventListener("dragover", (e) => {
       if (this.dragUid == null || this.dragUid === p.uid) return;
-      e.preventDefault(); row.classList.add("drop-before");
+      e.preventDefault(); card.classList.add("drop-before");
     });
-    row.addEventListener("dragleave", () => row.classList.remove("drop-before"));
-    row.addEventListener("drop", (e) => {
+    card.addEventListener("dragleave", () => card.classList.remove("drop-before"));
+    card.addEventListener("drop", (e) => {
       e.preventDefault();
       if (this.dragUid == null || this.dragUid === p.uid) return;
       const from = this.state.picks.findIndex((x) => x.uid === this.dragUid);
@@ -604,24 +890,28 @@ class StackPanel {
       this.state.picks.splice(to, 0, moved);
       this.dragUid = null; this.write(); this.render();
     });
-    row.addEventListener("dragend", () => { this.dragUid = null; this.render(); });
-    return row;
+    card.addEventListener("dragend", () => { this.dragUid = null; this.render(); });
+    return card;
   }
 
   keyMove(e, p) {
-    if (!["ArrowUp", "ArrowDown"].includes(e.key)) return;
+    if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
     e.preventDefault();
-    const i = this.state.picks.indexOf(p), j = i + (e.key === "ArrowUp" ? -1 : 1);
+    const i = this.state.picks.indexOf(p);
+    const j = i + (e.key === "ArrowUp" || e.key === "ArrowLeft" ? -1 : 1);
     if (j < 0 || j >= this.state.picks.length) return;
     [this.state.picks[i], this.state.picks[j]] = [this.state.picks[j], this.state.picks[i]];
     this.write(); this.render();
-    this.root.querySelector(`.mmrp-row[data-uid="${p.uid}"] .mmrp-grip`)?.focus();
+    this.root.querySelector(`.mmrp-slot[data-uid="${p.uid}"] .mmrp-grip`)?.focus();
   }
 
-  channel(p, key, g) {
+  /** One channel of a card: kind, the label it gets, and its weight. */
+  channelRow(p, key, g) {
     const ch = p[key];
     const k = KIND[ch.kind] || KIND.image;
     const upd = () => { this.write(); this.render(); };
+    const tag = el("span", { class: "mmrp-chtag", dataset: { uid: String(p.uid), ch: key } });
+    this.fillTag(tag, p, key, g);
     let ctl;
     if (ch.mode === "sc") {
       ctl = el("span", { class: "mmrp-ctl" },
@@ -631,60 +921,406 @@ class StackPanel {
         el("span", { class: "mmrp-dim" }, "×"),
         el("input", { class: "mmrp-num sm", type: "number", min: 1, max: MAX_COPIES, step: 1,
           value: ch.c ?? 1, title: "Copies",
-          onchange: (e) => { ch.c = clamp(Math.round(parseFloat(e.target.value) || 1), 1, MAX_COPIES); upd(); } }),
-        el("span", { class: "mmrp-dim" }, "copies"));
+          onchange: (e) => { ch.c = clamp(Math.round(parseFloat(e.target.value) || 1), 1, MAX_COPIES); upd(); } }));
     } else {
       const num = el("input", { class: "mmrp-num", type: "number", min: 0, max: MAX_WEIGHT, step: 0.05,
         value: Number(ch.w ?? 1).toFixed(2), title: "Weight: up to 1 is strength, above 1 adds copies" });
-      const range = el("input", { type: "range", min: 0, max: MAX_WEIGHT, step: 0.05, value: ch.w ?? 1 });
+      const range = el("input", { type: "range", min: 0, max: MAX_WEIGHT, step: 0.05, value: ch.w ?? 1,
+        title: "Weight: up to 1 is strength, above 1 adds copies" });
       const set = (v, commit) => {
         ch.w = clamp(parseFloat(v) || 0, 0, MAX_WEIGHT);
         num.value = ch.w.toFixed(2); range.value = ch.w;
         this.write();
-        if (commit) this.render(); else this.paintMeta(p, key);
+        if (commit) this.render(); else this.paintTags();
       };
       range.addEventListener("input", (e) => set(e.target.value, false));
       range.addEventListener("change", (e) => set(e.target.value, true));
       num.addEventListener("change", (e) => set(e.target.value, true));
       ctl = el("span", { class: "mmrp-ctl" }, range, num);
     }
-    const meta = el("div", { class: "mmrp-meta", dataset: { uid: String(p.uid), ch: key } });
-    const wrap = el("div", { class: "mmrp-chan" },
+    return el("div", { class: `mmrp-chrow ${key === "audio" ? "aud" : k.cls}`, dataset: { ch: key } },
       el("span", { class: `mmrp-kind ${k.cls}` }, key === "audio" ? "AUD" : k.short),
-      el("span", { class: "mmrp-mode" },
-        el("button", { class: ch.mode !== "sc" ? "on" : "", title: "One weight: up to 1 is strength, above 1 adds copies",
-          onclick: () => { if (ch.mode === "sc") { ch.w = +((ch.s ?? 1) * (ch.c ?? 1)).toFixed(2); ch.mode = "weight"; upd(); } } }, "Weight"),
-        el("button", { class: ch.mode === "sc" ? "on" : "", title: "Strength × copies",
-          onclick: () => { if (ch.mode !== "sc") {
-            const e2 = expandWeight(ch.w ?? 1); ch.s = e2.length ? Math.min(1, e2[0]) : 1; ch.c = Math.max(1, e2.length);
-            ch.mode = "sc"; upd(); } } }, "S × C")),
-      ctl, meta);
-    this.fillMeta(meta, p, key, g);
-    return wrap;
+      tag, ctl);
   }
 
-  fillMeta(meta, p, key, g) {
+  fillTag(tag, p, key, g) {
     const ch = p[key];
-    const on = p.on !== false;
-    setChildren(meta,
-      el("span", {}, !on ? "row off · sends nothing" : readout(g, ch)),
-      g && g.nums.length ? el("span", { class: `mmrp-tag ${KIND[g.kind].cls}` }, rangeText(g)) : null,
-      ch.embedded_audio_ignored
-        ? el("span", { class: "mmrp-warn", title: "This file carries audio inside the visual file (fork format). ComfyUI-MiniMaxH3Mod reads only the visual latent." },
-            "embedded audio ignored")
+    const on = p.on !== false && g && g.nums.length;
+    tag.className = "mmrp-chtag" + (on ? ` mmrp-tag ${KIND[g.kind].cls}` : " mmrp-dim");
+    tag.textContent = on ? rangeText(g) : (p.on === false ? "off" : "skipped");
+    tag.title = (p.on === false ? "Row off: sends nothing" : readout(g, ch)) +
+      (ch.embedded_audio_ignored ? " · embedded audio ignored" : "");
+  }
+
+  /** Live slider drag: refresh the labels without a full re-render (which
+   *  would drop the slider mid-drag). */
+  paintTags() {
+    const groups = this.groups();
+    this.root.querySelectorAll(".mmrp-chtag").forEach((t) => {
+      const p = this.state.picks.find((x) => String(x.uid) === t.dataset.uid);
+      if (!p) return;
+      this.fillTag(t, p, t.dataset.ch, groups.find((x) => x.uid === p.uid && x.key === t.dataset.ch));
+    });
+  }
+
+  foot(all, chain, tokens, budget) {
+    const live = all.filter((g) => g.nums.length);
+    const own = new Set(this.state.picks.map((p) => p.uid));
+    const item = (g) => {
+      const pick = g.from === 0 ? this.state.picks.find((p) => p.uid === g.uid) : null;
+      return el("span", { class: "mmrp-lab" + (g.from ? " up" : ""),
+        title: g.from ? `From stack ${g.from} in the chain` : "" },
+        el("span", { class: `mmrp-tag ${KIND[g.kind].cls}` }, rangeText(g)), ` ${g.name}`,
+        g.key === "audio" && (pick ? pick.visual : true) && g.kind === "audio" && pick?.visual ? " (voice)" : "",
+        g.nums.length > 1 ? el("span", { class: "mmrp-dim" }, ` ·${g.nums.length - 1} ${g.nums.length === 2 ? "copy" : "copies"}`) : null,
+        g.from ? el("span", { class: "mmrp-dim" }, ` (stack ${g.from})`) : null);
+    };
+    return el("div", { class: "mmrp-foot" },
+      el("div", { class: "mmrp-labels" },
+        el("div", { class: "lh" }, "Labels Text Encode will assign" + (chain.up.length ? " · upstream first" : "")),
+        live.length ? el("div", { class: "mmrp-lablist" }, live.map(item))
+          : el("div", { class: "mmrp-dim" }, chain.partial ? "Entries from another pack come first; only this node's are shown."
+                                                       : "Nothing is being sent.")),
+      budget > 0 && tokens > budget
+        ? el("div", { class: "mmrp-over" }, `⚠ ${fmt(tokens)} tokens is over the ${fmt(budget)} limit — the queue will refuse this bundle.`)
         : null);
   }
 
-  /** Live slider drag: refresh readouts and labels without a full re-render
-   *  (which would drop the slider mid-drag). */
-  paintMeta(p, key) {
+  /* ---- popovers: card options and the token limit */
+
+  closePop() {
+    this._pop?.remove(); this._pop = null; this._popAnchor = null;
+    if (this._popDoc) { document.removeEventListener("mousedown", this._popDoc, true); this._popDoc = null; }
+  }
+
+  /** A popover anchored under (or above, near the bottom) an element in the
+   *  panel. Clicking the same anchor again closes it. */
+  openPop(anchor, body) {
+    if (this._pop && this._popAnchor === anchor) { this.closePop(); return null; }
+    this.closePop();
+    this._popAnchor = anchor;
+    const pop = el("div", { class: "mmrp-popmenu", onmousedown: (e) => e.stopPropagation() }, ...[].concat(body).flat(Infinity));
+    this.root.append(pop);
+    const rr = this.root.getBoundingClientRect(), ar = anchor.getBoundingClientRect();
+    const scale = rr.width / (this.root.offsetWidth || rr.width) || 1;
+    const left = Math.max(4, Math.min((ar.left - rr.left) / scale, this.root.offsetWidth - pop.offsetWidth - 4));
+    let top = (ar.bottom - rr.top) / scale + 4;
+    if (top + pop.offsetHeight > this.root.offsetHeight - 4) top = Math.max(4, (ar.top - rr.top) / scale - pop.offsetHeight - 4);
+    pop.style.left = `${left}px`; pop.style.top = `${top}px`;
+    this._popDoc = (e) => { if (!pop.contains(e.target) && !anchor.contains(e.target)) this.closePop(); };
+    document.addEventListener("mousedown", this._popDoc, true);
+    this._pop = pop;
+    return pop;
+  }
+
+  cardMenu(anchor, p) {
     const groups = this.groups();
-    this.root.querySelectorAll(".mmrp-meta").forEach((m) => {
-      const pp = this.state.picks.find((x) => String(x.uid) === m.dataset.uid);
-      if (!pp) return;
-      const g = groups.find((x) => x.uid === pp.uid && x.key === m.dataset.ch);
-      this.fillMeta(m, pp, m.dataset.ch, g);
-    });
+    const rows = [];
+    for (const key of ["visual", "audio"]) {
+      const ch = p[key]; if (!ch) continue;
+      const g = groups.find((x) => x.uid === p.uid && x.key === key);
+      const mode = (sc) => {
+        if (sc && ch.mode !== "sc") {
+          const e2 = expandWeight(ch.w ?? 1); ch.s = e2.length ? Math.min(1, e2[0]) : 1; ch.c = Math.max(1, e2.length); ch.mode = "sc";
+        } else if (!sc && ch.mode === "sc") { ch.w = +((ch.s ?? 1) * (ch.c ?? 1)).toFixed(2); ch.mode = "weight"; }
+        this.write(); this.render();
+      };
+      rows.push(el("div", { class: "mmrp-poprow" },
+        el("span", { class: `mmrp-kind ${(KIND[ch.kind] || KIND.image).cls}` }, key === "audio" ? "AUD" : (KIND[ch.kind] || KIND.image).short),
+        el("span", { class: "mmrp-popread" }, p.on === false ? "off · sends nothing" : readout(g, ch)),
+        el("span", { class: "mmrp-mode" },
+          el("button", { class: ch.mode !== "sc" ? "on" : "", title: "One weight: up to 1 is strength, above 1 adds copies",
+            onclick: () => mode(false) }, "Weight"),
+          el("button", { class: ch.mode === "sc" ? "on" : "", title: "Strength × copies", onclick: () => mode(true) }, "S × C"))));
+      if (ch.embedded_audio_ignored) rows.push(el("div", { class: "mmrp-warn" },
+        "This file carries audio inside the visual file (fork format); only the visual latent is read."));
+    }
+    if (p.missing) rows.push(el("div", { class: "mmrp-warn" }, `⚠ Not found on disk: ${p.missing.join(", ")}`));
+    this.openPop(anchor, [el("div", { class: "mmrp-pophead" }, p.label || p.name), rows]);
+  }
+
+  settingsMenu(anchor) {
+    const budget = this.state.budget;
+    const input = el("input", { class: "mmrp-num", type: "number", min: 0, step: 256, value: budget,
+      onchange: (e) => { this.state.budget = Math.max(0, parseInt(e.target.value, 10) || 0); this.write(); this.render(); } });
+    this.openPop(anchor, [
+      el("div", { class: "mmrp-pophead" }, "Token limit"),
+      el("label", { class: "mmrp-poprow" }, el("span", {}, "max_total_tokens"), input, el("span", { class: "mmrp-dim" }, "0 = no limit")),
+      el("div", { class: "mmrp-dim mmrp-popnote" }, "The queue refuses a bundle over this many reference tokens, copies included.")]);
+  }
+
+  /* ---- node and text size, remembered per user like the Media Loader's */
+
+  scaleControl() {
+    const prefs = this.scalePrefs || (this.scalePrefs = loadStackScale());
+    const pending = { node: prefs.node, text: prefs.text };
+    const inputs = {}, outs = {};
+    const dirty = () => applyBtn.classList.toggle("primary", pending.node !== prefs.node || pending.text !== prefs.text);
+    const maxFor = (key) => key === "text" ? TEXT_SCALE_MAX : SCALE_MAX;
+    const slider = (key, label) => {
+      const out = el("input", { type: "number", class: "mmrp-scaleval",
+        min: String(Math.round(SCALE_MIN * 100)), max: String(Math.round(maxFor(key) * 100)), step: "5",
+        value: String(Math.round(pending[key] * 100)),
+        onchange: (e) => {
+          pending[key] = clampScale(Number(e.target.value) / 100, maxFor(key));
+          const shown = Math.round(pending[key] * 100);
+          e.target.value = String(shown); input.value = String(shown); dirty();
+        },
+        onkeydown: (e) => { if (e.key === "Enter") e.target.blur(); } });
+      const input = el("input", { type: "range", class: "mmrp-scalerange",
+        min: String(Math.round(SCALE_MIN * 100)), max: String(Math.round(maxFor(key) * 100)), step: "5",
+        value: String(Math.round(pending[key] * 100)),
+        oninput: (e) => {
+          pending[key] = clampScale(Number(e.target.value) / 100, maxFor(key));
+          out.value = String(Math.round(pending[key] * 100)); dirty();
+        } });
+      inputs[key] = input; outs[key] = out;
+      return el("label", { class: "mmrp-scalerow" }, el("span", { class: "mmrp-scalelabel" }, label), input, out,
+        el("span", { class: "mmrp-scalepct" }, "%"));
+    };
+    const commit = (n, t) => {
+      prefs.node = n; prefs.text = t; pending.node = n; pending.text = t;
+      inputs.node.value = outs.node.value = String(Math.round(n * 100));
+      inputs.text.value = outs.text.value = String(Math.round(t * 100));
+      saveStackScale(prefs);
+      applyStackText(this, t);
+      applyStackSize(this.node, n);        // last: this moves the popover
+      applyBtn.classList.remove("primary");
+    };
+    const applyBtn = el("button", { class: "mmrp-btn mmrp-sm", onclick: (e) => { e.stopPropagation(); commit(pending.node, pending.text); } }, "Apply");
+    const menu = el("div", { class: "mmrp-scalemenu", onmousedown: (e) => e.stopPropagation() },
+      slider("node", "Node size"), slider("text", "Text size"),
+      el("div", { class: "mmrp-scalefoot" },
+        el("span", {}, "Remembered for new nodes. Adding RefMods never resizes the node."),
+        el("button", { class: "mmrp-btn mmrp-sm", onclick: (e) => { e.stopPropagation(); commit(1, 1); } }, "Reset"),
+        applyBtn));
+    const btn = el("button", { class: "mmrp-btn mmrp-sm", title: "Node and text size",
+      onclick: (e) => { e.stopPropagation(); const open = menu.classList.toggle("on"); btn.classList.toggle("on", open); } },
+      "⤡ Size");
+    this._scaleMenu = menu; this._scaleBtn = btn;
+    return el("span", { class: "mmrp-scalewrap" }, btn, menu);
+  }
+
+  closeScaleMenu() { this._scaleMenu?.classList.remove("on"); this._scaleBtn?.classList.remove("on"); }
+
+  /* ---- presets: a saved stack, picks with their weights and switches */
+
+  get presetDrifted() { return !!this.presetName && this.presetSnapshot !== picksKey(this.state.picks); }
+
+  async refreshPresets({ keepOpen = false } = {}) {
+    try {
+      const data = await refmodPresetApi("");
+      this.presets = (data.presets || []).map((p) => typeof p === "string" ? { name: p, category: "" } : p);
+      this.presetCats = data.categories || [];
+      if (!this.root.isConnected) return;
+      this.render();
+      if (keepOpen) {
+        this._presetMenu?.classList.add("on"); this._presetBtn?.classList.add("on");
+        this._presetMenu?.querySelector(".mmrp-presetfilter")?.focus();
+      }
+    } catch (e) { /* routes unavailable; the row stays empty */ }
+  }
+
+  /** A preset saved, deleted or filed on one panel shows on every panel. */
+  static async refreshAllPresets(except) {
+    for (const p of StackPanel.all) if (p !== except && p.root.isConnected) await p.refreshPresets();
+  }
+
+  async savePreset(name, category) {
+    if (!this.state.picks.length) { toast("Nothing in the stack to save.", 3000); return; }
+    if (!name) { toast("Give the preset a name.", 3000); return; }
+    try {
+      const body = { name, picks: this.state.picks };
+      if (category !== undefined) body.category = category;
+      const res = await refmodPresetApi("/save", body);
+      this.presetName = res.name;
+      this.presetSnapshot = picksKey(this.state.picks);
+      this.presetPrompt = null;
+      toast(`Saved "${res.name}" (${res.count} RefMod${res.count === 1 ? "" : "s"})`);
+      await this.refreshPresets();
+      StackPanel.refreshAllPresets(this);
+    } catch (err) { toast(`Save failed: ${err.message}`, 5000); }
+  }
+
+  async loadPreset(name) {
+    if (!name) return;
+    try {
+      const res = await refmodPresetApi("/load", { name });
+      const picks = (res.picks || []).slice(0, SLOTS).map((p) => ({ ...p, uid: ++StackPanel.seq, on: p.on !== false }));
+      this.state.picks = picks;
+      this.presetName = res.name;
+      this.presetSnapshot = picksKey(picks);
+      this.closePresetMenu();
+      this.write(); this.render();
+      if (res.missing?.length) toast(`Loaded "${res.name}" — ${res.missing.length} file(s) are no longer on disk: ${res.missing.join(", ")}`, 6000);
+      else toast(`Loaded "${res.name}"`);
+    } catch (err) { toast(`Load failed: ${err.message}`, 5000); }
+  }
+
+  async deletePreset() {
+    try {
+      const res = await refmodPresetApi("/delete", { name: this.presetName });
+      toast(`Deleted "${res.deleted}"`);
+      this.presetName = ""; this.presetSnapshot = null; this.presetPrompt = null;
+      await this.refreshPresets();
+      StackPanel.refreshAllPresets(this);
+    } catch (err) { toast(`Delete failed: ${err.message}`, 5000); }
+  }
+
+  closePresetMenu() {
+    this._catEdit = null;
+    this._presetMenu?.classList.remove("on");
+    this._presetBtn?.classList.remove("on");
+  }
+
+  presetRow() {
+    if (this.presetPrompt === "save") {
+      const input = el("input", { type: "text", class: "mmrp-presetname", placeholder: "Preset name",
+        value: this.presetName || `stack ${new Date().toISOString().slice(0, 10)}` });
+      const known = [...(this.presetCats || [])];
+      const current = (this.presets.find((p) => p.name === this.presetName) || {}).category || "";
+      if (current && !known.includes(current)) known.unshift(current);
+      const catNew = el("input", { type: "text", class: "mmrp-presetcatnew", placeholder: "new category", style: { display: "none" } });
+      const cat = el("select", { class: "mmrp-sel", onchange: () => {
+        const isNew = cat.value === "\0new"; catNew.style.display = isNew ? "" : "none"; if (isNew) catNew.focus(); } },
+        el("option", { value: "" }, "no category"),
+        known.map((c) => el("option", { value: c, selected: c === current }, c)),
+        el("option", { value: "\0new" }, "(new category…)"));
+      cat.value = current;
+      const categoryValue = () => cat.value === "\0new" ? catNew.value.trim() : cat.value;
+      const go = () => this.savePreset(input.value.trim(), categoryValue());
+      const keys = (e) => { if (e.key === "Enter") go(); if (e.key === "Escape") { this.presetPrompt = null; this.render(); } };
+      input.addEventListener("keydown", keys); catNew.addEventListener("keydown", keys);
+      setTimeout(() => { input.focus(); input.select(); }, 0);
+      return el("div", { class: "mmrp-presetrow" }, el("span", { class: "mmrp-presetlbl" }, "save as"), input, cat, catNew,
+        el("button", { class: "mmrp-btn mmrp-sm", onclick: go }, "Save"),
+        el("button", { class: "mmrp-btn mmrp-sm", onclick: () => { this.presetPrompt = null; this.render(); } }, "Cancel"));
+    }
+    if (this.presetPrompt === "delete") {
+      return el("div", { class: "mmrp-presetrow" },
+        el("span", { class: "mmrp-presetwarn" }, `Delete "${this.presetName}"? Your RefMod files are not removed.`),
+        el("button", { class: "mmrp-btn mmrp-sm danger", onclick: () => this.deletePreset() }, "Delete"),
+        el("button", { class: "mmrp-btn mmrp-sm", onclick: () => { this.presetPrompt = null; this.render(); } }, "Cancel"));
+    }
+    return el("div", { class: "mmrp-presetrow" },
+      el("span", { class: "mmrp-presetlbl" }, "preset"),
+      this.presetPicker(),
+      el("button", { class: "mmrp-btn mmrp-sm", title: "Save this stack, with its weights, under a name",
+        onclick: () => { this.presetPrompt = "save"; this.render(); } }, "Save"),
+      el("button", { class: "mmrp-btn mmrp-sm", title: "Delete the selected preset",
+        onclick: () => { if (!this.presetName) toast("Pick a preset first.", 3000); else { this.presetPrompt = "delete"; this.render(); } } }, "Delete"));
+  }
+
+  /** The pack's own picker, like the Media Loader's: search, categories,
+   *  rename or clear a category, file a preset from its row. */
+  presetPicker() {
+    const list = el("div", { class: "mmrp-presetlist" });
+    const stop = (e) => e.stopPropagation();
+    const filter = el("input", { type: "text", class: "mmrp-presetfilter", placeholder: "Search presets",
+      onmousedown: stop, onclick: stop,
+      onkeydown: (e) => { if (e.key === "Escape") this.closePresetMenu(); e.stopPropagation(); },
+      oninput: () => paint() });
+    const catSel = el("select", { class: "mmrp-sel", title: "Show one category", onmousedown: stop, onclick: stop,
+      onchange: () => { this._catFilter = catSel.value; this._catRename = false; paint(); } });
+    const catBtn = el("button", { class: "mmrp-btn mmrp-sm", title: "Rename or clear the selected category", onmousedown: stop,
+      onclick: (e) => { e.stopPropagation(); if (!this._catFilter || this._catFilter === "\0none") { toast("Pick a category to manage first.", 3000); return; }
+        this._catRename = !this._catRename; paint(); } }, "✎");
+    const renameRow = el("div", { class: "mmrp-presetrenamerow" });
+    const paintCats = () => {
+      catSel.replaceChildren(el("option", { value: "" }, "All categories"),
+        ...(this.presetCats || []).map((c) => el("option", { value: c }, c)),
+        el("option", { value: "\0none" }, "Uncategorised"));
+      catSel.value = this._catFilter || "";
+      catBtn.classList.toggle("on", !!this._catRename);
+    };
+    const paintRename = () => {
+      if (!this._catRename || !this._catFilter || this._catFilter === "\0none") { renameRow.replaceChildren(); return; }
+      const input = el("input", { type: "text", class: "mmrp-presetcatnew", value: this._catFilter, onmousedown: stop, onclick: stop,
+        onkeydown: (e) => { e.stopPropagation(); if (e.key === "Enter") go(""); if (e.key === "Escape") { this._catRename = false; paint(); } } });
+      const go = async (to) => {
+        const from = this._catFilter, target = to === "" ? input.value.trim() : to;
+        if (to === "" && !target) return;
+        try {
+          await refmodPresetApi("/category", { from, to: target });
+          this._catFilter = to === null ? "" : target; this._catRename = false;
+          await this.refreshPresets({ keepOpen: true });
+          StackPanel.refreshAllPresets(this);
+        } catch (err) { toast(`Couldn't update: ${err.message}`, 5000); }
+      };
+      renameRow.replaceChildren(input,
+        el("button", { class: "mmrp-btn mmrp-sm", onmousedown: stop, onclick: (e) => { e.stopPropagation(); go(""); } }, "Rename"),
+        el("button", { class: "mmrp-btn mmrp-sm danger", title: "Remove this category from its presets; the presets stay",
+          onmousedown: stop, onclick: (e) => { e.stopPropagation(); this._catFilter = ""; go(null); } }, "Clear"));
+    };
+    const paint = () => {
+      paintCats(); paintRename();
+      const q = filter.value.trim().toLowerCase(), cf = this._catFilter || "";
+      const hits = this.presets.filter((p) => {
+        const cat = p.category || "";
+        if (cf === "\0none" && cat) return false;
+        if (cf && cf !== "\0none" && cat !== cf) return false;
+        return !q || p.name.toLowerCase().includes(q) || cat.toLowerCase().includes(q);
+      });
+      if (!hits.length) {
+        list.replaceChildren(el("div", { class: "mmrp-presetempty" }, this.presets.length ? "Nothing matches that." : "No presets saved — use Save."));
+        return;
+      }
+      const groups = new Map();
+      for (const p of hits) { const k = p.category || ""; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(p); }
+      const keys = [...groups.keys()].filter(Boolean).sort((a, b) => a.localeCompare(b));
+      if (groups.has("")) keys.push("");
+      const out = [];
+      for (const k of keys) {
+        out.push(el("div", { class: "mmrp-presethead" }, k || "Uncategorised"));
+        for (const p of groups.get(k)) {
+          if (this._catEdit === p.name) { out.push(this.catEditor(p, paint)); continue; }
+          out.push(el("div", { class: "mmrp-presetitem" + (p.name === this.presetName ? " on" : ""), onmousedown: stop,
+            onclick: (e) => { e.stopPropagation(); this.loadPreset(p.name); } },
+            el("span", { class: "mmrp-presetitemname" }, p.name),
+            el("span", { class: "mmrp-presetitemn" }, String(p.on ?? p.count ?? "")),
+            el("button", { class: "mmrp-presetcatbtn", title: "Change this preset's category", onmousedown: stop,
+              onclick: (e) => { e.stopPropagation(); this._catEdit = p.name; paint(); } }, "✎")));
+        }
+      }
+      list.replaceChildren(...out);
+    };
+    paint();
+    const menu = el("div", { class: "mmrp-presetmenu" }, el("div", { class: "mmrp-presetbar" }, filter, catSel, catBtn), renameRow, list);
+    const btn = el("button", { class: "mmrp-presetbtn", title: "Load a saved stack",
+      onkeydown: (e) => { if (e.key === "Escape" && menu.classList.contains("on")) { this.closePresetMenu(); e.stopPropagation(); } },
+      onclick: (e) => { e.stopPropagation(); const open = menu.classList.toggle("on"); btn.classList.toggle("on", open);
+        if (open) { setTimeout(() => filter.focus(), 0); this.refreshPresets({ keepOpen: true }); } } },
+      this.presetName ? this.presetName + (this.presetDrifted ? " (edited)" : "")
+        : (this.presets.length ? "load preset…" : "no presets saved"));
+    this._presetMenu = menu; this._presetBtn = btn;
+    return el("div", { class: "mmrp-presetwrap" }, btn, menu);
+  }
+
+  catEditor(p, paint) {
+    const stop = (e) => e.stopPropagation();
+    const known = [...(this.presetCats || [])];
+    if (p.category && !known.includes(p.category)) known.unshift(p.category);
+    const fresh = el("input", { type: "text", class: "mmrp-presetcatnew", placeholder: "new category", style: { display: "none" },
+      onmousedown: stop, onclick: stop, onkeydown: (e) => { e.stopPropagation(); if (e.key === "Enter") apply(); if (e.key === "Escape") { this._catEdit = null; paint(); } } });
+    const sel = el("select", { class: "mmrp-sel", onmousedown: stop, onclick: stop,
+      onchange: () => { const isNew = sel.value === "\0new"; fresh.style.display = isNew ? "" : "none"; if (isNew) fresh.focus(); } },
+      el("option", { value: "" }, "no category"),
+      known.map((c) => el("option", { value: c, selected: c === (p.category || "") }, c)),
+      el("option", { value: "\0new" }, "(new category…)"));
+    sel.value = p.category || "";
+    const apply = async () => {
+      const category = sel.value === "\0new" ? fresh.value.trim() : sel.value;
+      try {
+        await refmodPresetApi("/meta", { name: p.name, category });
+        this._catEdit = null;
+        await this.refreshPresets({ keepOpen: true });
+        StackPanel.refreshAllPresets(this);
+      } catch (err) { toast(`Couldn't file it: ${err.message}`, 5000); }
+    };
+    return el("div", { class: "mmrp-presetitem editing", onmousedown: stop, onclick: stop },
+      el("span", { class: "mmrp-presetitemname" }, p.name), sel, fresh,
+      el("button", { class: "mmrp-btn mmrp-sm", onclick: (e) => { e.stopPropagation(); apply(); } }, "Set"),
+      el("button", { class: "mmrp-btn mmrp-sm", onclick: (e) => { e.stopPropagation(); this._catEdit = null; paint(); } }, "Cancel"));
   }
 
   async refresh() {
@@ -700,6 +1336,7 @@ class StackPanel {
   }
 }
 StackPanel.seq = 0;
+StackPanel.all = new Set();
 
 /* ---------------------------------------------------------- library */
 
@@ -709,6 +1346,14 @@ const CONCEPTS = ["generic", "identity", "pose_motion", "clothing", "background"
 const SETTINGS_KEY = "mmrp-create-settings";
 const NAME_BAD = /[^A-Za-z0-9._ +()\-]+/g;
 const cleanName = (t) => String(t || "").replace(NAME_BAD, "_").replace(/^[ ._]+|[ ._]+$/g, "").slice(0, 120);
+// Appearance and voice descriptions are drafted into definition lines: one
+// line (a break reads as a shot cut), no trailing full stop.
+const oneLine = (s) => String(s || "").replace(/\s+/g, " ").trim().replace(/[\s.]+$/, "");
+const DESC_LIMIT = 300;
+const DESC_RULE = `Keep appearance and voice descriptions under ${DESC_LIMIT} characters.`;
+const APPEARANCE_TIP = "Optional. How the subject looks: Draft from RefMods writes it into their definition line. Saved inside the file.";
+const VOICE_TIP = "Optional. How the voice sounds: Draft from RefMods adds it to the voice line, and the speaker buttons use it. " +
+  "Saved inside the file.";
 const stem = (f) => cleanName(String(f || "").split("/").pop().replace(/\.[^.]+$/, ""));
 
 const SETTING_RANGES = { ref_resolution: [256, 2048], grid: [2, 64], latent_frames: [1, 1024],
@@ -1118,7 +1763,7 @@ export function openLibrary(panel, opts = {}) {
     const q = view.q.trim().toLowerCase();
     let list = items.filter((it) => (view.folder === "all" || it.folder === view.folder)
       && (view.kind === "all" || kindsOf(it).includes(view.kind))
-      && (!q || [it.label, it.name, it.folder, it.desc, filesShort(it)].join(" ").toLowerCase().includes(q)));
+      && (!q || [it.label, it.name, it.folder, it.desc, it.subject_name, it.appearance, it.voice_description, filesShort(it)].join(" ").toLowerCase().includes(q)));
     list.sort((a, b) => view.sort === "tokens" ? tokensOf(a) - tokensOf(b)
       : view.sort === "folder" ? (a.folder + a.label).localeCompare(b.folder + b.label)
       : view.sort === "new" ? (b.mtime || 0) - (a.mtime || 0) : a.label.localeCompare(b.label));
@@ -1139,6 +1784,7 @@ export function openLibrary(panel, opts = {}) {
     if (it.audio && Number(it.audio.seconds || 0) < 0.5) b.push(el("span", { class: "mmrp-b warn",
       title: "This voice is shorter than half a second — effectively silent. Recreate it and check the audio's trim." }, "voice empty"));
     if (it.paired) b.push(el("span", { class: "mmrp-b pair" }, "pair"));
+    if (it.subject_name) b.push(el("span", { class: "mmrp-b", title: "Subject name used in prompts" }, `name \u00b7 ${it.subject_name}`));
     if (it.bundle) b.push(el("span", { class: "mmrp-b pair", title: "A single-file bundle made by ComfyUI-MiniMaxH3Mod. " +
       "Its first look and first voice are used here; it can be inspected but not edited in this library." },
       `bundle · ${it.bundle} member${it.bundle === 1 ? "" : "s"}`));
@@ -1179,7 +1825,14 @@ export function openLibrary(panel, opts = {}) {
   function paintInspector() {
     const it = byName(view.selected);
     if (!it) { inspector.hidden = true; body.classList.remove("withinspector"); return; }
-    const nameIn = el("input", { class: "mmrp-search", value: it.label, "aria-label": "Name" });
+    const nameIn = el("input", { class: "mmrp-search", value: it.label, "aria-label": "RefMod name" });
+    const subjIn = el("input", { class: "mmrp-search", value: it.subject_name || "", placeholder: "e.g. Bob",
+      "aria-label": "Subject name", oninput: keepNameChars, title: "One word used in prompts. Draft from RefMods names the subject this, " +
+        "and !Name stands for it. The RefMod's own name and description stay yours and never go into a prompt." });
+    const appIn = el("input", { class: "mmrp-search", value: it.appearance || "", placeholder: "auburn hair, a freckled face and a green coat",
+      "aria-label": "Appearance", title: APPEARANCE_TIP });
+    const voiceIn = it.audio ? el("input", { class: "mmrp-search", value: it.voice_description || "",
+      placeholder: "low, husky voice with a slow, warm pace", "aria-label": "Voice", title: VOICE_TIP }) : null;
     const folderIn = el("input", { class: "mmrp-search", value: it.folder, placeholder: "(root)", "aria-label": "Folder" });
     const descIn = el("textarea", { class: "mmrp-ta", rows: 3, "aria-label": "Description" }, it.desc || "");
     const conceptIn = el("select", { class: "mmrp-sel" }, CONCEPTS.map((c) => el("option", { value: c, selected: c === it.concept }, c)));
@@ -1219,9 +1872,15 @@ export function openLibrary(panel, opts = {}) {
       const target = newFolder ? `${newFolder}/${newName}` : newName;
       try {
         let renamed = false;
-        if ((descIn.value || "") !== (it.desc || "") || conceptIn.value !== it.concept) {
+        const subj = subjIn.value.trim();
+        if (subj && !/^[A-Za-z][\w-]{0,39}$/.test(subj)) { say("A subject name is one word: letters, digits, - and _, starting with a letter.", true); return; }
+        const app = oneLine(appIn.value), voi = voiceIn ? oneLine(voiceIn.value) : (it.voice_description || "");
+        if (app.length > DESC_LIMIT || voi.length > DESC_LIMIT) { say(DESC_RULE, true); return; }
+        if ((descIn.value || "") !== (it.desc || "") || conceptIn.value !== it.concept || subj !== (it.subject_name || "")
+            || app !== (it.appearance || "") || voi !== (it.voice_description || "")) {
           const r = await postApi("/minimax_h3_plus/refmods/meta", { headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ files: files(it), description: descIn.value, concept_type: conceptIn.value }) });
+            body: JSON.stringify({ files: files(it), description: descIn.value, concept_type: conceptIn.value, subject_name: subj,
+              appearance: app, voice_description: voi }) });
           const d = await r.json(); if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
         }
         if (target !== it.name) {
@@ -1253,10 +1912,16 @@ export function openLibrary(panel, opts = {}) {
       el("div", { class: "mmrp-iactions" },
         el("button", { class: "mmrp-btn", onclick: () => pvInput.click() }, it.preview ? "Replace preview" : "Add preview"), pvInput,
         panel ? el("button", { class: "mmrp-btn", onclick: () => { panel.add(it); drawGrid(); } }, "Add to stack") : null),
-      el("label", { class: "mmrp-ilabel" }, "Name", nameIn),
+      el("label", { class: "mmrp-ilabel" }, "RefMod name", nameIn),
       el("label", { class: "mmrp-ilabel" }, "Folder", folderIn),
       el("label", { class: "mmrp-ilabel" }, "Description", descIn),
       el("label", { class: "mmrp-ilabel" }, "Concept", conceptIn),
+      el("label", { class: "mmrp-ilabel" }, "Subject name", subjIn,
+        el("span", { class: "mmrp-dim mmrp-numhint" }, "Used in prompts \u2014 optional, one word")),
+      el("label", { class: "mmrp-ilabel", title: APPEARANCE_TIP }, "Appearance", appIn,
+        el("span", { class: "mmrp-dim mmrp-numhint" }, "Drafted into the subject's line \u2014 optional")),
+      voiceIn ? el("label", { class: "mmrp-ilabel", title: VOICE_TIP }, "Voice", voiceIn,
+        el("span", { class: "mmrp-dim mmrp-numhint" }, "Drafted onto the voice line \u2014 optional")) : null,
       el("div", { class: "mmrp-idetails" }, chanRow("Look", it.visual), chanRow("Voice", it.audio),
         el("div", { class: "mmrp-irow" }, el("span", {}, "Files"), el("span", { class: "mmrp-cfiles" }, files(it).join("\n")))),
       storedSection(it),
@@ -1270,6 +1935,10 @@ export function openLibrary(panel, opts = {}) {
   const inspectResults = new Map();       // item name -> last finished job
   const inspectView = new Map();          // item name -> "frames" | "video"
   const EDIT_NAME = "MiniMaxH3StudioRefModEdit";
+  const SUBJECT_OK = /^[A-Za-z][\w-]{0,39}$/;
+  const SUBJECT_RULE = "A subject name is one word: letters, digits, - and _, starting with a letter.";
+  const SUBJECT_TIP = "Optional one word used in prompts: Draft from RefMods names the subject this, " +
+    "and !Name stands for it. Saved inside the file.";
   let inspectStrength = 1;
   const tempURL = (f) => api.apiURL(`/view?filename=${encodeURIComponent(f.filename)}` +
     `&subfolder=${encodeURIComponent(f.subfolder || "")}&type=${f.type || "temp"}`);
@@ -1463,7 +2132,8 @@ export function openLibrary(panel, opts = {}) {
   function startEdit(it) {
     if (!it.visual && !it.audio) return;
     if (editing) cancelEdit(false);
-    editing = { name: it.name, it, visual: it.visual, audio: it.audio, decoded: false, decodeError: "",
+    editing = { name: it.name, it, visual: it.visual, audio: it.audio, decoded: false, decodeError: "", subject: it.subject_name || "",
+      appearance: it.appearance || "", voiceDesc: it.voice_description || "",
       copy: false, copyName: `${it.label} copy` };
     // The file's own shape, in pixels: what new pictures are fitted to.
     let w = (it.visual?.w || 0) * 16, h = (it.visual?.h || 0) * 16;
@@ -1519,7 +2189,16 @@ export function openLibrary(panel, opts = {}) {
     let voice = "";
     if (newVoice) voice = "new";
     else if (editing.audio && !storedVoiceKept) voice = "remove";
-    return { order, adds, same, voice, newVoice, changed: !same || !!voice, looks: looks.length };
+    const subject = (editing.subject || "").trim();
+    const nameChanged = subject !== (editing.it.subject_name || "");
+    const nameBad = !!subject && !SUBJECT_OK.test(subject);
+    const appearance = oneLine(editing.appearance), voiceDesc = oneLine(editing.voiceDesc);
+    const appearanceChanged = appearance !== (editing.it.appearance || "");
+    const voiceDescChanged = voiceDesc !== (editing.it.voice_description || "");
+    const descBad = appearance.length > DESC_LIMIT || voiceDesc.length > DESC_LIMIT;
+    return { order, adds, same, voice, newVoice, looks: looks.length,
+      changed: !same || !!voice || nameChanged || appearanceChanged || voiceDescChanged,
+      subject, nameChanged, nameBad, appearance, appearanceChanged, voiceDesc, voiceDescChanged, descBad };
   }
 
   /* ---- create tab */
@@ -1549,6 +2228,7 @@ export function openLibrary(panel, opts = {}) {
   // for turning a batch of unrelated items into separate references.
   let combine = st.combine !== false;
   let stackName = "";
+  let subjectName = "", appearanceText = "", voiceText = "";
   const isLook = (s) => s.rec.kind === "picture" || s.rec.kind === "video";
   const used = () => sources.filter((x) => x.use);
   const defaultStackName = () => {
@@ -1723,9 +2403,13 @@ export function openLibrary(panel, opts = {}) {
     let line, cls = "";
     if (editing) {
       const plan = editPlan(), e = estimate(u), t = editing.visual?.t || 0;
-      const voiceNote = plan.voice === "new" ? " · new voice" : plan.voice === "remove" ? " · voice removed" : "";
+      const voiceNote = (plan.voice === "new" ? " · new voice" : plan.voice === "remove" ? " · voice removed" : "") +
+        (plan.nameChanged ? (plan.subject ? ` · named ${plan.subject}` : " · subject name cleared") : "") +
+        (plan.appearanceChanged || plan.voiceDescChanged ? " · descriptions updated" : "");
       const copyTo = editing.copy ? copyTarget() : null;
       if (editing.decodeError) { cls = "over"; line = `Couldn't decode the stored frames: ${editing.decodeError}`; }
+      else if (plan.nameBad) { blocked = true; cls = "over"; line = SUBJECT_RULE; }
+      else if (plan.descBad) { blocked = true; cls = "over"; line = DESC_RULE; }
       else if (editing.copy && !copyTo) { blocked = true; cls = "over"; line = "Give the copy a name."; }
       else if (editing.copy && byName(copyTo)) { blocked = true; cls = "over"; line = `"${copyTo}" already exists — pick another name.`; }
       else if (!plan.changed && !editing.copy) line = `${t} frame${t === 1 ? "" : "s"} · ${fmt(editing.visual?.tokens || 0)} tokens · nothing changed yet`;
@@ -1892,10 +2576,48 @@ export function openLibrary(panel, opts = {}) {
         el("select", { class: "mmrp-sel", onchange: (e) => { st[key] = e.target.value; saveSettings(st); } },
           el("option", { value: "" }, "(choose)"), vaes.map((v) => el("option", { value: v, selected: v === st[key] }, v))));
     };
+    /** Subject name, appearance and voice in the settings pane, away from the
+     *  RefMod file names. Appearance only with a look, voice only with a voice. */
+    const subjectField = () => {
+      const descInput = (label, value, hint, onset) => el("input", { class: "mmrp-search", value: value || "",
+        placeholder: hint, "aria-label": label, oninput: (e) => onset(e.target.value) });
+      if (editing || combine) {
+        const u = used();
+        const hasLook = editing ? !!editing.visual || u.some((x) => isLook(x) && !isStored(x)) : u.some(isLook);
+        const hasVoice = editing ? !!editing.audio || u.some((x) => x.voice && !isStored(x)) : u.some((x) => x.voice);
+        const set = (key, v) => {
+          if (editing) { editing[key] = v; paintBudget(); return; }
+          if (key === "subject") subjectName = v; else if (key === "appearance") appearanceText = v; else voiceText = v;
+        };
+        return el("div", { class: "mmrp-descfields" },
+          el("label", { class: "mmrp-ilabel", title: SUBJECT_TIP }, "Subject name",
+            el("input", { class: "mmrp-search", value: editing ? editing.subject : subjectName, placeholder: "optional, e.g. Bob",
+              "aria-label": "Subject name", oninput: (e) => { keepNameChars(e); set("subject", e.target.value.trim()); } })),
+          hasLook ? el("label", { class: "mmrp-ilabel", title: APPEARANCE_TIP }, "Appearance",
+            descInput("Appearance", editing ? editing.appearance : appearanceText, "optional, like auburn hair and a green coat",
+              (v) => set("appearance", v))) : null,
+          hasVoice ? el("label", { class: "mmrp-ilabel", title: VOICE_TIP }, "Voice",
+            descInput("Voice", editing ? editing.voiceDesc : voiceText, "optional, like low, husky voice",
+              (v) => set("voiceDesc", v))) : null);
+      }
+      const rows = used();
+      if (!rows.length) return null;
+      return el("div", { class: "mmrp-ilabel", title: SUBJECT_TIP }, "Subject names and descriptions",
+        el("div", { class: "mmrp-subjrows" }, rows.map((x) => {
+          x._subjLabel = el("span", { title: x.name }, x.name);
+          return el("div", { class: "mmrp-subjitem" },
+            el("label", { class: "mmrp-subjrow" }, x._subjLabel,
+              el("input", { class: "mmrp-search", value: x.subject || "", placeholder: "subject name", "aria-label": `Subject name for ${x.name}`,
+                oninput: (e) => { keepNameChars(e); x.subject = e.target.value.trim(); } })),
+            isLook(x) ? descInput(`Appearance for ${x.name}`, x.appearance, "appearance, optional", (v) => { x.appearance = v; }) : null,
+            x.voice ? descInput(`Voice for ${x.name}`, x.voiceDesc, "voice, optional", (v) => { x.voiceDesc = v; }) : null);
+        })));
+    };
     const needVoice = used().some((x) => x.voice && !isStored(x)), needLook = used().some((x) => isLook(x) && !isStored(x));
     if (editing) {
       setChildren(form,
         el("div", { class: "mmrp-fh" }, "Settings"),
+        subjectField(),
         el("div", { class: "mmrp-grid2" },
           num("max_tokens", "Max tokens", 0, 1048576, 256, "Refuses to save anything bigger than this. 0 = no limit."),
           num("latent_frames", "Clip frames", 1, 1024, 1, "Frames taken from the start of each added clip, after its trim.", clipFramesHint),
@@ -1913,6 +2635,7 @@ export function openLibrary(panel, opts = {}) {
       el("div", { class: "mmrp-fh" }, "Settings"),
       el("label", { class: "mmrp-ilabel" }, "Folder", el("input", { class: "mmrp-search", value: st.subfolder, placeholder: "(root)",
         onchange: (e) => { st.subfolder = e.target.value.trim(); saveSettings(st); } })),
+      subjectField(),
       el("label", { class: "mmrp-ilabel" }, "Mode", el("select", { class: "mmrp-sel", onchange: (e) => { st.mode = e.target.value; saveSettings(st); paintCreate(); } },
         ["Full Reference", "Compressed Reference"].map((m) => el("option", { value: m, selected: st.mode === m }, m)))),
       modeNote(),
@@ -1996,7 +2719,8 @@ export function openLibrary(panel, opts = {}) {
                 title: "Every photo in this RefMod is made this size and shape (portrait, landscape or square). " +
                   (st.mode === "Full Reference" ? "The others have their edges trimmed to match." : "The others are squeezed to match.") },
                 "Sets dataset size and aspect ratio") : null)
-          : el("input", { class: "mmrp-search", value: x.name, "aria-label": "RefMod name", onchange: (e) => { x.name = cleanName(e.target.value); e.target.value = x.name; } }),
+          : el("input", { class: "mmrp-search", value: x.name, "aria-label": "RefMod name", onchange: (e) => {
+              x.name = cleanName(e.target.value); e.target.value = x.name; if (x._subjLabel) x._subjLabel.textContent = x.name; } }),
         el("div", { class: "mmrp-dim" }, [x.origin, ...bits].filter(Boolean).join(" · ")),
         f != null ? el("div", { class: "mmrp-dim" }, x.rec.kind === "video"
           ? (() => { const n = clipFrames(x), take = h3Take(Math.min(st.latent_frames, n));
@@ -2043,10 +2767,13 @@ export function openLibrary(panel, opts = {}) {
     // Create's resolution decides size, so a loader's size cap doesn't ride along.
     const recOf = (x) => { const r = { ...x.rec }; delete r.resize; if (r.kind === "video") r.audio_mode = x.voice ? "paired" : "off"; return r; };
     const groups = combine
-      ? [{ name: stackName || defaultStackName(), members: use }]
-      : use.map((x) => ({ name: x.name, members: [x] }));
+      ? [{ name: stackName || defaultStackName(), members: use, subject: subjectName, appearance: appearanceText, voiceDesc: voiceText }]
+      : use.map((x) => ({ name: x.name, members: [x], subject: x.subject || "", appearance: x.appearance || "", voiceDesc: x.voiceDesc || "" }));
     const names = groups.map((g) => g.name);
     if (names.some((n) => !n)) { toast("Every RefMod needs a name", 4000); return; }
+    if (groups.some((g) => g.subject && !SUBJECT_OK.test(g.subject))) { toast(SUBJECT_RULE, 5000); return; }
+    if (groups.some((g) => oneLine(g.appearance).length > DESC_LIMIT || oneLine(g.voiceDesc).length > DESC_LIMIT)) {
+      toast(DESC_RULE, 5000); return; }
     if (new Set(names).size !== names.length) { toast("Two sources have the same name", 4000); return; }
     const prompt = {}; let id = 1;
     const vid = needLook ? String(id++) : null;
@@ -2057,6 +2784,9 @@ export function openLibrary(panel, opts = {}) {
       const inputs = { name: g.name, subfolder: st.subfolder || "", mode: st.mode, ref_resolution: st.ref_resolution,
         grid: st.grid, latent_frames: st.latent_frames, refinement_steps: st.refinement_steps, max_tokens: st.max_tokens,
         audio_max_seconds: st.audio_max_seconds, concept_type: st.concept_type, description: "",
+        subject_name: g.subject || "",
+        appearance: g.members.some(isLook) ? oneLine(g.appearance) : "",
+        voice_description: g.members.some((x) => x.voice) ? oneLine(g.voiceDesc) : "",
         write_preview: !!st.write_preview, source: JSON.stringify(g.members.map(recOf)) };
       if (vid && g.members.some(isLook)) inputs.vae = [vid, 0];
       if (aid && g.members.some((x) => x.voice)) inputs.audio_vae = [aid, 0];
@@ -2075,6 +2805,7 @@ export function openLibrary(panel, opts = {}) {
       }
       jobs.unshift({ prompt_id: d.prompt_id, names, status: "queued", msg: `#${d.number} in the queue`, progress: 0, saved: [] });
       hook(); watchJob(d.prompt_id); paintJobs();
+      subjectName = appearanceText = voiceText = "";   // these belong to the RefMod just made
       toast(`Queued ${names.length === 1 ? names[0] : `${names.length} RefMods`}`);
     } catch (err) {
       toast(`Couldn't queue: ${err.message}`, 6000);
@@ -2100,7 +2831,10 @@ export function openLibrary(panel, opts = {}) {
     const file = (editing.visual || editing.audio).file;
     const inputs = { file, frames: editing.visual && !plan.same ? JSON.stringify(plan.order) : "",
       add: JSON.stringify(plan.adds.map(recOf)), latent_frames: st.latent_frames, audio_max_seconds: st.audio_max_seconds,
-      voice: plan.voice === "new" ? JSON.stringify(recOf(plan.newVoice)) : plan.voice, save_as: saveAs };
+      voice: plan.voice === "new" ? JSON.stringify(recOf(plan.newVoice)) : plan.voice, save_as: saveAs,
+      subject_name: plan.nameChanged ? (plan.subject || "-") : "",
+      appearance: plan.appearanceChanged ? (plan.appearance || "-") : "",
+      voice_description: plan.voiceDescChanged ? (plan.voiceDesc || "-") : "" };
     if (vid) inputs.vae = [vid, 0];
     if (aid) inputs.audio_vae = [aid, 0];
     prompt[String(id++)] = { class_type: EDIT_NAME, inputs };
@@ -2199,6 +2933,7 @@ export function openStackModal(node, { onClose } = {}) {
   const close = () => {
     window.removeEventListener("keydown", esc);
     overlay.remove();
+    panel.destroy();
     node._mmrPanel?.reload();
     try { onClose?.(); } catch (e) { console.error("[Fantastic H3 RefMod Stack] close callback failed:", e); }
   };
@@ -2259,7 +2994,7 @@ app.registerExtension({
         this._mmrPanel = new StackPanel(this);
         const widget = this.addDOMWidget("mmr_panel", "div", this._mmrPanel.root, { serialize: false });
         this._mmrWidget = widget;
-        applyCanvasSizing(this, widget, NODE_W, PANEL_H);
+        applyStoredStackScale(this, { force: true });
       } catch (err) {
         console.error("[Fantastic H3 RefMod Stack] setup failed:", err);
         try { this.addWidget("button", "⚠ UI failed — click", null, () => {
@@ -2284,10 +3019,24 @@ app.registerExtension({
       const r = onConfigure?.apply(this, arguments);
       // The saved size is applied after onNodeCreated sized the node, so a
       // workflow saved with a shorter node would draw the panel past its
-      // bottom edge. Grow back to the panel's minimum.
-      applyCanvasSizing(this, this._mmrWidget, NODE_W, PANEL_H);
+      // bottom edge. Grow back to the panel's minimum; never shrink.
+      applyStoredStackScale(this, { force: false });
       setTimeout(() => this._mmrPanel?.reload(), 0);
       return r;
+    };
+
+    // Chain position and the labels footer follow the wires.
+    const onConnectionsChange = nodeType.prototype.onConnectionsChange;
+    nodeType.prototype.onConnectionsChange = function () {
+      const r = onConnectionsChange?.apply(this, arguments);
+      setTimeout(() => { for (const p of StackPanel.all) if (p.root.isConnected) p.render(); }, 0);
+      return r;
+    };
+
+    const onRemoved = nodeType.prototype.onRemoved;
+    nodeType.prototype.onRemoved = function () {
+      this._mmrPanel?.destroy();
+      return onRemoved?.apply(this, arguments);
     };
   },
 });

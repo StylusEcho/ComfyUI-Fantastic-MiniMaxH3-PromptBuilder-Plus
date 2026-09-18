@@ -16,7 +16,7 @@ jobs:
     # before the version-bump push, since registry versions are immutable.
     env:
       COMFY_NODE_CHANGELOG: |
-        Folds in upstream 1.6.3, 1.6.4, 1.7.0 and 1.7.1. Adds RefMods: save a character, place, look or voice once as a small file in models/refmods and cite it from any prompt. Six new nodes come with it (RefMod Stack, RefMod Text Encode, RefMod Apply, Create, Inspect and Edit RefMod), all renamed for this pack so it still coexists with the original; the RefMod files themselves are shared. Prompt Studio's editor gets a RefMods button that adds and wires the stack, shows RefMods as chips beside your media, and keeps a draft's RefMods separate from Live. Also: a Delivery row for the community performance tags (pauses, whispering, laughs), the crop frame now follows a rotated picture, and Set/Get nodes between Prompt Studio and the Text Encode are followed. No workflow breakage.
+        Folds in upstream 1.7.2 and 1.7.3. Subjects get a name: a name box per <Subject N> line, !Name shorthand anywhere in the prompt with Tab to complete it, and RefMods that store a subject name, appearance and voice description for Draft from RefMods to write in. Speaker buttons for a described voice become split buttons, so a line can name the voice. Right-click any tag, name or speaker ID to replace, swap or remove it in one place, one field or everywhere. The RefMod Stack node is rebuilt as twelve fixed slots with per-channel sliders labelled by tag, position badges and a Size control, and never resizes on its own; RefMod presets save a stack with its weights, and a prompt can link to one. Chained stacks show their position and upstream labels. No workflow breakage.
     steps:
       - name: Check out code
         uses: actions/checkout@v4

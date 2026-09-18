@@ -34,7 +34,12 @@ name = "fantastic-minimax-h3-promptstudio"
 # a crop-after-rotate fix, the delivery-tag picker, and the whole RefMod
 # subsystem — which adds nodes to a pack that had settled on one. See
 # "Upgrading from 1.x" in the README.
-version = "2.6.0"
+# 2.7.0 folds in upstream 1.7.2 / 1.7.3: subject names (a name box per
+# <Subject N> line, !Name shorthand with Tab completion, and RefMods that
+# carry a subject name, appearance and voice description), voiced speaker
+# buttons, the right-click tag menu, and the rebuilt twelve-slot RefMod
+# Stack node with presets — no breakage of saved workflows.
+version = "2.7.0"
 description = "MiniMax H3 Prompt Studio: a single guided prompt-writing and reference-media node for the H3 video model, with live checking against MiniMax's prompt guide."
 license = { file = "LICENSE" }
 requires-python = ">=3.9"
