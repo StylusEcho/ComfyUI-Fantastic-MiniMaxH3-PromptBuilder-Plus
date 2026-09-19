@@ -5707,8 +5707,24 @@ class Editor {
    *  again. Labels that already have a line are skipped. */
   async draftFromRefmods() {
     const r = this.state.ref;
-    const slots = this.slots.filter((s) => s.refmod && s.tag);
-    if (!slots.length) { toast("No RefMods are connected"); return; }
+    // These three are read with .some()/.push()/.includes() throughout, and a
+    // state that reached us from somewhere other than normaliseState() — a
+    // loaded library prompt, a draft buffer — can be missing one. That is a
+    // TypeError in an async handler, which is invisible: hence the guard here
+    // as well as the reporting one on the button.
+    if (!Array.isArray(r.subjectDefs)) r.subjectDefs = [];
+    if (!Array.isArray(r.retention)) r.retention = [];
+    if (!Array.isArray(r.summaryTypes)) r.summaryTypes = [];
+    const slots = (this.slots || []).filter((s) => s.refmod && s.tag);
+    if (!slots.length) {
+      // Say which of the two cases it is: no stack at all reads very
+      // differently from a stack that is wired but empty.
+      const { stack } = refmodStackFor(this.node);
+      toast(stack
+        ? "The RefMod Stack is connected but has no RefMods in it — open it and pick some"
+        : "No RefMods are connected — use ◈ RefMods to add a stack", 5000);
+      return;
+    }
     let library = [];
     try {
       const resp = await api.fetchApi("/minimax_h3_plus/refmods", { cache: "no-store" });
@@ -6520,7 +6536,11 @@ class Editor {
         // has no flexible control, so it needs a growing spacer of its own.
         el("span", { class: "mmh3p-toolgrow" }),
         el("button", { class: "mmh3p-btn mmh3p-danger",
-          onclick: () => this.confirmDeletePhrase() }, "Delete"),
+          // Async, so the same silent-rejection trap as Draft from RefMods.
+          onclick: () => this.confirmDeletePhrase().catch((e) => {
+            console.error("[MiniMaxH3 PromptBuilder] deleting the phrase failed:", e);
+            toast(`Couldn't delete the phrase: ${e?.message || e}`, 6000);
+          }) }, "Delete"),
         el("button", { class: "mmh3p-btn",
           onclick: () => { this.phraseConfirm = null; this.drawPhraseBar(); } },
           "Cancel"));
@@ -7572,7 +7592,14 @@ class Editor {
         el("button", { class: "mmh3p-btn", title: "Write a definition and a retention entry for each " +
             "RefMod in the stack, from what the library knows about it. With lines already here you " +
             "choose whether to add the missing ones or start over.",
-          onclick: () => this.draftFromRefmods() }, "\u25c8 Draft from RefMods")),
+          // draftFromRefmods() is async, so an exception inside it becomes an
+          // unhandled rejection: the button does nothing at all, with no toast
+          // and nothing on screen to say why. Report it instead \u2014 a failure
+          // the user can see and quote is worth far more than a silent no-op.
+          onclick: () => this.draftFromRefmods().catch((e) => {
+            console.error("[MiniMaxH3 PromptBuilder] Draft from RefMods failed:", e);
+            toast(`Draft from RefMods failed: ${e?.message || e}`, 6000);
+          }) }, "\u25c8 Draft from RefMods")),
       el("span", { class: "hint" },
         "One line per tracked item. Focus a line, then click media chips above to assign " +
         "references to that subject. Audio lines show role chips underneath \u2014 pick one " +

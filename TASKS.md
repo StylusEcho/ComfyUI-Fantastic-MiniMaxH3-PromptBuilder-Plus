@@ -1245,3 +1245,45 @@ when hiding, makes it a mouse-over caption for the respective section.
       it, for a gain the caveat note mostly already delivers. Worth doing
       deliberately, as its own task, if this pack is going to keep its own
       copy of the guide long-term.
+
+---
+
+## Follow-up round 12
+
+86. 🟩 "Draft from RefMods" does nothing when you click it
+    - **The button's own code is fine** — `draftFromRefmods()` is byte-identical
+      to upstream's once the namespace is normalised, and every path through it
+      works when driven directly: the happy path drafts its lines and retention
+      entries, the concept picker opens and completes when a RefMod has no saved
+      concept, and the "already drafted" branch offers Start over / Fill names.
+    - **What was broken is that it cannot tell you when it fails.** The handler
+      is `onclick: () => this.draftFromRefmods()` — an async method whose promise
+      is dropped. Any exception inside becomes an unhandled rejection: no toast,
+      no dialog, nothing on screen, just a console line nobody is looking at.
+      That is exactly the reported symptom, and it hides every cause equally.
+    - Fixed by catching at the call site: a failure now says so in a toast and
+      logs the error. Whatever the underlying fault is, it stops being invisible.
+    - **Found one concrete cause while proving the point.** `hasText` reads
+      `r.retention.some(...)` and `r.subjectDefs.some(...)` unguarded. A state
+      that reached the editor from somewhere other than `normaliseState()` — a
+      prompt loaded from the library, a draft buffer — can be missing either,
+      and then the very first thing the function does after the await is throw
+      a `TypeError` into that silent hole. `subjectDefs`, `retention` and
+      `summaryTypes` are now normalised on entry.
+    - **The benign case also read as a failure.** With no stack wired, or a
+      stack wired but empty, the toast was the same four words either way and
+      said nothing about what to do. It now distinguishes the two and points at
+      ◈ RefMods.
+    - `confirmDeletePhrase()` is the only other async method invoked from a bare
+      `onclick` in the file and had the identical trap; given the same treatment.
+    - `rig/draftfail.mjs` covers all four: no stack, empty stack, a state missing
+      `retention`, and an arbitrary runtime fault surfacing rather than vanishing.
+      Verified against the old code — the first two report the same undifferentiated
+      message, and the third kills the run outright with
+      `TypeError: Cannot read properties of undefined (reading 'some')` thrown from
+      the exact line named above, which in a browser is precisely "the button does
+      nothing".
+    - **Not confirmed as the reporter's own cause.** Every path reproduces
+      correctly here, so this fixes the class of fault rather than a diagnosed
+      instance. The point of the change is that the next click either works or
+      says why.
