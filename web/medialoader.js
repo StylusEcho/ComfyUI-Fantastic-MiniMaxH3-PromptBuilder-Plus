@@ -559,13 +559,28 @@ ${RAISE_CSS}
 .mmlp-modal{box-sizing:border-box;width:min(1240px,95vw);height:min(1290px,92vh);background:#191c22;
   border:1px solid #303642;border-radius:10px;display:flex;flex-direction:column;
   overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.55);}
-.mmlp-modalhead{display:flex;align-items:center;gap:10px;padding:9px 13px;
+.mmlp-modalhead{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;padding:9px 13px;
   background:#1e222a;border-bottom:1px solid #2a2f3a;font-size:calc(13px * var(--mml-fs, 1));
   font-weight:500;color:#d7dbe2;font-family:system-ui,sans-serif;}
 /* One margin-left:auto on the group, not on each button. Setting it per
    button gave every one its own elastic gap, which spread them across the
    header instead of grouping them at the right-hand end. */
-.mmlp-modalacts{margin-left:auto;display:flex;align-items:center;gap:8px;
+.mmlp-modalleft{display:flex;align-items:center;gap:8px;justify-self:start;min-width:0;}
+.mmlp-modaltitle{justify-self:center;text-align:center;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+/* Beats the bare-glyph reset below, which is meant for the ✕. */
+.mmlp-modalhead .mmlp-refbtn{background:#2b3140;border:1px solid #3a4252;border-radius:6px;
+  color:#d7dbe2;padding:3px 10px;font:inherit;font-size:calc(12px * var(--mml-fs, 1));
+  cursor:pointer;white-space:nowrap;}
+.mmlp-modalhead .mmlp-refbtn:hover{background:#333b4d;}
+.mmlp-modalhead .mmlp-refbtn.on{background:#3a3220;border-color:#c89a3c;color:#f0d9a8;}
+/* RefMods docked: the stack on the left half of the screen, this window on
+   the right. !important because scaleOverlay() sets the loader's width
+   inline; undocking drops the class and that inline size applies again. */
+.mmlp-overlay.split{justify-content:space-between;padding:0 16px;gap:16px;}
+.mmlp-overlay.split>.mmlp-modal,.mmlp-overlay.split>.mmrp-stackmodal{
+  width:calc(50vw - 24px) !important;height:min(1290px,92vh) !important;flex:0 0 auto;}
+.mmlp-modalacts{justify-self:end;display:flex;align-items:center;gap:8px;
   flex:0 0 auto;}
 /* Settings and close read as one control group, matching the editor, the
    library and the quick editor — so the gap between just those two closes,
@@ -4207,6 +4222,8 @@ export function openLoaderModal(node, opts = {}) {
   const title = opts.title || storeLabel || "MiniMax H3 Media Loader";
   const panel = new LoaderPanel(node, { modal: true, store, storeLabel });
   const close = () => {
+    // A RefMod stack docked beside this window goes with it.
+    try { node._mmrDocked?.close(); } catch (e) { /* already gone */ }
     node[slot] = null;
     node[`${slot}Panel`] = null;
     node._mmlPanels = (node._mmlPanels || []).filter((p) => p !== panel);
@@ -4218,13 +4235,33 @@ export function openLoaderModal(node, opts = {}) {
       console.error("[Fantastic H3 Media Loader] close callback failed:", e);
     }
   };
-  const esc = (e) => { if (e.key === "Escape") close(); };
+  // With a RefMod stack docked, Escape is the stack's to take: it closes
+  // that window and leaves this one open.
+  const esc = (e) => { if (e.key === "Escape" && !node._mmrDocked) close(); };
+  // ◈ RefMods: the node's RefMod stack in a window docked on the left half of
+  // the screen, this one moving to the right half. A hook set by
+  // promptstudio.js rather than an import — refmodstack.js imports this file.
+  // Not on a draft's window: a draft's RefMods live in the draft and are
+  // edited from the editor's own ◈ RefMods.
+  const refBtn = node._mmrOpenDocked && !draft
+    ? el("button", { class: "mmlp-refbtn",
+        title: "Open this node's RefMods beside the media",
+        onclick: () => {
+          if (node._mmrDocked) node._mmrDocked.close();
+          else node._mmrOpenDocked(overlay, () => refBtn.classList.remove("on"));
+          refBtn.classList.toggle("on", !!node._mmrDocked);
+        } }, "\u25c8 RefMods")
+    : null;
   const overlay = el("div", { class: "mmlp-overlay",
     onmousedown: (e) => { if (e.target === overlay) close(); } },
     el("div", { class: "mmlp-modal" + (draft ? " draft" : "") },
+      // Three cells so the title sits at the true centre whatever the two
+      // side groups hold.
       el("div", { class: "mmlp-modalhead" },
-        draft ? el("span", { class: "mmlp-draftbadge" }, "DRAFT") : null,
-        title,
+        el("div", { class: "mmlp-modalleft" },
+          draft ? el("span", { class: "mmlp-draftbadge" }, "DRAFT") : null,
+          refBtn),
+        el("span", { class: "mmlp-modaltitle" }, title),
         el("div", { class: "mmlp-modalacts" },
           // Only meaningful when this modal was opened from Prompt Studio,
           // which is the only place it's opened from any more \u2014 set by

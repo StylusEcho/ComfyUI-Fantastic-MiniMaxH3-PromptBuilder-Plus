@@ -570,6 +570,10 @@ const CSS = `
 .mmrp-stackmodal{width:min(720px,94vw);height:min(640px,90vh);display:flex;flex-direction:column;background:#191c22;
   border:1px solid #303642;border-radius:10px;box-shadow:0 24px 64px rgba(0,0,0,.55);overflow:hidden;}
 .mmrp-stackbody{flex:1;min-height:0;display:flex;flex-direction:column;}
+/* Docked into the media loader's overlay, the window has no .mmrp-overlay
+   around it to inherit type from, so it carries its own. */
+.mmrp-docked{font-family:system-ui,sans-serif;color:#d7dbe2;font-size:calc(12px * var(--mmh3-fs, 1));}
+.mmrp-docked *{box-sizing:border-box;}
 .mmrp-stackbody .mmrp-panel{flex:1;height:auto;min-height:0;padding:10px 12px 12px;border:0;border-radius:0;}
 .mmrp-modal.dropping::after{content:"Drop to add to Create";position:absolute;inset:6px;z-index:5;pointer-events:none;
   display:flex;align-items:center;justify-content:center;border:2px dashed #4d6ea6;border-radius:8px;
@@ -708,6 +712,11 @@ export class StackPanel {
       if (p === this || !p.root.isConnected) continue;
       if (p.node === this.node) p.reload(); else p.render();
     }
+    // The node's own panel (a stack node's, or Prompt Studio's RefMods tab)
+    // even when it isn't in the document right now — off-screen or under a
+    // window — so it never shows picks this one has since changed.
+    const home = this.node._mmrPanel;
+    if (home && home !== this && !home.root.isConnected) home.reload();
   }
 
   reload() {
@@ -2938,12 +2947,24 @@ export function openLibrary(panel, opts = {}) {
 /** Open a RefMod Stack's panel in a window over the canvas — the Prompt
  *  Builder's RefMods button. Edits go straight to the node; its on-canvas
  *  panel catches up when the window closes. */
-export function openStackModal(node, { onClose } = {}) {
+/** The stack's panel in a window. With `host` (the full-size media loader's
+ *  overlay) it docks instead: no overlay of its own, the window is prepended
+ *  into the host, and the host's `split` class lays the two out side by side
+ *  — this on the left half of the screen, the loader on the right.
+ *  A docked window is recorded as `node._mmrDocked = { panel, close }`. */
+export function openStackModal(node, { onClose, host = null } = {}) {
   injectCSS();
-  const panel = new StackPanel(node);
+  // On Prompt Studio the window shows the node's own RefMods tab, and its
+  // ⤡ Size would resize Studio to a stack node's dimensions: leave it out.
+  const panel = new StackPanel(node, { embedded: node?.type === STUDIO_NAME });
+  let modal = null, overlay = null;
   const close = () => {
     window.removeEventListener("keydown", esc);
-    overlay.remove();
+    if (host) {
+      modal.remove();
+      host.classList.remove("split");
+      if (node._mmrDocked?.panel === panel) node._mmrDocked = null;
+    } else overlay.remove();
     panel.destroy();
     node._mmrPanel?.reload();
     try { onClose?.(); } catch (e) { console.error("[Fantastic H3 RefMod Stack] close callback failed:", e); }
@@ -2954,17 +2975,23 @@ export function openStackModal(node, { onClose } = {}) {
     if (document.querySelector(".mmlp-tmover") || document.querySelector(".mmrp-overlay:not(.mmrp-stackover)")) return;
     close();
   };
-  const overlay = el("div", { class: "mmrp-overlay mmrp-stackover",
-    onmousedown: (e) => { if (e.target === overlay) close(); } },
-    el("div", { class: "mmrp-stackmodal", role: "dialog", "aria-label": "RefMod Stack" },
-      el("div", { class: "mmrp-head" },
-        el("strong", {}, "RefMod Stack"),
-        el("small", {}, node.title && node.title !== "Fantastic H3 RefMod Stack" ? node.title : ""),
-        el("span", { class: "mmrp-grow" }),
-        el("button", { class: "mmrp-btn", onclick: close }, "Close")),
-      el("div", { class: "mmrp-stackbody" }, panel.root)));
+  modal = el("div", { class: "mmrp-stackmodal" + (host ? " mmrp-docked" : ""), role: "dialog", "aria-label": "RefMod Stack" },
+    el("div", { class: "mmrp-head" },
+      el("strong", {}, "RefMod Stack"),
+      el("small", {}, node.title && node.title !== "Fantastic H3 RefMod Stack" ? node.title : ""),
+      el("span", { class: "mmrp-grow" }),
+      el("button", { class: "mmrp-btn", onclick: close }, "Close")),
+    el("div", { class: "mmrp-stackbody" }, panel.root));
   window.addEventListener("keydown", esc);
-  document.body.append(overlay);
+  if (host) {
+    host.prepend(modal);
+    host.classList.add("split");
+    node._mmrDocked = { panel, close };
+  } else {
+    overlay = el("div", { class: "mmrp-overlay mmrp-stackover",
+      onmousedown: (e) => { if (e.target === overlay) close(); } }, modal);
+    document.body.append(overlay);
+  }
   return panel;
 }
 

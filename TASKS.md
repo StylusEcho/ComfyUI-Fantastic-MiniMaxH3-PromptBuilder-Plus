@@ -1345,3 +1345,28 @@ when hiding, makes it a mouse-over caption for the respective section.
       strip 27px, prompt bar untouched, 12 slots, grid 303px with labels.
     - Also closes most of item 80's worry: day-to-day RefMods use is back to a
       single node.
+
+88. 🟩 full-size media loader: a RefMods button left of a centred title that
+    opens the RefMod stacker on the left half of the screen, the loader moving
+    to the right half
+    - The header is a three-cell grid (`1fr auto 1fr`) so the title sits at the
+      true centre whatever the side groups hold — measured 0px off centre in
+      real Chromium, with and without the Prompt Builder button.
+    - `openStackModal(node, { host })` docks: no overlay of its own, the window
+      is prepended into the loader's overlay, and the overlay's `split` class
+      puts it on the left half and the loader on the right (`!important` over
+      the loader's inline width from `scaleOverlay()`, so undocking restores
+      it untouched). Measured at 1600px: RefMods 16–794, loader 810–1586.
+    - Reached through a node hook (`_mmrOpenDocked`, set by promptstudio.js)
+      rather than an import: refmodstack.js already imports medialoader.js.
+      Not shown on a draft's loader window, whose RefMods belong to the draft.
+    - Toggle button; Escape with RefMods docked closes only them; the RefMods
+      window's own Close resets the button; closing the loader closes both.
+    - **Fixed a bug of mine from item 87 on the way.** `openStackModal` built a
+      full panel with ⤡ Size even on Prompt Studio, so the editor's ◈ RefMods
+      window could resize Studio to a stack node's dimensions. It now uses the
+      embedded panel on Studio. And `StackPanel.write()` refreshes the node's
+      own panel even when it isn't in the document, so the RefMods tab can't go
+      stale behind a window.
+    - `rig/dock.mjs` (9 checks) plus the real-browser measurements above; all
+      earlier suites still green.

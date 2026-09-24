@@ -16,7 +16,7 @@ import {
   openEditor, openQuickEdit, updateSummary, promptFields, hideWidget, el,
   injectCSS, restoreDraftFlag,
 } from "./promptbuilder.js";
-import { StackPanel, readStack } from "./refmodstack.js";
+import { StackPanel, readStack, openStackModal } from "./refmodstack.js";
 
 // Logged at module scope: if this line is missing from the console the file
 // never loaded (or one of its imports threw), which is a very different fault
@@ -275,6 +275,11 @@ app.registerExtension({
         try {
           this._mmrPanel = new StackPanel(this, { embedded: true });
           this._mmrOnCommit = () => refreshTabCount(this);
+          // For the full-size media loader's ◈ RefMods button: this node's
+          // RefMods docked beside it (see openLoaderModal). A hook rather
+          // than an import, since medialoader.js can't import refmodstack.js.
+          this._mmrOpenDocked = (host, onUndock) => openStackModal(this, { host,
+            onClose: () => { refreshTabCount(this); onUndock?.(); } });
           stackRoot = this._mmrPanel.root;
           applyTabText(this);
         } catch (e) {

@@ -61,6 +61,13 @@ media stopped needing a separate loader in 2.0.0. **◈ RefMods** in the prompt
 editor opens those picks in a window instead of adding a stack node, and
 *Draft from RefMods* works straight from them.
 
+The full-size media window (❐ on the node's panel) has a **◈ RefMods** button
+to the left of its now-centred title. It opens the node's RefMods beside the
+media: RefMods on the left half of the screen, media on the right, so you can
+work on both at once. Click it again, or the RefMods window's Close, or press
+Escape, to put the media window back on its own; closing the media window
+closes both.
+
 The **RefMod Stack** node stays, for sharing one set across prompts or
 chaining: wired into Prompt Studio's `mods` input, its entries go first and
 the node's own follow. Workflows built with a separate stack keep working
