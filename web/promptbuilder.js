@@ -2050,6 +2050,8 @@ ${RAISE_CSS}
    instead of every image letterboxing inside one fixed width. */
 .mmh3p-peek{position:fixed;z-index:10002;box-sizing:border-box;width:max-content;
   min-width:240px;max-width:540px;background:#1e222a;
+  border:1px solid #3a4252;border-radius:9px;overflow:hidden;
+  box-shadow:0 12px 32px rgba(0,0,0,.5);}
 .mmh3p-card.refmod{position:relative;}
 .mmh3p-cardbadge{position:absolute;top:2px;left:2px;background:rgba(8,10,14,.82);color:#e692c8;
   border:1px solid #7a4d6b;border-radius:4px;font-size:calc(9px * var(--mmh3-fs, 1));line-height:1.3;
@@ -2065,8 +2067,6 @@ ${RAISE_CSS}
 .mmh3p-peekrefmod{display:flex;justify-content:space-between;gap:6px;font-size:calc(10px * var(--mmh3-fs, 1));
   color:#e692c8;margin-bottom:3px;}
 .mmh3p-peekrefmod span:last-child{color:#8a93a3;}
-  border:1px solid #3a4252;border-radius:9px;overflow:hidden;
-  box-shadow:0 12px 32px rgba(0,0,0,.5);}
 /* auto on both axes with a cap on each: the image keeps its own proportions
    and the box above shrinks to whatever width that leaves. */
 .mmh3p-peekmedia{display:block;margin:0 auto;width:auto;height:auto;
@@ -2148,9 +2148,9 @@ ${RAISE_CSS}
    word count, the snapped duration, the empty-media line — and those stay. */
 .mmh3p-nohints .mmh3p-form .hint:not(.keep){display:none;}
 .mmh3p-form textarea,.mmh3p-form input[type=text],.mmh3p-form input[type=number],.mmh3p-form select{
-.mmh3p-refmodnone{font-size:calc(10.5px * var(--mmh3-fs, 1));color:#6b7484;font-style:italic;align-self:center;}
   width:100%;box-sizing:border-box;background:#12151b;color:#dde2ea;border:1px solid #2e3440;
   border-radius:6px;padding:7px 9px;font-size:calc(13px * var(--mmh3-fs, 1));font-family:inherit;}
+.mmh3p-refmodnone{font-size:calc(10.5px * var(--mmh3-fs, 1));color:#6b7484;font-style:italic;align-self:center;}
 .mmh3p-form textarea{resize:vertical;line-height:1.5;}
 .mmh3p-form textarea:focus,.mmh3p-form input:focus,.mmh3p-form select:focus{
   outline:none;border-color:#4a5568;}
@@ -2419,6 +2419,7 @@ ${RAISE_CSS}
 .mmh3p-minitag.subj{color:var(--mmh3-tag-subj, #7ec87e);border-color:#3e6b3e;}
 .mmh3p-roles{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:-4px 0 10px 2px;}
 .mmh3p-rolelabel{font-size:calc(10px * var(--mmh3-fs, 1));text-transform:uppercase;letter-spacing:.07em;
+  color:#6b7484;margin-right:2px;}
 .mmh3p-btn.danger{border-color:#7a4a3a;color:#e0a090;}
 .mmh3p-btn.danger:hover{background:#3a2622;}
 .mmh3p-conceptover{position:fixed;inset:0;z-index:10007;background:rgba(8,10,14,.55);display:flex;
@@ -2434,7 +2435,6 @@ ${RAISE_CSS}
 .mmh3p-conceptbtns{display:flex;justify-content:flex-end;gap:6px;margin-top:4px;}
 .mmh3p-conceptbox .mmh3p-dim{color:#8a93a3;font-size:calc(11px * var(--mmh3-fs, 1));}
 .mmh3p-conceptbox .mmh3p-inline{display:flex;align-items:center;gap:6px;color:#a9b2c2;}
-  color:#6b7484;margin-right:2px;}
 .mmh3p-rolechip{font-size:calc(11px * var(--mmh3-fs, 1));border-radius:10px;padding:2px 9px;cursor:pointer;
   background:#1d2029;border:1px solid #3a3050;color:#a99ac4;user-select:none;}
 .mmh3p-rolechip:hover{border-color:#5d4a86;color:#c9b9e6;background:#241f33;}
@@ -6008,14 +6008,24 @@ class Editor {
               style: { width: "100%", height: "28px" } }))
         : el("img", { src: s.preview?.url, class: "mmh3p-peekmedia" });
     const cites = this.citationCount(s.tag);
+    // A RefMod gets upstream's header and its own details line: which RefMod
+    // and which half of it, the whole label range its copies take, and the
+    // weight/cost rather than the generic source.
+    const r = s.refmod;
     box.append(peekCrop(media, s.item?.crop),
       el("div", { class: "mmh3p-peekmeta" },
+        r ? el("div", { class: "mmh3p-peekrefmod" },
+              el("span", {}, `\u25c8 RefMod \u00b7 ${r.name}`),
+              el("span", {}, r.role)) : null,
         el("div", { class: "mmh3p-peekrow" },
-          el("span", { class: `mmh3p-tagname ${s.cls}` }, s.tag),
+          el("span", { class: `mmh3p-tagname ${s.cls}` }, s.range || s.tag),
           el("span", { class: "mmh3p-peekcite" + (cites ? "" : " zero") },
             cites ? `cited ${cites}\u00d7` : "not cited")),
         el("div", { class: "mmh3p-peeksrc" },
-          s.source + (s.note ? ` \u2022 ${s.note.replace(/[<>]/g, "")}` : ""))));
+          r ? [r.weight, r.tokens ? `${r.tokens.toLocaleString("en-US")} tokens` : "",
+               r.pair ? `${r.pair.role} is ${r.pair.tag}` : "", r.draft ? "draft copy" : ""]
+                .filter(Boolean).join(" \u2022 ")
+            : s.source + (s.note ? ` \u2022 ${s.note.replace(/[<>]/g, "")}` : ""))));
 
     box.addEventListener("mouseenter", () => clearTimeout(this._peekClose));
     box.addEventListener("mouseleave", () => this.closePeek());
@@ -6218,7 +6228,16 @@ class Editor {
         el("div", { class: "mmh3p-cardbar" },
           el("span", { class: `mmh3p-tagname ${s.cls}` }, `${s.kind} ${s.idx}`),
           this.cardTools(s)),
-        s.note && s.note !== "standalone"
+        // Upstream's: a RefMod picked with copies says how many, and that
+        // citing the first label covers them all.
+        s.copies?.length
+          ? el("span", { class: "mmh3p-cardnote",
+              title: `${s.range} \u2014 ${s.copies.length} extra ` +
+                     `${s.copies.length === 1 ? "copy" : "copies"}; citing ${s.tag} is enough` },
+              `\u00d7${s.copies.length + 1}`)
+          // "voice" is how a RefMod's voice channel is marked, not a paired
+          // soundtrack — without this every RefMod voice read "♪→V".
+          : s.note && s.note !== "standalone" && s.note !== "voice"
           ? el("span", { class: "mmh3p-cardnote" },
               "\u266a\u2192V" + (s.note.match(/\d+/) || [""])[0])
           : null);

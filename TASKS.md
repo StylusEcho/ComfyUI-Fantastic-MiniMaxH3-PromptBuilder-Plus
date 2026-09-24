@@ -1370,3 +1370,38 @@ when hiding, makes it a mouse-over caption for the respective section.
       stale behind a window.
     - `rig/dock.mjs` (9 checks) plus the real-browser measurements above; all
       earlier suites still green.
+
+89. 🟩 RefMod styling in the Prompt Builder should match upstream (◈ stays
+    top-left, per the user)
+    - **The real cause was merge damage in the stylesheet, not the markup.**
+      The 1.7.0 merge spliced three of upstream's CSS blocks into the *middle*
+      of existing multi-line rules — the RefMod card/strip/preview rules into
+      `.mmh3p-peek{…}`, `.mmh3p-refmodnone` into the form-field rule, and the
+      danger button plus the whole concept-dialog CSS into `.mmh3p-rolelabel`.
+      A browser reads each as one broken declaration block, so 22 rules never
+      existed: the ◈ badge fell to the bottom of the card, the group strips
+      rendered as large unstyled text, and **the "What are these RefMods?" and
+      "Definitions already exist" dialogs had no `position:fixed` or z-index —
+      they rendered as a plain div at the foot of the page, behind the editor.**
+      That is the most likely cause of item 86's "Draft from RefMods does
+      nothing": a RefMod with no saved concept opens exactly that dialog.
+      Item 86's note that the dialog's CSS "is present" was wrong — present in
+      the source, inside a broken rule. The headless stub never parses CSS, so
+      no test there could see it.
+    - Fixed by lifting each block out to after its host rule closes. Also
+      restored two markup losses from the same merge: upstream's `×N` note on
+      a RefMod picked with copies (tooltip: range, "citing <Picture 1> is
+      enough"), and not showing a paired-soundtrack "♪→V" note on every RefMod
+      voice card (its `note` is "voice"); and upstream's RefMod block in the
+      hover preview (`◈ RefMod · name | look/voice` header, the label range,
+      weight • tokens • "voice is <Audio 1>").
+    - **New permanent check (`pw/cssom.cjs`, real Chromium):** every rule
+      written in the three stylesheets must exist in the parsed CSSOM. 1,010
+      rules, 0 missing after the fix; run against the pre-fix file it reports
+      exactly the 22 lost rules. This should run after every upstream merge —
+      it is the class of damage a line-level merge produces and nothing else
+      catches.
+    - `rig/refstyle.mjs` (6 checks: badge placement, ×3 note and tooltip, no
+      voice note, soundtrack note kept, hover preview contents); the voice-note
+      fix confirmed load-bearing by revert. Screenshots of the rail and the
+      concept dialog in Chromium.
