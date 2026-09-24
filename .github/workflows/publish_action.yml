@@ -16,7 +16,7 @@ jobs:
     # before the version-bump push, since registry versions are immutable.
     env:
       COMFY_NODE_CHANGELOG: |
-        Folds in upstream 1.7.2 and 1.7.3. Subjects get a name: a name box per <Subject N> line, !Name shorthand anywhere in the prompt with Tab to complete it, and RefMods that store a subject name, appearance and voice description for Draft from RefMods to write in. Speaker buttons for a described voice become split buttons, so a line can name the voice. Right-click any tag, name or speaker ID to replace, swap or remove it in one place, one field or everywhere. The RefMod Stack node is rebuilt as twelve fixed slots with per-channel sliders labelled by tag, position badges and a Size control, and never resizes on its own; RefMod presets save a stack with its weights, and a prompt can link to one. Chained stacks show their position and upstream labels. No workflow breakage.
+        RefMods live on Prompt Studio now: the node's panel has a Media | RefMods switch, and the RefMods tab is the same twelve-slot grid as the RefMod Stack node (library, Create, presets, a weight per channel) holding the node's own picks, with no extra node or wiring. The RefMods button in the prompt editor opens those picks instead of adding a stack node. The RefMod Stack node stays for sharing one set across prompts: wired into Prompt Studio's mods input, its entries go first. Workflows built with a separate stack keep working unchanged.
     steps:
       - name: Check out code
         uses: actions/checkout@v4

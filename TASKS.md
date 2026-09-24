@@ -1287,3 +1287,61 @@ when hiding, makes it a mouse-over caption for the respective section.
       correctly here, so this fixes the class of fault rather than a diagnosed
       instance. The point of the change is that the next click either works or
       says why.
+
+---
+
+## Follow-up round 13
+
+87. 🟩 combine the RefMod loader into the Prompt Studio node
+    - Decided with the user: a **Media | ◈ RefMods tab** on the node's panel
+      (same area, node size unchanged), and the **standalone RefMod Stack node
+      kept for chaining** so existing workflows load unchanged.
+    - **Cheap because the pieces were already generic.** The stack UI
+      (`StackPanel`) and every editor path — `refmodStackFor`, `readStack`,
+      `openStackModal`, `openDraftRefMods`, `_applyRefmodSnapshot` — only need
+      "a node with a `stack_state` widget and a `_mmrPanel`". Prompt Studio got
+      both, so draft RefMods, presets, the RefMods window and Draft from RefMods
+      work on it without their own changes.
+    - Python: the Stack node's `load()` / validate / IS_CHANGED bodies became
+      `build_stack()` / `validate_stack_state()` / `stack_stamps()` in
+      `refmods.py`, and both nodes call them. Prompt Studio gained a hidden
+      `stack_state` widget, **appended after `media_state`** because widget
+      values save positionally — an older workflow loads it as `"{}"`. Its
+      `mods` output is now the chained input's entries followed by its own
+      picks. With no picks the RefMod runtime is never imported, keeping
+      RefMods optional on top of the core node the way `__init__.py` intends.
+    - Frontend: `StackPanel` takes `{ embedded: true }`, which drops the ⤡ Size
+      control (Studio's `fitPanel()` owns the node's height; `applyStackSize`
+      would fight it). The tab strip sits *outside* the media panel so T2VA's
+      collapsed toolbar can't take it along, carries the pick count, and the
+      node remembers the open tab. `[hidden]` needed an explicit
+      `display:none !important` — both panels set `display:flex`, which
+      outranks the browser's own rule for the attribute.
+    - Editor: Prompt Studio is its own stack now — `refmodSource` returns the
+      node itself and `modsChain` collects it rather than stepping through it.
+      ◈ RefMods opens the node's own picks and never adds a stack node; it
+      still wires the node's `mods` output into a Text Encode that's there. A
+      stack wired straight into a Text Encode (how 2.6.0 workflows were built)
+      is still recognised, now across *every* encoder the prompt feeds rather
+      than only the first. `chainOf` recognises the original pack's stacks and
+      counts Prompt Studio as a downstream member, so an external stack feeding
+      it reads "stack 1 / 2".
+    - **One guard is critical and is tested for.** With every Prompt Studio now
+      a "stack", one with an empty RefMods tab would take the RefMod path —
+      and that path only lists media a Text Encode receives, so the node's
+      plain media chips would vanish from every prompt that doesn't use
+      RefMods at all. A chain of nothing but empty Studios returns to the media
+      path.
+    - Verified: Python compiles, still 7 nodes; `build()` emits own picks,
+      upstream-first when chained, a pure passthrough with none, and a missing
+      file fails validation. New `builtin.mjs` (10 checks: tab strip, switching
+      and remembering, no Size control, picks reach `stack_state` and the tab
+      count, editor labels with no stack node in the graph, ◈ RefMods adds no
+      node, Draft from RefMods from built-in picks, chained numbering, chain
+      position, media chips kept with nothing picked). Removing the guard or
+      Studio-as-chain-member each fails its check. Existing suites updated to
+      the real node shape (they modelled Studio without `stack_state`) and all
+      green. Real Chromium: the two panels swap in the same 431px slot, tab
+      strip 27px, prompt bar untouched, 12 slots, grid 303px with labels.
+    - Also closes most of item 80's worry: day-to-day RefMods use is back to a
+      single node.

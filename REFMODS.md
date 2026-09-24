@@ -69,24 +69,20 @@ your model files, and everything below is already wired up:
 
 ## Quick and easy setup
 
-Open **Edit prompt…** on the **Prompt Studio** node and click **◈ RefMods**
-in the editor's header.
-
-That adds a **RefMod Stack** next to Prompt Studio and wires it in, then
-opens the stack's own panel. If your workflow already has a **RefMod Text
-Encode**, it connects that too. From here, everything happens inside
-windows. You rarely need to touch the wires again.
+Click the **◈ RefMods** tab on the **Prompt Studio** node. That's where this
+prompt's RefMods live — right on the node, next to its media, with nothing to
+add or wire. (**◈ RefMods** in the prompt editor's header opens the same picks
+in a window, and connects a **RefMod Text Encode** that's already in the
+workflow.) From here, everything happens inside that panel and its windows.
 
 ![The RefMod Stack, Prompt Builder and RefMod Text Encode wired together](docs/refmods/02-nodes.png)
 
 ### The nodes
 
-- **MiniMax H3 RefMod Stack** holds the RefMods you've picked for this
-  prompt.
-- **MiniMax H3 Prompt Studio** is where you write the prompt and load your
-  reference media. It shows your RefMods as chips and passes them on. (In
-  the picture above, this is the Prompt Builder and the Media Loader
-  together.)
+- **MiniMax H3 Prompt Studio** is where you write the prompt, load your
+  reference media, and pick your RefMods on its **◈ RefMods** tab. It shows
+  your RefMods as chips and passes them on. (In the picture above, this is
+  the Prompt Builder, the Media Loader and the RefMod Stack together.)
 - **MiniMax H3 RefMod Text Encode** takes the place of the native
   **MiniMax H3 Reference to Video** node. Use one or the other, not both.
 
@@ -110,18 +106,19 @@ Media from Prompt Studio's own panel still works through it, so you can mix
 RefMods with one-off pictures and clips in the same prompt. There's more on that
 under [Using RefMods with regular media](#using-refmods-with-regular-media).
 
-The RefMod Stack has three buttons at the top:
+The RefMods tab has three buttons at the top:
 
 - **Browse library…** opens your saved RefMods.
 - **Create…** opens the library straight on the Create tab.
 - **Refresh** re-reads the folder if you added files by hand.
 
-Next to them, **⤢ Size** sets how big the node and its text are. The
-setting is remembered for new stack nodes. The node itself never changes
-size on its own: it has twelve fixed slots, and adding RefMods fills them.
+It has twelve fixed slots, and adding RefMods fills them rather than growing
+the node.
 
-You can also open the stack from inside the prompt editor with the
-**◈ RefMods** button in the header.
+**The separate RefMod Stack node** is still available if you want one set of
+RefMods shared by several prompts: wire its `mods` into Prompt Studio's `mods`
+input and its RefMods are sent first, with the node's own numbered after them.
+On its own node it also has **⤢ Size** for the node and text size.
 
 ---
 
@@ -462,7 +459,7 @@ in the panel plus a RefMod gives you `<Picture 1>` from the panel, then
 `<Video 1>` and `<Audio 1>` from the RefMod. The editor's chips always show
 the real numbers, so go by those.
 
-**◈ RefMods** in the editor's header wires both halves through for you.
+**◈ RefMods** in the editor's header wires the `mods` half through for you.
 
 ### Drafts
 

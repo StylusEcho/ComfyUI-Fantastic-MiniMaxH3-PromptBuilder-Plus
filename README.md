@@ -51,6 +51,24 @@ any frame straight out of a video into your picture references.*
 
 ---
 
+## What's new in 2.8.0
+
+**RefMods live on Prompt Studio now.** The node's panel has a **Media |
+◈ RefMods** switch; the RefMods tab is the same twelve-slot grid the RefMod
+Stack node has — library, Create, presets, a weight per channel — holding this
+node's own picks. No extra node, nothing to wire between them, the same way
+media stopped needing a separate loader in 2.0.0. **◈ RefMods** in the prompt
+editor opens those picks in a window instead of adding a stack node, and
+*Draft from RefMods* works straight from them.
+
+The **RefMod Stack** node stays, for sharing one set across prompts or
+chaining: wired into Prompt Studio's `mods` input, its entries go first and
+the node's own follow. Workflows built with a separate stack keep working
+exactly as they were — nothing to redo. Under the hood Prompt Studio gained a
+hidden `stack_state` widget, added last so older workflows load it empty.
+
+---
+
 ## What's new in 2.7.0
 
 Folds in upstream's 1.7.2 and 1.7.3. No breakage of saved workflows.
@@ -426,7 +444,7 @@ by wiring:
 
 | Node | What it's for |
 |---|---|
-| **MiniMax H3 RefMod Stack** | Holds the RefMods a prompt uses. Prompt Studio's **◈ RefMods** button adds and wires one for you. |
+| **MiniMax H3 RefMod Stack** | Optional since 2.8.0 — Prompt Studio has its own **RefMods** tab. Use this to share one set of RefMods across several prompts, or to chain stacks. |
 | **MiniMax H3 RefMod Text Encode** | Stands in for *MiniMax H3 Reference to Video* when RefMods are in play. |
 | **MiniMax H3 RefMod Apply** | Attaches references to conditioning encoded elsewhere. |
 | **MiniMax H3 Create RefMod** | Makes a RefMod. The library queues this for you. |
@@ -610,6 +628,12 @@ panel on one node. There's nothing to wire between them: the media lives on
 the same node that writes the prompt, so the tags the editor offers are always
 the tags the output actually carries.
 
+The panel has two tabs. **Media** is the drag-and-drop reference panel;
+**◈ RefMods** is the twelve-slot [RefMod](#refmods) grid a RefMod Stack node
+carries, holding this node's own RefMods — so, like media, they need no
+separate node and no wiring. The RefMods tab shows how many are picked, and
+the node remembers which tab you left it on.
+
 It takes **no required inputs** — one optional `mods` for
 [RefMods](#refmods), alongside the two optional checkpoint inputs below — and
 has seven outputs:
@@ -622,7 +646,7 @@ has seven outputs:
 | `first_frame` | `IMAGE` | `first_frame` on **Image to Video** |
 | `last_frame` | `IMAGE` | `last_frame` on **Image to Video** |
 | `ref2va_needed` | `BOOLEAN` | a switch node, to pick which H3 node runs |
-| `mods` | `H3_REF_MODS` | whatever was wired into this node's own `mods` input, passed straight through — usually **RefMod Text Encode**'s `mods` input, wired for you by **◈ RefMods** |
+| `mods` | `H3_REF_MODS` | the RefMods tab's picks (after anything chained into the `mods` input) — to **RefMod Text Encode**'s `mods` input, which **◈ RefMods** wires for you |
 
 `ref2va_needed` is true only in **Reference** mode — the one mode whose prompt
 goes to **Reference to Video** instead of **Image to Video**. Feed it to a
@@ -656,11 +680,10 @@ are lazy, so the checkpoint the mode isn't using is never pulled into memory —
 wire both in once and let the mode decide, instead of rewiring the sampler by
 hand every time you switch modes.
 
-A third optional input, `mods`, takes a [RefMod](#refmods) bundle — usually
-from **◈ RefMods** in the prompt editor, which finds or creates the stack and
-wires this input for you — and passes it straight through to the node's own
-`mods` output for **RefMod Text Encode**. Not lazy: unlike the checkpoints,
-reading it costs nothing beyond the stack's own already-cheap parse.
+A third optional input, `mods`, is only for **chaining**: a RefMod Stack (or
+another pack's RefMod loader) wired there is sent first, and the node's own
+RefMods tab follows, numbered after it. You don't need it to use RefMods —
+the tab is enough. Not lazy: unlike the checkpoints, reading it is cheap.
 
 The node carries no buttons — everything is reachable from the panel itself.
 The media panel sits at the top; drag the node's bottom edge and it grows with
@@ -1711,15 +1734,20 @@ picker. The prompt library's save form can link a prompt to the RefMod
 preset the stack currently matches, the way it links media presets, and
 loading that prompt offers to load the RefMods too.
 
-To use RefMods, open **Edit prompt…** on Prompt Studio and click
-**◈ RefMods** in the editor's header. It adds a RefMod Stack wired into the
-node's `mods` input (or connects the stack already feeding your Text Encode),
-and Prompt Studio passes the bundle on through its own `mods` output. Wire the
-node's `prompt`, `mods` and `references` outputs into RefMod Text Encode — the
-button does the `mods` and `references` halves itself when the Text Encode is
-already there, and the editor warns when either bundle doesn't reach one. A
-stack wired straight to the Text Encode still works: the node finds it by
-following its `prompt` output. Loaded media and RefMods can be used together
+To use RefMods, open the **◈ RefMods** tab on the Prompt Studio node and pick
+them there — it is the same twelve-slot grid a RefMod Stack node has, with
+**Browse library…**, **Create…**, presets and a weight per channel. **◈ RefMods**
+in the prompt editor's header opens the same picks in a window. Wire the node's
+`prompt`, `mods` and `references` outputs into RefMod Text Encode; the header
+button does the `mods` half itself when the Text Encode is already there, and
+the editor warns when a bundle doesn't reach one.
+
+The separate **RefMod Stack** node is still there for sharing one set of
+RefMods across several prompts: wire its `mods` into Prompt Studio's `mods`
+input and its entries are sent first, with the node's own RefMods numbered
+after them (the stack's toolbar shows "stack 1 / 2"). A stack wired straight
+into the Text Encode, as 2.6.0 workflows were built, still works: the node
+finds it by following its `prompt` output. Loaded media and RefMods can be used together
 this way; the editor numbers the media first, then the RefMods, matching Text
 Encode.
 

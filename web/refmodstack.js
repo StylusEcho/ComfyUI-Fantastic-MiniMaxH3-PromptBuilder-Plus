@@ -123,7 +123,7 @@ function chainOf(node) {
   const up = [];
   let n = stackAbove(node), guard = 0, partial = false;
   while (n && guard++ < 32) {
-    if (n.type !== STACK_NAME) { partial = true; break; }
+    if (!STACK_NAMES.has(n.type)) { partial = true; break; }
     up.unshift(n);
     n = stackAbove(n);
   }
@@ -132,7 +132,10 @@ function chainOf(node) {
   guard = 0;
   while (cur && guard++ < 32) {
     const slot = (cur.outputs || []).findIndex((o) => o.name === "mods");
-    const next = slot < 0 ? null : outputTargets(cur, slot).find((t) => t?.type === STACK_NAME);
+    // Prompt Studio counts as a member downstream: its RefMods tab adds
+    // entries after everything wired into its mods input.
+    const next = slot < 0 ? null : outputTargets(cur, slot).find((t) =>
+      STACK_NAMES.has(t?.type) || t?.type === STUDIO_NAME);
     if (!next || down.includes(next)) break;
     down.push(next);
     cur = next;
@@ -644,9 +647,13 @@ function injectCSS() {
 
 /* ------------------------------------------------------ the panel */
 
-class StackPanel {
-  constructor(node) {
+export class StackPanel {
+  /** `embedded`: mounted inside Prompt Studio's RefMods tab rather than on a
+   *  RefMod Stack node of its own. The host owns the node's size and text
+   *  scale then, so the panel drops its ⤡ Size control and leaves both alone. */
+  constructor(node, { embedded = false } = {}) {
     this.node = node;
+    this.embedded = embedded;
     this.state = readStack(node);
     this.state.picks.forEach((p) => { if (p.uid == null) p.uid = ++StackPanel.seq; });
     StackPanel.seq = Math.max(StackPanel.seq, ...this.state.picks.map((p) => +p.uid || 0));
@@ -674,7 +681,7 @@ class StackPanel {
       this.closePop(); this.closeScaleMenu(); this.closePresetMenu();
     };
     window.addEventListener("pointerdown", this._outside, true);
-    applyStackText(this, loadStackScale().text);
+    if (!embedded) applyStackText(this, loadStackScale().text);
     StackPanel.all.add(this);
     this.render();
     this.refreshPresets();
@@ -693,6 +700,8 @@ class StackPanel {
     const w = this.widget();
     if (w) w.value = JSON.stringify(this.state);
     try { this.node.setDirtyCanvas?.(true, true); app.graph?.setDirtyCanvas?.(true, true); } catch (e) { /* Vue */ }
+    // Prompt Studio shows a count on its RefMods tab.
+    try { this.node._mmrOnCommit?.(); } catch (e) { /* cosmetic */ }
     // A stack further down the chain numbers its labels after ours, and a
     // second panel on this node (the modal) shows the same picks.
     for (const p of StackPanel.all) {
@@ -823,7 +832,9 @@ class StackPanel {
       total > 1 ? el("span", { class: "mmrp-count mmrp-chainpos",
         title: `${chain.up.length} stack${chain.up.length === 1 ? "" : "s"} wired before this one, ` +
           `${chain.down.length} after. Labels number through the whole chain.` }, `stack ${pos} / ${total}`) : null,
-      this.scaleControl(),
+      // Inside Prompt Studio the node's size is Studio's own fitPanel()'s to
+      // decide; a second writer would fight it.
+      this.embedded ? null : this.scaleControl(),
       el("button", { class: "mmrp-btn mmrp-sm mmrp-popanchor", title: "Token limit", "aria-label": "More settings",
         onclick: (e) => { e.stopPropagation(); this.settingsMenu(e.currentTarget); } }, "⋯"));
   }

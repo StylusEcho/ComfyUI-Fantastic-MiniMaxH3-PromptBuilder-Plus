@@ -39,7 +39,10 @@ name = "fantastic-minimax-h3-promptstudio"
 # carry a subject name, appearance and voice description), voiced speaker
 # buttons, the right-click tag menu, and the rebuilt twelve-slot RefMod
 # Stack node with presets — no breakage of saved workflows.
-version = "2.7.0"
+# 2.8.0 folds the RefMod Stack into Prompt Studio as a RefMods tab (a hidden
+# stack_state widget, appended last so older workflows load it empty); the
+# standalone Stack node stays for chaining — no breakage of saved workflows.
+version = "2.8.0"
 description = "MiniMax H3 Prompt Studio: a single guided prompt-writing and reference-media node for the H3 video model, with live checking against MiniMax's prompt guide."
 license = { file = "LICENSE" }
 requires-python = ">=3.9"

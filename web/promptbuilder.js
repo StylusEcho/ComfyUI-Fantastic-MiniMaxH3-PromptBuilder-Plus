@@ -1265,7 +1265,10 @@ function modsChain(head) {
   let partial = false, n = head, guard = 0;
   while (n && guard++ < 32) {
     if (!STACK_NAMES.has(n.type) && n.type !== NODE_NAME) { partial = true; break; }
-    if (STACK_NAMES.has(n.type)) chain.unshift(n);
+    // Prompt Studio is a stack in its own right now (its RefMods tab), so it
+    // is collected like one rather than stepped through: its mods output is
+    // what came in, plus its own picks after it.
+    if (STACK_NAMES.has(n.type) || holdsOwnStack(n)) chain.unshift(n);
     const up = (n.inputs || []).findIndex((i) => i.name === "mods");
     if (up < 0 || n.inputs[up].link == null) break;
     n = originNode(n, up);
@@ -1283,12 +1286,32 @@ function promptOutIdx(node) {
   return (node.outputs || []).findIndex((o) => o.name === "prompt");
 }
 
-/** Where this builder's RefMods come from: its own mods input when that is
- *  wired, otherwise the mods input of a RefMod Text Encode its prompt feeds
- *  (the older wiring, still honoured). */
+/** A node that carries its own RefMod picks: Prompt Studio's RefMods tab
+ *  writes the same stack_state a RefMod Stack does. */
+function holdsOwnStack(node) {
+  return node?.type === NODE_NAME && !!node.widgets?.some((w) => w.name === "stack_state");
+}
+
+/** Where this builder's RefMods come from.
+ *
+ *  Prompt Studio is its own stack: the head is the node itself, and its mods
+ *  input (if wired) is simply the chain above it. The one exception is the
+ *  older wiring, still honoured — a stack wired straight into a Text Encode
+ *  this prompt feeds, with nothing picked or chained on the node — where the
+ *  node isn't where the RefMods live. */
 function refmodSource(node) {
   const own = (node.inputs || []).findIndex((i) => i.name === "mods");
-  if (own >= 0 && node.inputs[own].link != null)
+  const ownWired = own >= 0 && node.inputs[own].link != null;
+  if (holdsOwnStack(node)) {
+    if (ownWired || readStack(node).picks.length) return { head: node, direct: true };
+    for (const enc of outputTargets(node, promptOutIdx(node)).filter((n) => ENCODE_NAMES.has(n?.type))) {
+      const mi = (enc.inputs || []).findIndex((i) => i.name === "mods");
+      const fed = mi >= 0 && enc.inputs[mi].link != null ? originNode(enc, mi) : null;
+      if (fed && fed !== node) return { head: fed, direct: false };
+    }
+    return { head: node, direct: true };
+  }
+  if (ownWired)
     return { head: originNode(node, own), direct: true };
   const enc = outputTargets(node, promptOutIdx(node)).find((n) => ENCODE_NAMES.has(n?.type));
   if (!enc) return { head: null, why: "encode" };
@@ -1372,6 +1395,12 @@ function refmodSlots(node, opts = {}) {
   // the ones frozen when it started) and for the loader's media.
   const nearest = chain[chain.length - 1];
   const picksOf = (st) => (st === nearest && opts.picks ? opts.picks : readStack(st).picks);
+  // Every Prompt Studio is a "stack" now, even one with an empty RefMods tab.
+  // Taking the RefMod path for that would drop its plain media chips (media
+  // is only listed here when a Text Encode receives it), so a chain of
+  // nothing but empty Studios isn't using RefMods — fall back to the media.
+  if (!partial && chain.every(holdsOwnStack) && !chain.some((st) => picksOf(st).length))
+    return null;
   const sourceLabel = opts.picks ? (opts.picksLabel || "Draft RefMods") : "RefMod Stack";
   const media = opts.media ? slotsFromItems(opts.media, opts.mediaLabel || "Media Loader") : mediaSlots(node);
 
@@ -2595,6 +2624,22 @@ ${RAISE_CSS}
    arithmetic, which is the bug this replaced: the panel's element collapsed
    while its widget went on reserving the old height. */
 .mmh3p-nodestack>.mmlp-panel.mmlp-min{flex:0 0 auto;}
+/* The Media | RefMods switch. A fixed strip, like the bar: whichever panel is
+   showing takes the flexible room between them. */
+.mmh3p-nodetabs{flex:0 0 auto;display:flex;gap:4px;padding:0 0 4px;}
+.mmh3p-nodetab{font-family:system-ui,sans-serif;font-size:calc(12px * var(--mml-fs, 1));color:#a9b2c2;
+  background:#1e222a;border:1px solid #2a2f3a;border-radius:6px 6px 0 0;
+  padding:3px 12px;cursor:pointer;white-space:nowrap;}
+.mmh3p-nodetab:hover{background:#242a34;color:#d7dbe2;}
+.mmh3p-nodetab.on{background:#191c22;color:#e8ebf0;border-color:#3a4252;
+  border-bottom-color:#191c22;}
+/* The RefMods grid in the node: the stack node's fixed 620px panel would
+   overflow a node sized for the media panel, so it flexes like that one. */
+.mmh3p-nodestack>.mmrp-panel{flex:1 1 auto;height:auto;min-height:0;
+  border-radius:0 0 8px 8px;}
+/* Both panels set display:flex, which outranks the browser's own rule for
+   the hidden attribute — without this the "hidden" tab would still draw. */
+.mmh3p-nodestack>[hidden]{display:none !important;}
 .mmh3p-nodestack>.mmh3p-summary.mmh3p-summary-open{flex:1 1 auto;min-height:0;}
 .mmh3p-summary.mmh3p-summary-open{display:block;overflow-y:auto;padding:8px 10px;
   cursor:default;}
@@ -4552,6 +4597,9 @@ class Editor {
     }
     if (!stack) stack = addRefModStack(this.node, { focus: false });
     if (!stack) return;
+    // The node's own RefMods: finish any wiring a Text Encode still needs.
+    if (stack === this.node && connectRefModEncoders(this.node))
+      toast("Connected this node's RefMods to RefMod Text Encode");
     if (this.bufferMode === "draft") { this.openDraftRefMods(stack); return; }
     openStackModal(stack, { onClose: () => {
       // The stack may have changed under a parked draft: refresh tags and staleness.
@@ -5220,7 +5268,7 @@ class Editor {
   _applyRefmodSnapshot(picks) {
     try {
       const { stack } = refmodStackFor(this.node);
-      if (!stack) { toast("The draft's RefMods had no stack to go to \u2014 use + RefMods first", 5000); return; }
+      if (!stack) { toast("The draft's RefMods had nowhere to go \u2014 use \u25c8 RefMods first", 5000); return; }
       const w = stack.widgets?.find((x) => x.name === "stack_state");
       if (!w) return;
       w.value = JSON.stringify({ picks: JSON.parse(JSON.stringify(picks)), budget: readStack(stack).budget });
@@ -5720,9 +5768,11 @@ class Editor {
       // Say which of the two cases it is: no stack at all reads very
       // differently from a stack that is wired but empty.
       const { stack } = refmodStackFor(this.node);
-      toast(stack
+      toast(stack === this.node
+        ? "No RefMods picked yet — add some on the node's RefMods tab, or with ◈ RefMods"
+        : stack
         ? "The RefMod Stack is connected but has no RefMods in it — open it and pick some"
-        : "No RefMods are connected — use ◈ RefMods to add a stack", 5000);
+        : "No RefMods are connected — use ◈ RefMods to add some", 5000);
       return;
     }
     let library = [];
@@ -7930,12 +7980,35 @@ function feedEncoderMedia(node, enc) {
  *  this prompt drives, or creates a new one beside the node and passes the
  *  builder's mods output on to any such Text Encode whose mods input is
  *  empty. Returns the stack, or null. */
+/** Prompt Studio holds its own RefMods, so there is no stack to add — only
+ *  the wiring to finish: its mods output into any RefMod Text Encode its
+ *  prompt feeds whose mods input is empty, and its media on to the same
+ *  encoders. Returns how many connections it made. */
+function connectRefModEncoders(node) {
+  const outIdx = (node.outputs || []).findIndex((o) => o.name === "mods");
+  if (outIdx < 0) return 0;
+  let made = 0;
+  for (const enc of encodersOf(node)) {
+    const mi = (enc.inputs || []).findIndex((i) => i.name === "mods");
+    if (mi >= 0 && enc.inputs[mi].link == null) { wire(node, outIdx, enc, mi); made++; }
+    if (feedEncoderMedia(node, enc)) made++;
+  }
+  if (made) redraw(node);
+  return made;
+}
+
 function addRefModStack(node, { focus = true } = {}) {
   const inIdx = (node.inputs || []).findIndex((i) => i.name === "mods");
   const outIdx = (node.outputs || []).findIndex((o) => o.name === "mods");
   if (inIdx < 0 || outIdx < 0) {
     toast("This Prompt Builder has no mods input \u2014 restart ComfyUI and reload the page", 6000);
     return null;
+  }
+  // Its own RefMods tab is the stack; never add a second node for it.
+  if (holdsOwnStack(node)) {
+    if (connectRefModEncoders(node))
+      toast("Connected this node's RefMods to RefMod Text Encode");
+    return node;
   }
 
   if (node.inputs[inIdx].link != null) {

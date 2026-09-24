@@ -253,6 +253,45 @@ def validate_media_state(media_state="[]"):
     return True
 
 
+def _has_picks(stack_state):
+    try:
+        state = json.loads(stack_state or "{}")
+    except Exception:
+        return True              # let the validator report it properly
+    picks = state if isinstance(state, list) else (state or {}).get("picks")
+    return bool(picks)
+
+
+def _stack_stamps(stack_state):
+    if not _has_picks(stack_state):
+        return [stack_state]
+    try:
+        from .refmods import stack_stamps
+        return stack_stamps(stack_state)
+    except Exception:
+        return [stack_state]
+
+
+def _validate_stack(stack_state):
+    """RefMods are optional on top of this node (see __init__.py): with no
+    picks there is nothing to check, so the RefMod runtime is never imported
+    for a prompt that doesn't use it."""
+    if not _has_picks(stack_state):
+        return True
+    try:
+        from .refmods import validate_stack_state
+    except Exception as exc:
+        return f"This node has RefMods, but the RefMod runtime failed to load: {exc}"
+    return validate_stack_state(stack_state)
+
+
+def _build_mods(stack_state, mods):
+    if not _has_picks(stack_state):
+        return mods if mods is not None else []
+    from .refmods import build_stack
+    return build_stack(stack_state, mods, "MiniMaxH3 Studio RefMods")[0]
+
+
 def _pad(seq, n):
     return list(seq or []) + [None] * (n - len(seq or []))
 
@@ -263,11 +302,11 @@ class MiniMaxH3PromptStudio:
     Same two panels, no wiring between them: the prompt editor and the media
     panel share this node's own state, so the tags the editor offers are the
     tags the bundle will carry. Deliberately input-less for reference media —
-    that comes from the panel, not from upstream slots. RefMods are a
-    different resource (a saved file, picked on a separate Stack node rather
-    than loaded here) and do take a real input: `mods`, passed straight
-    through to its own output for RefMod Text Encode, exactly as the optional
-    model inputs pass their checkpoint through unmodified.
+    that comes from the panel, not from upstream slots. RefMods work the same
+    way: the node's RefMods tab holds its own picks in `stack_state`, and the
+    `mods` output carries them to RefMod Text Encode. The `mods` input is
+    only for chaining — a RefMod Stack (or another pack's loader) wired there
+    is sent first, and this node's own picks follow.
 
     Emits the prompt, the mode-gated bundle, and the loaded keyframe(s) on
     their own first_frame / last_frame IMAGE outputs, so a plain I2VA / L2VA /
@@ -283,9 +322,9 @@ class MiniMaxH3PromptStudio:
         "can actually send, the loaded keyframe(s) as first_frame / "
         "last_frame IMAGEs (I2VA fills first_frame, L2VA fills last_frame, "
         "FL2VA fills both, T2VA and full-reference fill neither), a "
-        "ref2va_needed BOOLEAN that is true in full-reference mode, and "
-        "whatever RefMod bundle was wired into 'mods', passed straight "
-        "through for RefMod Text Encode."
+        "ref2va_needed BOOLEAN that is true in full-reference mode, and the "
+        "RefMods picked on the node's RefMods tab as a 'mods' bundle for "
+        "RefMod Text Encode (after anything wired into the 'mods' input)."
     )
 
     # model leads, matching the order the chain is actually wired in: the
@@ -330,6 +369,10 @@ class MiniMaxH3PromptStudio:
                 "builder_state": ("STRING", {"multiline": False, "default": "{}"}),
                 # JSON list of media items, written by the node's panel.
                 "media_state": ("STRING", {"multiline": False, "default": "[]"}),
+                # The RefMods tab's picks, same JSON as a RefMod Stack's.
+                # Last on purpose: widget values are saved positionally, so a
+                # workflow from before this existed loads it as the default.
+                "stack_state": ("STRING", {"multiline": False, "default": "{}"}),
             },
             # Wire both checkpoints once and let the mode pick. Lazy, so the
             # one this mode isn't using is never pulled into memory — loading
@@ -337,14 +380,12 @@ class MiniMaxH3PromptStudio:
             "optional": {
                 "fl2va_model": ("MODEL", {"lazy": True}),
                 "ref2va_model": ("MODEL", {"lazy": True}),
-                # A RefMod Stack's bundle, passed straight through to this
-                # node's own `mods` output for RefMod Text Encode — the
-                # editor's ◈ RefMods button wires and finds this same input.
-                # Not lazy: unlike the checkpoints, reading it costs nothing
-                # more than the stack's own already-cheap JSON parse.
+                # Chaining only: a RefMod Stack (or another pack's loader)
+                # whose entries go first, before the RefMods tab's own picks.
+                # Not lazy: unlike the checkpoints, reading it is cheap.
                 "mods": ("H3_REF_MODS", {"tooltip":
-                    "A RefMod Stack's bundle. Passes through to the 'mods' "
-                    "output for RefMod Text Encode."}),
+                    "Optional. Another RefMod Stack to send first; this "
+                    "node's own RefMods (its RefMods tab) follow it."}),
             },
             "hidden": {"prompt": "PROMPT", "unique_id": "UNIQUE_ID"},
         }
@@ -370,17 +411,23 @@ class MiniMaxH3PromptStudio:
         return [want] if (linked is None or want in linked) else []
 
     @classmethod
-    def IS_CHANGED(cls, prompt_text="", builder_state="{}", media_state="[]", **kwargs):
+    def IS_CHANGED(cls, prompt_text="", builder_state="{}", media_state="[]",
+                   stack_state="{}", **kwargs):
         # Media decoding is driven entirely by widget state, so cache on all
-        # three: without media_state here a re-added clip would be ignored.
-        return f"{prompt_text}\x00{builder_state}\x00{media_state}"
+        # of it: without media_state here a re-added clip would be ignored,
+        # and a RefMod rewritten on disk has to re-run the node too.
+        return json.dumps([prompt_text, builder_state, media_state,
+                           _stack_stamps(stack_state)], default=str)
 
     @classmethod
-    def VALIDATE_INPUTS(cls, media_state="[]", **kwargs):
-        return validate_media_state(media_state)
+    def VALIDATE_INPUTS(cls, media_state="[]", stack_state="{}", **kwargs):
+        ok = validate_media_state(media_state)
+        if ok is not True:
+            return ok
+        return _validate_stack(stack_state)
 
     def build(self, prompt_text="", builder_state="{}", media_state="[]",
-              fl2va_model=None, ref2va_model=None, mods=None,
+              stack_state="{}", fl2va_model=None, ref2va_model=None, mods=None,
               prompt=None, unique_id=None):
         mode = _mode_of(builder_state)
         bundle = build_bundle(media_state, label="Studio")
@@ -424,10 +471,10 @@ class MiniMaxH3PromptStudio:
                   "input is empty — the model output carries nothing.")
         else:
             print(f"[MiniMaxH3 Studio] mode {mode} -> passing {want} through.")
-        # An unwired mods input passes an empty bundle, which Text Encode
-        # treats as "no RefMods" rather than an error — same rule the
-        # standalone Prompt Builder's own passthrough uses.
-        out_mods = mods if mods is not None else []
+        # Anything chained in first, then the RefMods tab's own picks. With
+        # neither it is an empty bundle, which Text Encode treats as "no
+        # RefMods" rather than an error.
+        out_mods = _build_mods(stack_state, mods)
         return (model, prompt_text.strip(), gated, first_frame, last_frame,
                 mode == "REF", out_mods)
 

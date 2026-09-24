@@ -513,16 +513,91 @@ def label_lines(rows):
 # The node
 # --------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------
+# A stack's picks -> bundle. Shared by the RefMod Stack node and Prompt
+# Studio, which holds its own picks in the same stack_state widget.
+# --------------------------------------------------------------------------
+
+def validate_stack_state(stack_state):
+    """True, or the message ComfyUI should show for a bad stack_state."""
+    try:
+        picks, _budget = parse_state(stack_state)
+    except ValueError as exc:
+        return str(exc)
+    for pick in picks:
+        for file, _s in pick_channels(pick):
+            if resolve_file(file, (".safetensors",)) is None:
+                return (f"RefMod '{file}' was not found under models/refmods. "
+                        "Open the library and pick it again.")
+    return True
+
+
+def stack_stamps(stack_state):
+    """The state plus a size/mtime per picked file, so a RefMod rewritten on
+    disk re-runs the node even when the picks themselves didn't change."""
+    stamps = [stack_state]
+    try:
+        picks, _b = parse_state(stack_state)
+        for pick in picks:
+            for file, _s in pick_channels(pick):
+                path = resolve_file(file, (".safetensors",))
+                try:
+                    st = os.stat(path) if path else None
+                    stamps.append((file, st.st_size, st.st_mtime_ns) if st else (file, None))
+                except OSError:
+                    stamps.append((file, None))
+    except Exception:
+        pass
+    return stamps
+
+
+def build_stack(stack_state="{}", mods=None, label="RefMod Stack"):
+    """(rows, labels) for a stack: the upstream bundle's entries first, so
+    their labels keep their numbers, then this state's own picks."""
+    from .refmod_core import load_cached, check_bundle
+    picks, budget = parse_state(stack_state)
+
+    rows = list(check_bundle(mods, label))
+    summary = []
+    for pick in picks:
+        for file, strengths in pick_channels(pick):
+            path = resolve_file(file, (".safetensors",))
+            if not path:
+                raise FileNotFoundError(
+                    f"RefMod '{file}' was not found under models/refmods. "
+                    "Open the library and pick it again.")
+            mod = load_cached(path[:-len(".safetensors")], split_member(file)[1])
+            rows.extend((mod, s) for s in strengths)
+            whole = sum(1 for s in strengths if s >= 1.0)
+            tail = [s for s in strengths if s < 1.0]
+            shape = (f"x{whole}" if whole else "") + \
+                    (f"{' + ' if whole else ''}{tail[0]:.2f}" if tail else "")
+            summary.append(f"{mod.name}@{shape}")
+
+    total = sum(getattr(m, "token_count", 0) for m, s in rows if s > 0)
+    if budget and total > budget:
+        raise ValueError(
+            f"RefMods require {total} tokens after copies; the stack's limit is "
+            f"{budget}. Lower a weight, drop a pick, or raise the limit.")
+
+    labels = label_lines(rows)
+    upstream = len(mods) if mods else 0
+    print(f"[{label}] " + (", ".join(summary) or "nothing picked")
+          + f" ({total} tokens total"
+          + (f", {upstream} upstream entries first)" if upstream else ")"))
+    return (rows, labels)
+
+
 class MiniMaxH3StudioRefModStack:
     CATEGORY = "conditioning/video_models"
     DESCRIPTION = (
         "Pick saved RefMods from a thumbnail library and send them as one "
-        "bundle. Each pick has a weight per channel (look and voice): up to 1 "
-        "is strength, above 1 adds copies. Wire 'mods' to Fantastic H3 RefMod "
-        "Text Encode or Apply (or ComfyUI-MiniMaxH3Mod's, which share the "
-        "bundle type). 'labels' lists the <Picture n> / <Video n> / <Audio n> "
-        "names Text Encode will assign. RefMod files are created with "
-        "ComfyUI-MiniMaxH3Mod."
+        "bundle. Prompt Studio has its own RefMods tab, so this node is only "
+        "needed to share one set across several prompts or to chain stacks: "
+        "wire its 'mods' into Prompt Studio's 'mods' and its entries come "
+        "first. Each pick has a weight per channel (look and voice): up to 1 "
+        "is strength, above 1 adds copies. 'labels' lists the <Picture n> / "
+        "<Video n> / <Audio n> names Text Encode will assign."
     )
     RETURN_TYPES = ("H3_REF_MODS", "STRING")
     RETURN_NAMES = ("mods", "labels")
@@ -548,68 +623,15 @@ class MiniMaxH3StudioRefModStack:
     def VALIDATE_INPUTS(cls, stack_state="{}"):
         # Named parameter only: a **kwargs validator switches off ComfyUI's
         # own min/max checks for the node's other inputs.
-        try:
-            picks, _budget = parse_state(stack_state)
-        except ValueError as exc:
-            return str(exc)
-        for pick in picks:
-            for file, _s in pick_channels(pick):
-                if resolve_file(file, (".safetensors",)) is None:
-                    return (f"RefMod '{file}' was not found under models/refmods. "
-                            "Open the library and pick it again.")
-        return True
+        return validate_stack_state(stack_state)
 
     @classmethod
     def IS_CHANGED(cls, stack_state="{}", **kwargs):
         # Re-run when a pick changes or a picked file is rewritten on disk.
-        stamps = [stack_state]
-        try:
-            picks, _b = parse_state(stack_state)
-            for pick in picks:
-                for file, _s in pick_channels(pick):
-                    path = resolve_file(file, (".safetensors",))
-                    try:
-                        st = os.stat(path) if path else None
-                        stamps.append((file, st.st_size, st.st_mtime_ns) if st else (file, None))
-                    except OSError:
-                        stamps.append((file, None))
-        except Exception:
-            pass
-        return json.dumps(stamps, default=str)
+        return json.dumps(stack_stamps(stack_state), default=str)
 
     def load(self, stack_state="{}", mods=None):
-        from .refmod_core import load_cached, check_bundle
-        picks, budget = parse_state(stack_state)
-
-        rows = list(check_bundle(mods, "RefMod Stack"))
-        summary = []
-        for pick in picks:
-            for file, strengths in pick_channels(pick):
-                path = resolve_file(file, (".safetensors",))
-                if not path:
-                    raise FileNotFoundError(
-                        f"RefMod '{file}' was not found under models/refmods. "
-                        "Open the library and pick it again.")
-                mod = load_cached(path[:-len(".safetensors")], split_member(file)[1])
-                rows.extend((mod, s) for s in strengths)
-                whole = sum(1 for s in strengths if s >= 1.0)
-                tail = [s for s in strengths if s < 1.0]
-                shape = (f"x{whole}" if whole else "") + \
-                        (f"{' + ' if whole else ''}{tail[0]:.2f}" if tail else "")
-                summary.append(f"{mod.name}@{shape}")
-
-        total = sum(getattr(m, "token_count", 0) for m, s in rows if s > 0)
-        if budget and total > budget:
-            raise ValueError(
-                f"RefMods require {total} tokens after copies; the stack's limit is "
-                f"{budget}. Lower a weight, drop a pick, or raise the limit.")
-
-        labels = label_lines(rows)
-        upstream = len(mods) if mods else 0
-        print("[MiniMaxH3StudioRefModStack] " + (", ".join(summary) or "nothing picked")
-              + f" ({total} tokens total"
-              + (f", {upstream} upstream entries first)" if upstream else ")"))
-        return (rows, labels)
+        return build_stack(stack_state, mods, "MiniMaxH3StudioRefModStack")
 
 
 NODE_CLASS_MAPPINGS = {"MiniMaxH3StudioRefModStack": MiniMaxH3StudioRefModStack}

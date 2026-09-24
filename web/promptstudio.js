@@ -16,6 +16,7 @@ import {
   openEditor, openQuickEdit, updateSummary, promptFields, hideWidget, el,
   injectCSS, restoreDraftFlag,
 } from "./promptbuilder.js";
+import { StackPanel, readStack } from "./refmodstack.js";
 
 // Logged at module scope: if this line is missing from the console the file
 // never loaded (or one of its imports threw), which is a very different fault
@@ -45,7 +46,45 @@ const BOTTOM_GAP = 8;
    toolbar and the prompt fields. Two heights, one of them stale. They are one
    element now and the browser does the split, so there is no second number to
    fall out of step. */
-const STACK_H = PANEL_H + SUMMARY_H;
+/* The Media | RefMods switch above the two panels. Outside the media panel
+   on purpose: in T2VA's "Used" layout that panel collapses to its toolbar,
+   and a switch inside it would go with it. */
+const TABS_H = 30;
+const STACK_H = PANEL_H + SUMMARY_H + TABS_H;
+
+/** Show the media panel or the RefMods grid in the node's panel area. Both
+ *  stay mounted — hiding keeps each one's scroll position, open menus aside,
+ *  and an edit in the RefMods window lands in a panel that already exists. */
+function showTab(node, tab) {
+  const refmods = tab === "refmods";
+  node._mmh3Tab = refmods ? "refmods" : "media";
+  node.properties = node.properties || {};
+  node.properties.mmh3_tab = node._mmh3Tab;
+  if (node._mmlPanel) node._mmlPanel.root.hidden = refmods;
+  if (node._mmrPanel) {
+    node._mmrPanel.root.hidden = !refmods;
+    if (refmods) node._mmrPanel.render();
+  }
+  for (const b of node._mmh3Tabs?.querySelectorAll?.(".mmh3p-nodetab") || [])
+    b.classList.toggle("on", b.dataset.tab === node._mmh3Tab);
+  refreshBar(node);
+}
+
+/** The RefMods grid follows the node's own text size, like the media panel —
+ *  not the stack node's separate ⤡ Size preference, which it doesn't show. */
+function applyTabText(node) {
+  try { node._mmrPanel?.root?.style.setProperty("--mmh3-fs", String(loadScalePrefs().text || 1)); }
+  catch (e) { /* the panel's own default applies */ }
+}
+
+/** The RefMods tab's label carries its count, so the picks are visible from
+ *  the Media side too. */
+function refreshTabCount(node) {
+  const n = readStack(node).picks.filter((p) => p && p.on !== false).length;
+  const b = [...(node._mmh3Tabs?.querySelectorAll?.(".mmh3p-nodetab") || [])]
+    .find((x) => x.dataset.tab === "refmods");
+  if (b) b.textContent = n ? `\u25c8 RefMods ${n}` : "\u25c8 RefMods";
+}
 
 /** In T2VA there is no reference media, so the mode-shaped loader steps aside
  *  and the prompt bar takes the room instead — the three fields inline, using
@@ -57,7 +96,8 @@ function refreshBar(node) {
   const bar = node._mmh3Summary;
   if (!bar) return;
   const sh = node._mmlPanel?.shape?.();
-  const expand = !!sh && sh.pictures === 0;
+  // Not on the RefMods tab: that grid wants the room the fields would take.
+  const expand = !!sh && sh.pictures === 0 && node._mmh3Tab !== "refmods";
 
   if (!expand) {
     if (node._mmh3Expanded) {
@@ -168,6 +208,7 @@ app.registerExtension({
         hideWidget(this, "prompt_text");
         hideWidget(this, "builder_state");
         hideWidget(this, "media_state");
+        hideWidget(this, "stack_state");
       } catch (e) {
         console.error("[MiniMaxH3 PromptStudio] could not hide the state "
           + "widgets; they stay visible but still work:", e);
@@ -226,8 +267,32 @@ app.registerExtension({
         // and the fields. Inside this stack the split is a flex rule, so the
         // browser keeps them adjacent by construction and there is no second
         // height to go stale.
+        // The RefMods tab: the same panel a RefMod Stack node carries, holding
+        // this node's own picks in its stack_state widget. `_mmrPanel` is the
+        // name the rest of the pack already reloads after an edit elsewhere
+        // (the RefMods window, a draft's snapshot being applied).
+        let stackRoot = null;
+        try {
+          this._mmrPanel = new StackPanel(this, { embedded: true });
+          this._mmrOnCommit = () => refreshTabCount(this);
+          stackRoot = this._mmrPanel.root;
+          applyTabText(this);
+        } catch (e) {
+          // RefMods are optional on top of the core node; losing the tab
+          // must not take the media panel and the prompt bar with it.
+          console.error("[MiniMaxH3 PromptStudio] RefMods tab failed:", e);
+          this._mmrPanel = null;
+        }
+        const tab = (key, label, title) => el("button", {
+          class: "mmh3p-nodetab", dataset: { tab: key }, title,
+          onclick: (e) => { e.stopPropagation(); showTab(this, key); },
+        }, label);
+        this._mmh3Tabs = stackRoot ? el("div", { class: "mmh3p-nodetabs" },
+          tab("media", "Media", "Pictures, clips and audio loaded on this node"),
+          tab("refmods", "\u25c8 RefMods", "Saved RefMods this prompt uses")) : null;
+
         this._mmh3Stack = el("div", { class: "mmh3p-nodestack" },
-          this._mmlPanel.root, summary);
+          this._mmh3Tabs, this._mmlPanel.root, stackRoot, summary);
         const widget = this.addDOMWidget("mml_panel", "div",
           this._mmh3Stack, { serialize: false });
         applyCanvasSizing(this, widget, NODE_W, STACK_H);
@@ -237,6 +302,8 @@ app.registerExtension({
       }
 
       setTimeout(() => {
+        try { showTab(this, this.properties?.mmh3_tab); refreshTabCount(this); }
+        catch (e) { /* cosmetic */ }
         try { refreshBar(this); } catch (e) { /* cosmetic */ }
         try { restoreDraftFlag(this); } catch (e) { /* cosmetic */ }
       }, 0);
@@ -257,6 +324,14 @@ app.registerExtension({
       const r = onResize?.apply(this, arguments);
       fitPanel(this, baseComputeSize);
       return r;
+    };
+
+    // The RefMods panel listens on the window for presses outside it, and
+    // registers itself so other panels can refresh it; both go with the node.
+    const onRemoved = nodeType.prototype.onRemoved;
+    nodeType.prototype.onRemoved = function () {
+      try { this._mmrPanel?.destroy(); } catch (e) { /* nothing to undo */ }
+      return onRemoved?.apply(this, arguments);
     };
 
     const onDblClick = nodeType.prototype.onDblClick;
@@ -281,8 +356,11 @@ app.registerExtension({
         // back on workflow load, so a node came back at its serialised size
         // with the panel inside it rebuilt at 100%. Text only — this node's
         // own height comes from fitPanel() below, not from the scale pref.
-        try { applyTextScale(this._mmlPanel, loadScalePrefs().text); }
+        try { applyTextScale(this._mmlPanel, loadScalePrefs().text); applyTabText(this); }
         catch (e) { /* the panel's own CSS keeps it readable */ }
+        // The widget values are in now: the RefMods tab re-reads its picks.
+        try { this._mmrPanel?.reload(); showTab(this, this.properties?.mmh3_tab); refreshTabCount(this); }
+        catch (e) { /* cosmetic */ }
         // A saved node restores its own height, so re-fit after that lands.
         fitPanel(this, baseComputeSize);
         refreshBar(this);
