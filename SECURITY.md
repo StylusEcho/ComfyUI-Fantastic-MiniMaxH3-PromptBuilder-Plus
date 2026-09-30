@@ -13,8 +13,8 @@ refuses before the handler runs:
 
 | Check | Refusal | What it stops |
 |---|---|---|
-| Cross-site: `Sec-Fetch-Site` is authoritative when a browser sends it — only `same-origin` and `none` pass; otherwise `Origin` must name the same host and port as `Host` (`_same_authority`), and `Origin: null` is refused | `403` | CSRF from any other origin, including under `--enable-cors-header` |
-| Session token: `X-MiniMaxH3-Token` must equal a token minted once per server process with `secrets.token_urlsafe` and compared with `hmac.compare_digest` | `403` with `token_required` | any caller that did not first read the token from this origin — every cross-site page, curl without the header, and a stale editor after a server restart (the frontend re-fetches and retries once) |
+| Cross-origin: `Sec-Fetch-Site` is authoritative when a browser sends it — only `same-origin` and `none` pass, so `same-site` (another port on the same host, another service on the same address, a sibling subdomain) is refused; otherwise `Origin` must name the same host and port as `Host` (`_same_authority`), and `Origin: null` is refused | `403` | CSRF from any other origin, including under `--enable-cors-header` |
+| Session token: `X-MiniMaxH3-Token` must equal a token minted once per server process with `secrets.token_urlsafe` and compared with `hmac.compare_digest` | `403` with `token_required` | any caller that did not first read the token from this origin — every other origin's page, curl without the header, and a stale editor after a server restart (the frontend re-fetches and retries once) |
 | Content type: JSON routes require `Content-Type: application/json` | `415` | "simple" cross-origin requests; the header forces a CORS preflight that these routes never approve |
 
 The multipart routes (`/minimax_h3_plus/upload`, `/minimax_h3_plus/refmods/set_preview`)
@@ -23,9 +23,17 @@ cannot carry the content-type requirement, which is exactly why the other
 two checks are there.
 
 The token is handed out only by `GET /minimax_h3_plus/token`, which applies the
-same cross-site check and answers with `Cache-Control: no-store`. It appears
+same cross-origin check and answers with `Cache-Control: no-store`. It appears
 in exactly three places: minted, compared, and that GET. It is never logged
 and never included in any other response.
+
+A refusal prints one line to the ComfyUI console naming the method, route
+and failed check: for the token, whether the header was absent or present
+but different, never its value. Header values echoed for a cross-origin
+refusal are truncated. Each route and check logs at most once a minute, with
+a count of the repeats, so a page retrying in a loop can't flood the log.
+When the frontend's retry with a freshly fetched token is also refused, the
+error it shows points at a proxy or another extension removing the header.
 
 Core's `create_origin_only_middleware` exists but is bypassed under
 `--enable-cors-header` and does nothing without an `Origin` header, so the
@@ -50,6 +58,7 @@ Every GET only reads:
 | `/minimax_h3_plus/refmods` | scans the RefMod folders' file headers (`refmods.scan_library`) |
 | `/minimax_h3_plus/refmods/preview` | serves the image beside a RefMod — only a name that `refmods.resolve_file` resolves inside a RefMod root, and only with a `.png/.jpg/.jpeg/.webp` extension |
 | `/minimax_h3_plus/presets`, `/refmod_presets`, `/prompts`, `/phrases`, `/drafts` | list or count saved JSON |
+| `/minimax_h3_plus/edit_files` | lists the mask files and saved latents (name, size, date) in the two edit folders below, and which masks saved presets or drafts use |
 
 No GET creates a directory, writes, deletes or loads a model.
 
@@ -70,6 +79,8 @@ name is first reduced to a safe character set (`sanitize_name`, `_slug`,
 | RefMod file names — the Stack's `stack_state` widget, the Inspect/Edit `file` widgets, the library routes | the registered `refmods` folders (`models/refmods` and `extra_model_paths.yaml` entries) | `refmods.resolve_file()`: relative names only, no `..` segment, realpath + commonpath per root, and only the requested extension |
 | New RefMod names (`Create` `name`/`subfolder`, `Edit` `save_as`, `/refmods/rename`) | the first registered `refmods` folder | `sanitize_name()` + `valid_rel()` (no `..`, no absolute path, no hidden or reserved folder) and `_contained_target()` (realpath + commonpath); an existing file is never overwritten by a copy |
 | RefMod curation (`/refmods/rename`, `/meta`, `/delete`, `/set_preview`) | the RefMod root that holds the named file | `item_files()` resolves every name through `resolve_file()`; moves go through `_contained_target()`; previews are written with an image extension only |
+| Mask files and saved edit/reference latents (masking runs, `/mask_compose`, the Text Encode's cache) | `input/minimax_h3_plus/masks/` and `input/minimax_h3_plus/cache/` — this pack's own, apart from the original pack's `input/minimax_h3/` folders | file names are generated — a mask is the source clip's stem reduced to `[A-Za-z0-9_-]` (`object_mask._stem`) plus a random suffix, a latent is a SHA-1 of its settings (`latent_cache.path_for`) — never a path taken from input. `/mask_compose` refuses any layer result whose realpath is not directly in the masks folder and caps a request at 64 layers |
+| Clean up (`/minimax_h3_plus/edit_files/delete`) | those two folders only | `kind` picks the folder from a fixed map; `basename()` of the name, `.png`/`.safetensors` only, realpath's parent must equal the folder, must be an existing file; masks named by saved presets or drafts are skipped server-side whatever the client sent |
 | Inspect's decoded previews | ComfyUI's temp directory, `minimax_h3_inspect/` | file names are generated (timestamp + hash), never taken from input |
 
 RefMod files are `.safetensors` read with the safetensors library's loader,

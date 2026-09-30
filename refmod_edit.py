@@ -17,7 +17,7 @@ import torch
 import comfy.utils
 import comfy.model_management as mm
 
-from .refmod_core import H3RefMod, load_cached
+from .refmod_core import H3RefMod, load_cached, encoder_record, stored_record
 from .refmod_create import (_cover, ensure_min_size, resize_ref, pool_latent, optimize_latent,
                             encode_audio, save_mod, snap_to_h3_grid, parse_sources,
                             load_look, load_voice)
@@ -37,6 +37,19 @@ def _first_source_px(mod):
         return 1024
 
 
+def _first_source_canvas(mod):
+    """The first source's own encode canvas in pixels, (w, h), from
+    source_shape; None when the header doesn't say. Compressed files pool
+    each source to one grid, so an added picture is cover-cropped to this
+    canvas first — trimmed to the file's shape, never squeezed into it."""
+    try:
+        first = str(mod.source_shape or "").split("+")[0].strip()
+        _t, h, w = (int(v) for v in first.split("x"))
+        return (w * 16, h * 16) if h > 0 and w > 0 else None
+    except Exception:
+        return None
+
+
 def encode_like(vae, mod, sources, latent_frames=16, progress=None):
     """Encode pictures/clips to match `mod`'s stored latent: same H x W, same
     mode, same refinement. Returns [1, 24, T_new, H, W] fp16 and the shapes."""
@@ -44,6 +57,7 @@ def encode_like(vae, mod, sources, latent_frames=16, progress=None):
     full = mod.mode == "encode"
     steps = int(mod.optimize_steps or 0)
     res = _first_source_px(mod)
+    canvas = None if full else _first_source_canvas(mod)
     parts, shapes = [], []
     for i, (src, is_video) in enumerate(sources):
         src = src if is_video else src[:1]
@@ -51,6 +65,8 @@ def encode_like(vae, mod, sources, latent_frames=16, progress=None):
             src = src[:snap_to_h3_grid(min(latent_frames, src.shape[0]))]
         if full:
             src = _cover(src, W * 16, H * 16)          # exact canvas: latent H x W
+        elif canvas:
+            src = _cover(src, *canvas)                  # the first source's shape, edges trimmed
         else:
             src = resize_ref(src, res)
         src = ensure_min_size(src)
@@ -77,13 +93,14 @@ def encode_like(vae, mod, sources, latent_frames=16, progress=None):
 # Header fields the prompt builder reads, and how each one is checked.
 PROMPT_FIELDS = (("subject_name", clean_subject_name),
                  ("appearance", lambda v: clean_description(v, "appearance")),
-                 ("voice_description", lambda v: clean_description(v, "voice description")))
+                 ("voice_description", lambda v: clean_description(v, "voice description")),
+                 ("retained_attributes", lambda v: clean_description(v, "retained attributes")))
 
 
-def _changes(subject_name="", appearance="", voice_description=""):
+def _changes(subject_name="", appearance="", voice_description="", retained_attributes=""):
     """The header fields to change: empty keeps a field, '-' clears it."""
     out = {}
-    for (key, clean), raw in zip(PROMPT_FIELDS, (subject_name, appearance, voice_description)):
+    for (key, clean), raw in zip(PROMPT_FIELDS, (subject_name, appearance, voice_description, retained_attributes)):
         text = (raw or "").strip()
         if text:
             out[key] = "" if text == "-" else clean(text)
@@ -97,7 +114,7 @@ class MiniMaxH3StudioRefModEdit:
         "is a JSON list of frame indices and \"a<k>\" entries in the new order), "
         "add pictures or clips encoded to the same shape ('add' is a JSON list "
         "of Media Loader items), replace or remove its voice, and set its "
-        "subject name, appearance and voice description. Nothing already stored is re-encoded. Overwrites the file unless 'save_as' "
+        "subject name, appearance, voice description and retained attributes. Nothing already stored is re-encoded. Overwrites the file unless 'save_as' "
         "names a copy. Queued by the RefMod library's edit mode; the VAEs are "
         "only needed for additions."
     )
@@ -128,6 +145,9 @@ class MiniMaxH3StudioRefModEdit:
                                           "Empty keeps the stored text; '-' clears it."}),
                 "voice_description": ("STRING", {"default": "", "tooltip": "How the voice sounds, drafted onto the voice line and "
                                                  "the speaker buttons. Empty keeps the stored text; '-' clears it."}),
+                "retained_attributes": ("STRING", {"default": "", "tooltip": "Specific small details that should be kept, drafted "
+                                                   "onto the end of the subject's retention note. Empty keeps the stored text; "
+                                                   "'-' clears it."}),
             },
         }
 
@@ -136,19 +156,19 @@ class MiniMaxH3StudioRefModEdit:
         return float("nan")
 
     @classmethod
-    def VALIDATE_INPUTS(cls, file="", subject_name="", appearance="", voice_description=""):
+    def VALIDATE_INPUTS(cls, file="", subject_name="", appearance="", voice_description="", retained_attributes=""):
         if not (file or "").strip():
             return "Give the RefMod's file name."
         try:
-            _changes(subject_name, appearance, voice_description)
+            _changes(subject_name, appearance, voice_description, retained_attributes)
         except ValueError as exc:
             return str(exc)
         return True
 
     def edit(self, file, frames, add, voice, latent_frames, audio_max_seconds, save_as="", vae=None, audio_vae=None,
-             subject_name="", appearance="", voice_description=""):
+             subject_name="", appearance="", voice_description="", retained_attributes=""):
         # Header fields: empty keeps what's stored, '-' clears, anything else sets it.
-        changes = _changes(subject_name, appearance, voice_description)
+        changes = _changes(subject_name, appearance, voice_description, retained_attributes)
         audio_max_seconds = max(0.5, min(600.0, float(audio_max_seconds or 0) or 30.0))
         latent_frames = max(1, int(latent_frames or 16))
         rel = file.strip().replace("\\", "/")
@@ -291,7 +311,11 @@ class MiniMaxH3StudioRefModEdit:
             os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
             if out_look is not None:
                 out_look = replace(out_look, name=base, **changes)
-                saved.append(save_mod(out_look, look_dest))
+                # changed frames are shown to the encoder anew (without a VAE the Text
+                # Encode decodes them once later); an unchanged look keeps its own
+                frames = (encoder_record(out_look, vae) if vae is not None else None) if edited is not None \
+                    else stored_record(out_look)
+                saved.append(save_mod(out_look, look_dest, frames))
             if out_voice is not None:
                 out_voice = replace(out_voice, name=base, **changes)
                 saved.append(save_mod(out_voice, voice_dest))
@@ -310,7 +334,7 @@ class MiniMaxH3StudioRefModEdit:
             # --- in place
             final_look = look_stem
             if edited is not None:
-                saved.append(save_mod(edited, look_stem))
+                saved.append(save_mod(edited, look_stem, encoder_record(edited, vae) if vae is not None else None))
             if v:
                 if voice_stem is None and look_stem is not None:
                     # A plain <name> file gets the pair suffix once it has a voice.
@@ -352,5 +376,56 @@ class MiniMaxH3StudioRefModEdit:
         return {"ui": {"refmod_saved": rel_saved}, "result": ("\n".join(rel_saved),)}
 
 
-NODE_CLASS_MAPPINGS = {"MiniMaxH3StudioRefModEdit": MiniMaxH3StudioRefModEdit}
-NODE_DISPLAY_NAME_MAPPINGS = {"MiniMaxH3StudioRefModEdit": "MiniMax H3 Edit RefMod"}
+class MiniMaxH3StudioRefModStoreFrames:
+    CATEGORY = "conditioning/video_models"
+    DESCRIPTION = (
+        "Add the frames H3's text encoder is shown to RefMods saved before they "
+        "carried them, so the RefMod Text Encode reads them instead of decoding "
+        "the RefMod. Each file is decoded once; its latent is not touched. Files "
+        "that already have them and voice files are left alone. Queued by the "
+        "RefMod library's Store encoder frames."
+    )
+    OUTPUT_NODE = True
+    RETURN_TYPES = ()
+    FUNCTION = "store"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "files": ("STRING", {"default": "", "multiline": True, "tooltip": "RefMod files under models/refmods, one per line, e.g. characters/hero_visual."}),
+                "vae": ("VAE", {"tooltip": "MiniMax H3 video VAE."}),
+            },
+        }
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")
+
+    def store(self, files, vae):
+        rels = [r.strip().replace("\\", "/") for r in files.splitlines() if r.strip()]
+        pbar = comfy.utils.ProgressBar(len(rels))
+        saved = []
+        for i, rel in enumerate(rels):
+            mm.throw_exception_if_processing_interrupted()
+            path = resolve_file(rel, (".safetensors",))
+            if not path:
+                raise FileNotFoundError(f"RefMod '{rel}' was not found under models/refmods.")
+            stem = path[:-len(".safetensors")]
+            mod = load_cached(stem)
+            if mod.kind != "audio" and not mod.enc_times:
+                packed, times, fps = encoder_record(mod, vae)
+                made = os.stat(path)
+                rewrite_stem_meta(stem, rel, add=packed, enc_times=times, enc_fps=fps)
+                # the library's Newest sort still means when the RefMod was made
+                os.utime(path, ns=(made.st_atime_ns, made.st_mtime_ns))
+                saved.append(rel)
+            pbar.update_absolute(i + 1)
+        print(f"[MiniMaxH3StudioRefModStoreFrames] stored encoder frames in {len(saved)} of {len(rels)} files")
+        return {"ui": {"refmod_saved": saved}}
+
+
+NODE_CLASS_MAPPINGS = {"MiniMaxH3StudioRefModEdit": MiniMaxH3StudioRefModEdit,
+                       "MiniMaxH3StudioRefModStoreFrames": MiniMaxH3StudioRefModStoreFrames}
+NODE_DISPLAY_NAME_MAPPINGS = {"MiniMaxH3StudioRefModEdit": "MiniMax H3 Edit RefMod",
+                              "MiniMaxH3StudioRefModStoreFrames": "MiniMax H3 Store RefMod Encoder Frames"}

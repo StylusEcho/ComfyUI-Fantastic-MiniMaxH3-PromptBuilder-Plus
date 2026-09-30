@@ -1405,3 +1405,43 @@ when hiding, makes it a mouse-over caption for the respective section.
       voice note, soundtrack note kept, hover preview contents); the voice-note
       fix confirmed load-bearing by revert. Screenshots of the rail and the
       concept dialog in Chromium.
+
+90. 🟩 bring in the latest upstream changes (1.7.4 + 1.8.0, `23038f5..6ba5971`)
+    - **Masked video editing ported into Prompt Studio.** Upstream builds the
+      edit in its standalone Media Loader; here `build_bundle()` builds
+      `edit` and `video_specs`, and `Studio.build` carries them past the mode
+      gate onto the `references` output. Checked end to end in Python: a
+      masked clip in `media_state` comes out of Prompt Studio's `references`
+      with its edit settings. Four new nodes (Video Edit Latent, Edit
+      Composite, Object Mask, Store RefMod Encoder Frames) renamed
+      `MiniMaxH3Studio*` / "MiniMax H3 …"; the pack now registers 11.
+    - **Clean up hazard found and fixed.** Upstream's Clean up treats a mask
+      as used only if its own Media Loader node holds it — here that would
+      have called every Prompt Studio mask unused and deleted it. It now
+      counts Prompt Studio nodes too, and this pack's masks and saved latents
+      moved to `input/minimax_h3_plus/{masks,cache}` so neither pack's Clean
+      up can delete the other's files. RefMod Create's "pull from" list also
+      offers Prompt Studio media now (it only saw upstream's loader).
+    - **One ⚙ per window kept (item 54).** Upstream's second gear for the
+      clean-up reminder became a *Clean-up reminder* row in the existing ⚙
+      menu; the trim editor's new "⤡ Size" control is a bare ⚙ too.
+    - **Trim editor sizing.** Took upstream's new editor Size control and
+      content-height layout (mask mode needs it), and kept this fork's aim of
+      a tall clip filling the window: the picture may stand as tall as the
+      editor is wide, then 64vh, instead of upstream's 340px × window cap.
+      `sizeMedia()`'s quarter-turn cap follows the same rule. Measured at
+      1600×1000: 9:16 clip → 640px tall (upstream: 442px); 16:9 → 467px.
+    - Kept this fork's `hasCrop()` everywhere upstream reintroduced bare
+      `item.crop` tests (crop persist, crop button, video card badge/title),
+      its var()-based tag colours, and its tag-order arrows (plus upstream's
+      new "editing … also cited as" line).
+    - Docs: README "What's new in 2.9.0", node tables, masked-editing section
+      and guide Part E adapted to Prompt Studio; SECURITY.md documents the
+      three new routes and the new folders; CHANGELOG.md (upstream's) gets a
+      note that its version numbers are upstream's. Example workflows are
+      upstream's files with node types renamed. pyproject 2.9.0.
+    - Verified: loss audit (every upstream-added line absent from the result
+      is a deliberate substitution), all POSTs guarded, py_compile, stubbed
+      import (11 nodes), headless suites (load, studio, interop, names,
+      draftfail, builtin, dock, refstyle), CSSOM 1,124 rules / 0 missing,
+      Chromium trim editor + mask mode + ⚙ menu (`pw/trim.cjs`), dock layout.

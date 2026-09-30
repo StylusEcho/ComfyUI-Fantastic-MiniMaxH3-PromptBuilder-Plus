@@ -42,7 +42,12 @@ name = "fantastic-minimax-h3-promptstudio"
 # 2.8.0 folds the RefMod Stack into Prompt Studio as a RefMods tab (a hidden
 # stack_state widget, appended last so older workflows load it empty); the
 # standalone Stack node stays for chaining — no breakage of saved workflows.
-version = "2.8.0"
+# 2.9.0 folds in upstream 1.7.4 and 1.8.0: masked video editing (Mask mode in
+# the clip editor, SAM 3.1 Object Mask, Video Edit Latent and Edit Composite
+# nodes, carried through Prompt Studio's references output), encoder frames
+# stored in RefMods, and compressed RefMods trimming instead of squeezing —
+# no breakage of saved workflows.
+version = "2.9.0"
 description = "MiniMax H3 Prompt Studio: a single guided prompt-writing and reference-media node for the H3 video model, with live checking against MiniMax's prompt guide."
 license = { file = "LICENSE" }
 requires-python = ">=3.9"

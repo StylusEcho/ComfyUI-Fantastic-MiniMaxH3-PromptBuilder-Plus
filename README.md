@@ -51,6 +51,89 @@ any frame straight out of a video into your picture references.*
 
 ---
 
+## What's new in 2.9.0
+
+Folds in upstream's 1.7.4 and 1.8.0. No breakage of saved workflows; the
+pack now registers eleven nodes (four new, below).
+
+### Masked video editing (upstream 1.8.0)
+
+- **Mark part of a clip and only that area is regenerated**; the rest stays
+  as filmed. Right-click a video in Prompt Studio's media panel and choose
+  **◐ Mask for editing…**, or open the **◐ Mask** tab in its trim editor.
+  The mask is built from layers — **Auto Mask** (SAM 3.1, from dots and a
+  name), keyframed **ellipses, rectangles and polygons**, and **brush**
+  strokes — each adding to or cutting from those below. Grow, feather,
+  invert and crop to mask shape it. Needs the SAM 3.1 checkpoint; see
+  [Editing a clip with a mask](#editing-a-clip-with-a-mask).
+- Prompt Studio carries the edit in its `references` output, so the RefMod
+  Text Encode builds the edit latent from it and the new **MiniMax H3 Edit
+  Composite** pastes exactly the regenerated area back into your original
+  frames. **MiniMax H3 Video Edit Latent** does the same from frames and a
+  mask made elsewhere; **MiniMax H3 Object Mask (SAM 3.1)** is the node
+  Auto Mask queues for you.
+- **Clean up…** on the media panel deletes mask files nothing uses and
+  saved latents, keeps masks used by saved media sets and drafts, and
+  offers itself once unused masks pass 500 MB.
+- **(Plus only)** Upstream gives that reminder size a second ⚙ button of its
+  own. Here it's a *Clean-up reminder* row in the one ⚙ menu the panel
+  already has, beside window and text size.
+- **(Plus only)** This pack's masks and saved latents live in
+  `input/minimax_h3_plus/` rather than upstream's `input/minimax_h3/`. Each
+  pack's Clean up only knows its own nodes, so with a shared folder either
+  one could delete masks the other is still using.
+- **(Plus only)** Clean up counts masks held by every Prompt Studio in the
+  workflow (and by the original pack's Media Loader). Upstream's only looks
+  at its own Media Loader, which here would have called every Prompt Studio
+  mask unused.
+
+### Trim editor (upstream 1.8.0)
+
+- Zoom the timeline (−/+, the slider, the - and = keys, or scroll), see how
+  far the playhead is past the first kept frame, and stop losing work to a
+  stray click or Escape: with unsaved changes it asks first. Ctrl+Z inside
+  it no longer undoes the graph.
+- The editor has its own **⚙** window and text size, remembered for every
+  clip and set apart from the node's scale.
+- **(Plus only)** A tall clip still fills the editor: the picture may stand
+  as tall as the window is wide (then 64% of the screen), where upstream
+  caps it at 340 px × the window size.
+- Loader rows show each clip's length beside ✂, and video cards show their
+  aspect ratio as sent.
+
+### RefMods (upstream 1.7.4 and 1.8.0)
+
+- **Faster RefMod Text Encode.** RefMods now keep the pictures the text
+  encoder is shown inside their file. Older ones are decoded once and
+  cached; the library's **Store encoder frames** (the new **MiniMax H3 Store
+  RefMod Encoder Frames** node) adds them to old files for good.
+- **stack_pictures** (experimental) on the Text Encode sets how many of a
+  RefMod's pictures the encoder sees. **voice_description_at_label** also
+  writes each voice RefMod's saved description right after its
+  `<Audio n>:` label.
+- **Compressed RefMods no longer squash faces** — a photo of a different
+  shape is trimmed to the first one's shape, as Full always was.
+- **The RefMod library keeps unfinished work** when closed mid-way, and
+  RefMods gain a **Retained attributes** field (a tattoo, a scar) that
+  Draft from RefMods adds to the subject's retention note.
+- Stack cards open the library on their RefMod; drag to reorder works again.
+  New RefMods default to a 768 px short edge (was 1024).
+- **(Plus only)** RefMod Create's *pull from* list now offers Prompt Studio
+  nodes' media, not only the original pack's Media Loader.
+
+### Elsewhere (upstream 1.7.4 and 1.8.0)
+
+- **Right-click selected text** in any builder field for Copy, Cut, Paste
+  and Remove, alongside Save selection as phrase.
+- **Clearer refusals.** A refused request prints one line to the ComfyUI
+  console naming the failed check (never the token), and the origin check
+  also refuses same-site requests, as SECURITY.md described.
+- The 📖 Guide adds **Part E** on masked editing.
+- Upstream's release notes now live in [CHANGELOG.md](CHANGELOG.md) (upstream
+  version numbers); this README keeps this pack's own.
+
+---
+
 ## What's new in 2.8.0
 
 **RefMods live on Prompt Studio now.** The node's panel has a **Media |
@@ -428,10 +511,12 @@ through the unsaved-changes prompt.
 - [Reference mode](#reference-mode)
 - [FAQ: wiring reference media](#faq-wiring-reference-media)
 - [RefMods](#refmods) (step-by-step: [RefMods how-to guide](REFMODS.md))
+- [Editing a clip with a mask](#editing-a-clip-with-a-mask)
 - [Dated output folders](#dated-output-folders)
 - [Troubleshooting](#troubleshooting)
 - [Credits](#credits)
 - [License](#license)
+- [Upstream changelog](CHANGELOG.md) — the original pack's releases, back to 1.6.0
 
 ## What you get
 
@@ -445,7 +530,7 @@ media** — that's the pack:
 That's deliberate: this pack exists so you don't need two nodes wired together
 for the common case.
 
-The other six are the [RefMods](#refmods) subsystem, added in 2.6.0. You only
+The next seven are the [RefMods](#refmods) subsystem, added in 2.6.0. You only
 meet them if you use RefMods, and even then mostly through windows rather than
 by wiring:
 
@@ -457,6 +542,16 @@ by wiring:
 | **MiniMax H3 Create RefMod** | Makes a RefMod. The library queues this for you. |
 | **MiniMax H3 Inspect RefMod** | Decodes a RefMod to see what's stored in it. |
 | **MiniMax H3 Edit RefMod** | Changes a RefMod's frames or voice. |
+| **MiniMax H3 Store RefMod Encoder Frames** | Adds the encoder's pictures to older RefMods. The library's *Store encoder frames* queues this. |
+
+Masked editing, added in 2.9.0 (see
+[Editing a clip with a mask](#editing-a-clip-with-a-mask)):
+
+| Node | What it's for |
+|---|---|
+| **MiniMax H3 Edit Composite** | Pastes the regenerated area into the original frames, so the rest is the source untouched. Feed it Prompt Studio's `references`. |
+| **MiniMax H3 Video Edit Latent** | Optional. Builds a masked-edit latent from frames and a mask made elsewhere. |
+| **MiniMax H3 Object Mask (SAM 3.1)** | The node Auto Mask queues for you; you don't normally wire it. |
 
 If you also install
 [the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder),
@@ -781,6 +876,9 @@ the ID drops the voice clause but keeps the name. Swapping IDs everywhere
 only renumbers, so every line keeps its speaker.
 This tag and Field can be undone with Ctrl+Z.
 
+**Right-click selected text** in any field for **Copy**, **Cut**, **Paste**
+and **Remove**, or to save it as a phrase. Ctrl+Z undoes Cut, Paste and Remove.
+
 **Things it checks:** shots numbered in order, cut times increasing and inside
 your video's length, `[Shot 1]` not carrying a timestamp, dialogue tags balanced
 and labelled, references you connected but never mentioned, and — in reference
@@ -1005,9 +1103,17 @@ the tag it will actually get.
 
 The ✂ button on any video or audio row trims what's sent to a start–end range
 in seconds — the file itself is untouched, and the counters and 15-second
-budgets track the trimmed span. `last 2s` / `last 3s` shortcuts grab a clip's
+budgets track the trimmed span. Each row shows the length it sends beside
+its ✂ (✂ 10.5s): the kept span once trimmed, the whole clip until then. `last 2s` / `last 3s` shortcuts grab a clip's
 tail in one click, which is exactly what video continuation wants. Over-long
 clips can be brought inside the budget the same way instead of re-exporting.
+Beside the playhead time, **from start** says how far the playhead is past
+the first kept frame. Zoom the timeline with **−** / **+**, the zoom slider
+above it or the - and = keys (around the playhead), or scroll on it (around
+the pointer; Shift+scroll moves along it). **⤢ Kept range** fits the trim,
+and a short trim of a long clip opens zoomed. While zoomed, the strip beside
+the zoom controls shows the whole clip; drag it to move along. With unsaved changes, a
+click outside the editor doesn't close it; ✕ or Esc pressed twice drops them.
 
 Videos that carry sound get an extra control for whether that soundtrack is
 treated as part of the video or as a separate audio reference. The **?** button
@@ -1129,11 +1235,14 @@ name or voice box that's empty, or **Start over** to clear all of both
 sections and draft them fresh. A name you've typed yourself is never replaced. The card
 shows the name as a badge, and search finds it.
 
-A RefMod can also carry an **Appearance** and a **Voice** description, set
-in the same three places. Draft from RefMods writes the appearance straight
-into the subject's line (*…in `<Picture 1>`, with shoulder-length auburn
-hair and a green wool coat.*) and puts the voice description in the voice
-box on its `<Audio N>` line. Both are one line of up to 300 characters.
+A RefMod can also carry an **Appearance**, **Retained attributes** and a
+**Voice** description, set in the same three places. Draft from RefMods writes
+the appearance straight into the subject's line (*…in `<Picture 1>`, with
+shoulder-length auburn hair and a green wool coat.*), adds the retained
+attributes — small details to keep, like a tattoo or a scar — to the end of
+the subject's `retention_analysis` note, and puts the voice description in
+the voice box on its `<Audio N>` line. Each is one line of up to 300
+characters.
 
 ### Describing a voice
 
@@ -1629,8 +1738,8 @@ before you add it, and a look-and-voice pair saved as two files —
 `hero_visual` + `hero_audio`, or the H3RefMods fork's `hero_Video` +
 `hero_Audio` — appears as one card and one row. Click a card for its
 details, where you can rename it, move it to another folder, edit its
-description and concept, give it a subject name, appearance and voice
-description, replace its preview image, or delete it. A
+description and concept, give it a subject name, appearance, retained
+attributes and voice description, replace its preview image, or delete it. A
 preview is any `.png`, `.jpg` or `.webp` saved beside the file with the
 same name.
 
@@ -1646,7 +1755,7 @@ looks like. **MiniMax H3 Inspect RefMod** does the same in a graph.
 the Create tab. Its stored frames are listed first as sources — untick or
 remove the ones you don't want, drag to reorder, and drop new pictures or
 clips in to add them; they're encoded to the file's own size and style and
-the previews show how each one is trimmed or squeezed to fit. Frames you
+the previews show how each one is trimmed to fit. Frames you
 keep are copied exactly as they are, never decoded and re-encoded. The
 voice is a source too: untick it to remove it, or add an audio file (or
 tick a clip's soundtrack) to replace it — the first *Voice seconds* are
@@ -1659,6 +1768,16 @@ come along). A RefMod that had no voice is renamed to the
 only change, just the file headers are rewritten. **MiniMax H3 Edit RefMod** is
 the node behind it, should you want it in a graph.
 
+**Store encoder frames** is for RefMods saved before they carried the
+frames H3's text encoder is shown. Without them, RefMod Text Encode has to
+decode the RefMod (once, then it keeps the frames in its cache). This adds
+them to the file for good: one RefMod from its details panel, or every one
+still missing them from the button beside the sort menu. Each is decoded
+once, through the queue with the video VAE; its latent isn't touched. A
+RefMod made from several pictures keeps every picture, which roughly
+doubles its file.
+**MiniMax H3 Store RefMod Encoder Frames** is the node behind it.
+
 The **Create** tab makes new ones. Drop pictures, clips or audio anywhere
 on the library, or pull the items from any Prompt Studio in the workflow
 (the node's right-click menu has *RefMod library* for the same thing), so
@@ -1667,10 +1786,9 @@ default everything becomes **one RefMod**: six photos of a character are
 stacked into a single reference, one frame per photo, and any voices —
 audio files, or clips whose soundtrack you keep — are joined into one voice
 saved beside it. Every photo in it takes the first one's shape (portrait,
-landscape or square): in Full the others have their edges trimmed to fit,
-in Compressed they are squeezed to fit. Each photo's preview shows exactly
-what will be trimmed or how it will be squeezed, so drag your best-framed
-one to the top. Rather than accept the automatic trim, click **Crop to
+landscape or square): the others have their edges trimmed to fit, in Full
+and Compressed alike. Each photo's preview shows exactly what will be
+trimmed, so drag your best-framed one to the top. Rather than accept the automatic trim, click **Crop to
 fit…** on any other photo: the crop editor opens locked to the first
 photo's shape, and you drag the box over the part you want to keep. Every
 row also has **Crop…** (or **Crop / trim…** for a clip) for rotating,
@@ -1768,7 +1886,13 @@ encoder during tokenization, so the prompt can cite `<Picture n>`,
 RefMods after it, one counter per kind with every copy numbered, and the
 map is reported on `reference_map`. Loaded media is sized as the native
 node sizes it (`width`, `height`, `length` and `ref_image_size` are the
-same settings); RefMods keep the size they were saved at. Connect its
+same settings); RefMods keep the size they were saved at. A clip is shown
+to the encoder at two frames a second, as the native node samples video.
+For a RefMod made from several pictures, `stack_pictures` (experimental)
+sets how many of them the encoder sees: every 4th (the default and the
+fewest tokens), up to 8, or all. More may help lock in identity and reduce
+bleed between RefMods, but what the encoder sees rides through every
+sampling step, so it costs memory and generation time. Connect its
 conditioning straight to the sampler — it has already attached the
 references — and its `latent` output is the empty AV latent to sample
 from, so no separate Empty Latent node is needed. The editor shows the same
@@ -1778,6 +1902,12 @@ the same file), and warns when the prompt cites a label the stack doesn't
 send. The stack's `labels` output carries the same map as text, and its
 optional `mods` input appends to another stack or loader, whose entries are
 numbered first.
+
+`voice_description_at_label` (off by default) doesn't change whether your
+voices are used — they always are. On, each voice RefMod's saved Voice
+description is also written right after its `<Audio n>:` label, where the
+encoder is introduced to the reference, instead of only in the prompt body.
+Off, the encoder sees exactly what core's node gives it.
 
 **MiniMax H3 RefMod Apply** appends the references to conditioning encoded
 elsewhere, with a `retention` multiplier on every entry. The model sees them,
@@ -1794,6 +1924,118 @@ inspected, renamed, described and deleted here, but not edited — use that
 pack's Save H3 RefMods node to split one into standalone files first.
 
 ---
+
+## Editing a clip with a mask
+
+Replace, change or remove part of a clip and keep the rest as filmed. The
+mask decides where H3 may change anything; the prompt decides what that area
+becomes.
+
+**What you need:** the SAM 3.1 checkpoint,
+[`sam3.1_multiplex_fp16.safetensors`](https://huggingface.co/Comfy-Org/sam3.1/resolve/main/checkpoints/sam3.1_multiplex_fp16.safetensors),
+in `models/checkpoints`. The pack never downloads it.
+
+**Masking.** Right-click a video in Prompt Studio's media panel → **◐ Mask for
+editing…** (or the **◐ Mask** tab in its trim editor). It works on the clip
+as you've trimmed, cropped and mirrored it there. The mask is built from
+**layers**, stacked beside the picture like an image editor's, new ones on
+top: each one **Add**s its area or **Cut**s it out of the layers below it, the eye leaves
+one out, ⠇ drags to reorder and ⋯ renames, duplicates or deletes. The
+selected layer is outlined in amber on the video; hovering a row outlines
+that layer in white. It starts with an Auto Mask layer, ready for dots;
+**+ Add layer** adds more:
+
+- **Auto Mask with SAM** — click what you want masked on a frame where it's
+  clear and right-click anything that shouldn't be included. A click alone
+  can grab a whole person, so type what it is as well — "green jacket" — and
+  just that part under your dots is masked; a name with no dots masks every
+  match. **▶ Run Auto** runs SAM through the queue on its own, over the kept
+  range only.
+- **Ellipse**, **Rectangle** and **Polygon** — drag to draw (a polygon:
+  click its points, then the first one again). Move, resize or turn it on
+  another frame and it's keyed there, so it follows what it covers;
+  **Motion** sets how it travels between keys (Smooth, Linear or Ease). A
+  **Hidden** key takes it out of the mask until the next Shown key, for
+  something that leaves the frame or comes back after a cut.
+- **Brush** — paint or erase by hand, on this frame, from here to the end or
+  the whole clip.
+
+The layers play over the clip in cyan as you work (an approximate preview;
+hide it from the right-click menu). **Use this mask** combines them over the
+kept range into the clip's mask and saves it with the layers, so they stay
+editable; the card then reads **Video 1 · editing**. Widen the trim later
+and the panel says the mask stops short; Use this mask again covers it. Ctrl+Z undoes within the session, and
+closing with unsaved changes asks first.
+
+**Fixing an Auto Mask.** Dots can go on several frames: each marked frame
+seeds the tracking from there to the next one, so when a mask drifts, scrub
+to where it goes wrong, add a dot and run again (a frame needs a green dot;
+the layer's panel lists the frames with dots, and says **run again** once
+they or the name change). **Add** and **Cut** run SAM and merge the result
+into that layer or take it out — green-dot the shirt under the jacket, type
+"shirt", run with Add. **Look for it by name on every frame** also re-finds a
+named object wherever tracking lost it, such as after a cut; it can pick up
+look-alikes. For what SAM can't get, add a shape or a brush layer.
+
+**Shaping it.** These settings apply to the combined mask. **grow** widens the mask; **feather** fades the regenerated
+area into the kept footage so there's no hard seam (its inside stays fully
+regenerated; the fade is rounded up to whole 16-pixel latent cells at the
+sampling size); **invert** keeps what's masked and regenerates everything
+else — grow then protects a margin around it. **crop to mask** samples only
+the area around the mask, enlarged up to 4× at your pixel budget, for far
+more detail in small edits; **context** sets how much surroundings it keeps,
+the dashed box shows it, and it turns itself off when the mask covers most of
+the frame or is inverted. The overlay draws the mask grown and inverted as
+the edit uses it, and **▦ regenerated** shows the area H3 really
+regenerates — rounded out to the latent's 16-pixel cells at the sampling size.
+
+**Citing it.** The clip is always sent as a reference too, so the prompt
+can cite it the way H3's editing prompts do: `<Video 1> is the source video
+for the target video edit.` and `[video editing] The target video is an
+edited version of <Video 1>.` That costs a clip's worth of
+reference tokens — the builder and the mask panel show an estimate and warn
+past about 30,000. With crop to mask, only the cropped box is cited, which
+matches what's generated and costs far less. If an edit comes back as the
+clip unchanged, lower **reference strength** in the mask settings: the cited clip is
+then mixed toward a blurred copy, so it still gives the model the colours
+and placement but not detail it can copy back. **Masked area in the
+reference** (experimental) is for replacing a whole person, where the
+original tends to creep back: **blurred** softens the masked area of the
+cited clip by the **blur** radius, and **inverted** turns it into a
+photographic negative that keeps shape, movement and expressions;
+**blurred and inverted** does both. Everything outside the mask stays as it
+is. Describe the
+finished clip, including what the masked area becomes; when removing
+something, describe what's there instead and don't name it.
+
+**Generating.** Prompt Studio carries the edit in its `references` output,
+and the RefMod Text Encode builds it from there: the clip at your width × height pixel budget (keeping its own
+shape, never enlarged), encoded, with the mask on H3's latent grid. It's
+saved the first time and loaded on later runs until a setting that changes
+it does — the prompt, seed and sampler don't. Cited reference clips are
+saved the same way. Wire the Text Encode's `latent` into the sampler, and
+put **MiniMax H3 Edit Composite** between VAE Decode and Create Video with
+the same `references`: it pastes exactly the area H3 regenerated, the cells
+the ▦ overlay shows plus any feather (scaled back into place when crop to
+mask is on), into your original frames through a soft edge, so everything
+else is the source file's own pixels, not a VAE copy of them. Its `max_size` caps the output's
+long edge. The example workflows are wired this way.
+
+**Clearing and tidying.** Clearing a mask asks for a second click and
+offers Undo; the layers stay in the editor. Masks are stored one bit per
+pixel. Saving or running Auto Mask again leaves the old mask files behind,
+and changed settings leave old saved latents; the media panel's **Clean up…**
+deletes mask files that no Prompt Studio (or original-pack Media Loader) in
+the open workflow, saved media set or draft uses (each Auto Mask layer's result counts),
+plus saved latents (they're rebuilt when needed). Once those unused mask
+files pass 500 MB the panel offers a Clean up; set the size, or 0 for
+never, under *Clean-up reminder* in its ⚙ menu. This pack keeps its masks
+and saved latents in `input/minimax_h3_plus/`, apart from the original
+pack's, so neither pack's Clean up can delete files the other still uses.
+
+Masks made elsewhere work too: **MiniMax H3 Video Edit Latent** takes
+frames, a MASK and a megapixel budget and outputs the latent, width, height
+and length.
 
 ## Dated output folders
 
@@ -1858,6 +2100,16 @@ this almost always means another pack downgraded or broke it (a known culprit:
 `aiortc` pins `av<17`, which ComfyUI's own code can't run with).
 `pip install 'av>=17'` into your ComfyUI environment restores it.
 
+**"Couldn't upload … missing or stale session token" when dropping a file
+into Create, or drag-and-drop into the RefMod library doing nothing.** You are
+most likely using ComfyUI through another front-end's embedded tab —
+**SwarmUI** is the one reported. Its proxy rewrites the requests and drops the
+`X-MiniMaxH3-Token` header the pack's routes require, so uploads are refused
+(the ComfyUI console prints one line naming the failed check). Open ComfyUI's
+own interface directly in a browser tab — the address and port ComfyUI itself
+prints at startup — and the same workflow works. The nodes still run fine
+from SwarmUI's queue; only the library's uploads need the direct page.
+
 **A button does nothing.** Open the browser console (F12) and click it again —
 any failure prints there. The panel's **❐** button opens the media panel in
 its own window, independent of the on-node one, if that helps narrow it
@@ -1881,6 +2133,10 @@ RefMods: the format and the encode/apply runtime are adapted from
 [ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod)
 by Luisa (luisacaotica), MIT License; the library's layout took cues from
 FranckyB's [ComfyUI-H3RefMods](https://github.com/FranckyB/ComfyUI-H3RefMods).
+
+Mask layers: the keyframed shapes follow BISAM20's
+[ComfyUI-AnimatedMaskEditor](https://github.com/BISAM20/ComfyUI-AnimatedMaskEditor),
+MIT License.
 
 ## License
 

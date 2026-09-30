@@ -227,13 +227,41 @@ def build_bundle(media_state="[]", label="Studio"):
     for i, a in enumerate(aud_t):
         print(f"[MiniMaxH3 {label}]   audio_{i+1}: {_brief_audio(a)}")
 
-    return {
+    bundle = {
         "pictures": pic_t,
         "videos": vid_t,
         "video_audios": vaud_t,
         "audios": aud_t,
         "items": items,
     }
+    # Masked video editing (upstream 1.8.0), ported from its standalone
+    # Media Loader. The clip being edited travels as its settings, not
+    # frames: the Text Encode builds it once (at the generation's pixel
+    # budget) and saves it, and Edit Composite reads the original frames at
+    # the end.
+    edit = next((i for i in items if isinstance(i, dict) and i.get("edit") and i.get("mask")
+                 and i.get("enabled") is not False and i.get("kind") == "video"), None)
+    if edit is not None:
+        bundle["edit"] = {k: edit.get(k) for k in ("name", "file", "trim", "crop", "mirror", "resize",
+                                                   "mask", "has_audio")}
+        bundle["edit"]["grow"] = int(edit.get("mask_grow", 16))
+        bundle["edit"]["keep_audio"] = edit.get("keep_audio", True)
+        bundle["edit"]["feather"] = int(edit["mask_feather"]) if edit.get("mask_feather") is not None else 12
+        bundle["edit"]["invert"] = bool(edit.get("mask_invert"))
+        # crop to mask: how much surroundings to keep; 0 samples the whole frame
+        bundle["edit"]["context"] = (float(edit.get("mask_context") or 1.75)
+                                     if edit.get("mask_crop") and not edit.get("mask_invert") else 0.0)
+        bundle["edit"]["ref_strength"] = float(edit.get("mask_ref_strength") or 1.0)
+        bundle["edit"]["hide"] = edit.get("mask_hide") if edit.get("mask_hide") in ("blur", "invert", "blur_invert") else "off"
+        bundle["edit"]["blur"] = float(edit.get("mask_blur") or 24.0)
+        print(f"[MiniMaxH3 {label}] editing {edit.get('name') or edit['file']} (also cited as a reference)")
+    # Each video's settings, index for index with "videos": what the Text
+    # Encode keys its saved reference latents on.
+    bundle["video_specs"] = [
+        {k: i.get(k) for k in ("name", "file", "trim", "crop", "mirror", "resize", "audio_mode")}
+        | {"edit": bool(i.get("edit"))}
+        for i in videos[:VIDEOS]]
+    return bundle
 
 
 def validate_media_state(media_state="[]"):
@@ -433,6 +461,12 @@ class MiniMaxH3PromptStudio:
         bundle = build_bundle(media_state, label="Studio")
         gated, _ = gate_bundle(bundle, mode, label="Studio")
         gated["items"] = bundle.get("items", [])
+        # Carried past the mode gate, as upstream's Prompt Builder carries
+        # them: the edit clip and the per-video settings the Text Encode keys
+        # its cached reference latents on.
+        for key in ("edit", "video_specs"):
+            if bundle.get(key) is not None:
+                gated[key] = bundle[key]
         sent = sum(
             1
             for key, _group, _cap in _BUNDLE_GROUPS

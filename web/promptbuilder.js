@@ -10,7 +10,7 @@ import { LOADER_NAME, STUDIO_NAME, computeTags, viewURL as loaderViewURL,
   safeCanvasFocus, openLoaderModal, isOn, TrimModal,
   fileCount, MODE_CAPACITY, hasCrop, TAG_COLORS, TAG_VARS,
   raiseIfOpen, RAISE_CSS, postApi, outputTargets, setterOf, linkNodes,
-  keepNameChars,
+  keepNameChars, overlayOn, maskOverlay, refTokenEstimate, itemLook,
 } from "./medialoader.js";
 import { STACK_NAME, STACK_NAMES, ENCODE_NAMES, readStack, deriveEntries, labelGroups,
   rangeText as refmodRange, previewURL as refmodPreviewURL, KIND as REFMOD_KIND,
@@ -1189,7 +1189,7 @@ function slotsFromItems(rawItems, sourceLabel, panel = null, own = false) {
   const push = (tag, kind, item, note, previewKind) => {
     const n = +(tag.match(/(\d+)>/) || [])[1];
     const slot = {
-      tag, kind, idx: n, cls: TAG_CLASS[kind], note,
+      tag, kind, idx: n, cls: TAG_CLASS[kind], note, edit: !!item.edit,
       slotName: `loader:${item.name}`,
       source: `${sourceLabel} \u2022 ${item.name}`,
       preview: { type: previewKind, url: loaderViewURL(item.file) },
@@ -1394,7 +1394,12 @@ function refmodSlots(node, opts = {}) {
   // A draft can stand in for what the nearest stack holds (its own picks, or
   // the ones frozen when it started) and for the loader's media.
   const nearest = chain[chain.length - 1];
-  const picksOf = (st) => (st === nearest && opts.picks ? opts.picks : readStack(st).picks);
+  // A pick's saved uid only counts within its own stack node: a pasted node
+  // keeps its copy's numbers, so two stacks in a chain can hold the same
+  // uid, and the draft would then fold one RefMod's look and voice into
+  // another's. Key each pick by node and position instead.
+  const picksOf = (st) => (st === nearest && opts.picks ? opts.picks : readStack(st).picks)
+    .map((p, i) => (p && typeof p === "object" ? { ...p, uid: `${st.id}:${i}` } : p));
   // Every Prompt Studio is a "stack" now, even one with an empty RefMods tab.
   // Taking the RefMod path for that would drop its plain media chips (media
   // is only listed here when a Text Encode receives it), so a chain of
@@ -2059,6 +2064,14 @@ ${RAISE_CSS}
 .mmh3p-cardvoice{position:absolute;top:22px;right:4px;color:#b48ce8;font-size:calc(12px * var(--mmh3-fs, 1));
   text-shadow:0 0 3px #000,0 0 2px #000;pointer-events:none;}
 .mmh3p-cardgroup{display:flex;flex-direction:column;gap:3px;flex:0 0 auto;}
+.mmh3p-editthumb{position:relative;line-height:0;}
+.mmh3p-editthumb .mmlp-mkoverlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
+.mmh3p-card.mmh3p-editsrc{border-color:#7a3d52 !important;}
+.mmh3p-editbadge{color:#e86a8a !important;}
+.mmh3p-editsrc .mmh3p-thumb{object-fit:contain;background:#000;}
+.mmh3p-card.mmh3p-editsrc{position:relative;}
+.mmh3p-maskmissing{position:absolute;right:3px;bottom:18px;color:#ffcf5a;text-shadow:0 0 3px #000;cursor:help;
+  font-size:calc(12px * var(--mmh3-fs, 1));}
 .mmh3p-cardgroupcards{display:flex;gap:6px;}
 .mmh3p-cardstrip{box-sizing:border-box;width:0;min-width:100%;font-size:calc(9px * var(--mmh3-fs, 1));
   color:#8a93a3;border:1px solid #2e3440;border-radius:4px;padding:0 5px;white-space:nowrap;
@@ -4110,7 +4123,7 @@ class Editor {
 
     // Right-click on a selection offers to save it. The browser's own menu
     // is only replaced when there IS a selection in one of our fields, and
-    // Copy is included so nothing is taken away.
+    // Copy, Cut, Paste and Remove are included so nothing is taken away.
     this.formEl.addEventListener("contextmenu", (e) => {
       const box = e.target;
       if (!box || typeof box.value !== "string") return;
@@ -4126,7 +4139,7 @@ class Editor {
       }
       if (b <= a) return;                       // no selection: native menu
       e.preventDefault();
-      this.openCtx(e.clientX, e.clientY, box.value.slice(a, b));
+      this.openCtx(e.clientX, e.clientY, box, a, b);
     });
     this.formEl.addEventListener("input", () => {
       this.updatePreview();
@@ -5784,7 +5797,7 @@ class Editor {
       const it = library.find((x) => x.visual?.file === file || x.audio?.file === file);
       const nm = String(it?.subject_name || "").trim();
       return { concept: it?.concept || "generic", subjectName: /^[A-Za-z][\w-]{0,39}$/.test(nm) ? nm : "",
-        appearance: oneLine(it?.appearance), voiceDesc: oneLine(it?.voice_description) };
+        appearance: oneLine(it?.appearance), voiceDesc: oneLine(it?.voice_description), retained: oneLine(it?.retained_attributes) };
     };
     // Group each RefMod's look and voice; a voice-only RefMod has no look.
     const mods = [];
@@ -5886,7 +5899,10 @@ class Editor {
         const looks = m.appearance.replace(/^with\s+/i, "");
         if (spec.subject && looks) text = text.replace(/\.\s*$/, "") + `, with ${looks}.`;
         r.subjectDefs.push({ text, role: null });
-        ensureRet(subj || m.look.tag, spec.marker, spec.note(ctx));
+        // Saved retained attributes close the retention note, as their own sentence.
+        let note = spec.note(ctx);
+        if (spec.subject && m.retained) note = `${note} ${m.retained.charAt(0).toUpperCase()}${m.retained.slice(1)}.`;
+        ensureRet(subj || m.look.tag, spec.marker, note);
         ensureTask(spec.task);
         added++;
       } else if (m.look) {
@@ -6166,6 +6182,12 @@ class Editor {
     return tile;
   }
 
+  /** The loader clip marked for editing, if any. */
+  editItem() {
+    const items = (this.bufferMode === "draft" ? this.draftView() : null) || loaderItems(this.node) || [];
+    return items.find((i) => i && i.edit && i.mask && i.enabled !== false) || null;
+  }
+
   refChips() {
     // Rebuilt every render, so the lookup is rebuilt with it rather than
     // holding elements that are no longer in the document.
@@ -6242,6 +6264,25 @@ class Editor {
               "\u266a\u2192V" + (s.note.match(/\d+/) || [""])[0])
           : null);
       if (s.item && s.panel) this.railReorder(card, s);
+      if (s.edit && s.kind === "Video") {
+        const it = this.editItem();
+        const thumb = card.querySelector("video.mmh3p-thumb");
+        const sprite = it?.mask_info?.sprite;
+        if (thumb && sprite && overlayOn()) {
+          const wrap = el("div", { class: "mmh3p-editthumb" });
+          thumb.replaceWith(wrap);
+          wrap.append(thumb);
+          maskOverlay(thumb, wrap, sprite, "contain", { append: true, look: itemLook(it), onMissing: () => card.append(
+            el("span", { class: "mmh3p-maskmissing", title: "This clip's mask files are missing: mask it again in " +
+              "the Media Loader, or clear its mask. The next run stops with an error until you do." }, "\u26a0")) })
+            .mirror(!!it.mirror);
+        }
+        card.classList.add("mmh3p-editsrc");
+        card.title = `${s.tag} is the clip being edited: only its masked area is regenerated. Cite it the way ` +
+          `H3's editing prompts do: "${s.tag} is the source video for the target video edit." and ` +
+          `"The target video is an edited version of ${s.tag}."`;
+        card.append(el("span", { class: "mmh3p-cardbadge mmh3p-editbadge" }, "\u25d0"));
+      }
       if (s.refmod) {
         card.classList.add("refmod");
         card.append(el("span", { class: "mmh3p-cardbadge", title: `From the RefMod \u201c${s.refmod.name}\u201d` }, "\u25c8"));
@@ -6707,8 +6748,9 @@ class Editor {
     this._ctxMenu = null;
   }
 
-  openCtx(x, y, text) {
+  openCtx(x, y, box, a, b) {
     this.closeCtx();
+    const text = box.value.slice(a, b);
     const item = (label, fn) => el("div", { class: "mmh3p-ctxitem",
       onclick: () => { this.closeCtx(); fn(); } }, label);
     const menu = el("div", { class: "mmh3p-ctxmenu" },
@@ -6716,7 +6758,20 @@ class Editor {
       item("Copy", async () => {
         const ok = await copyText(text);
         if (!ok) toast("Couldn't reach the clipboard", 4000);
-      }));
+      }),
+      item("Cut", async () => {
+        if (await copyText(text)) editField(box, a, b, "");
+        else toast("Couldn't reach the clipboard", 4000);
+      }),
+      item("Paste", async () => {
+        // Pages may only read the clipboard on https or localhost, and the
+        // browser can ask first; Ctrl+V works everywhere.
+        let clip = "";
+        try { clip = await navigator.clipboard.readText(); } catch (e) { /* not allowed here */ }
+        if (clip) editField(box, a, b, clip);
+        else toast("Couldn't read text from the clipboard \u2014 press Ctrl+V instead", 4500);
+      }),
+      item("Remove", () => editField(box, a, b, "")));
     document.body.append(menu);
     // Keep it on screen when the click lands near an edge.
     const r = menu.getBoundingClientRect();
@@ -7910,8 +7965,19 @@ class Editor {
 
     const rank = { error: 0, warn: 1, info: 2 };
     const icon = { error: "\u26d4 ", warn: "\u26a0 ", info: "\u2139 " };
-    const issues = validate(this.state, this.slots)
-      .sort((a, b) => rank[a.level] - rank[b.level]);
+    const issues = validate(this.state, this.slots);
+    if (this.state.mode === "REF") {
+      const edit = this.editItem();
+      if (!edit && this.state.ref.summaryTypes.includes("video editing"))
+        issues.push({ level: "warn", msg: "\u201cvideo editing\u201d is ticked but no clip has a mask, so the whole " +
+          "video will be regenerated. Mask the clip in the Media Loader (right-click \u2192 Mask for editing)." });
+      const cost = edit ? Math.round(refTokenEstimate(edit)) : 0;
+      if (cost > 30000)
+        issues.push({ level: "warn", msg: `Citing the clip being edited adds about ${cost.toLocaleString()} ` +
+          "reference tokens to every sampling step. Trim it, or turn on crop to mask in its mask settings to cite only " +
+          "the area around the mask." });
+    }
+    issues.sort((a, b) => rank[a.level] - rank[b.level]);
     this.issuesEl.replaceChildren(...(issues.length
       ? issues.map((i) => el("div", { class: i.level }, icon[i.level] + i.msg))
       : [el("div", { class: "ok" }, "\u2713 No issues found")]));
