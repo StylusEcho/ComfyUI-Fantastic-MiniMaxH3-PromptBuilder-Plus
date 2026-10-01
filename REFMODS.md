@@ -249,7 +249,8 @@ it. A page reload starts clean.
 ## Saving and organising
 
 Everything you create is saved automatically. Open **Browse library…** to
-see it all.
+see it all. **⚙** at the library's top right, beside Close, sets its window and text
+size, and it's remembered for next time.
 
 ![A RefMod's details panel](docs/refmods/04-details.png)
 
@@ -496,8 +497,9 @@ if a label is sent but never used.
 You can use **loaded media** and RefMods together. Media from Prompt
 Studio's panel is numbered first, then the RefMods after it. So one picture
 in the panel plus a RefMod gives you `<Picture 1>` from the panel, then
-`<Video 1>` and `<Audio 1>` from the RefMod. The editor's chips always show
-the real numbers, so go by those.
+`<Video 1>` and `<Audio 1>` from the RefMod. The editor's chips and the
+RefMods cards both show the real numbers, so go by those. (A RefMod Stack's
+`labels` output counts the RefMods alone.)
 
 **◈ RefMods** in the editor's header wires the `mods` half through for you.
 
@@ -557,6 +559,7 @@ are the same format both ways: RefMods made here load in that pack, and
 its RefMods load here. That includes the single-file **bundles** its
 0.2.6 release can save: they show up in the library with a *bundle* badge,
 using the first look and first voice inside, and can be used and inspected
-here but not edited. The library's layout took cues from FranckyB's
+here. Editing one saves a copy as standalone files and leaves the bundle as
+it is. The library's layout took cues from FranckyB's
 [ComfyUI-H3RefMods](https://github.com/FranckyB/ComfyUI-H3RefMods).
 

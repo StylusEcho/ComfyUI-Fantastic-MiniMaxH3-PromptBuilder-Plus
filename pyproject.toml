@@ -53,7 +53,12 @@ name = "fantastic-minimax-h3-promptstudio"
 # is remapped to them on load when that pack is installed; without it they
 # show as missing — hence the major version. The node's Media | RefMods tabs
 # became a ◈ swap button.
-version = "3.0.0"
+# 3.1.0 folds in upstream 1.8.1: a custom long edge in the trim editor's
+# size menu, mask-preview fixes, RefMod cards numbered after Prompt Studio's
+# media, the library's own size control, and editing ComfyUI-MiniMaxH3Mod
+# bundles as copies (through the original pack's Edit node, 1.8.1+) — no
+# breakage of saved workflows.
+version = "3.1.0"
 description = "MiniMax H3 Prompt Studio: a single guided prompt-writing and reference-media node for the H3 video model, with live checking against MiniMax's prompt guide."
 license = { file = "LICENSE" }
 requires-python = ">=3.9"

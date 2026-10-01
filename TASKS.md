@@ -1493,3 +1493,28 @@ when hiding, makes it a mouse-over caption for the respective section.
     - Headless tests rewritten for the button (initial state, swap, swap back,
       counts on both buttons, docked-window count); Chromium screenshots of
       both views.
+
+93. 🟩 bring in the latest upstream changes (1.8.1, `6ba5971..01b6d8d`)
+    - Merged with the namespace normaliser updated for 3.0.0: it no longer
+      renames node IDs, since this pack now uses the original pack's as-is.
+      Loss audit: every upstream-added line absent from the result is a
+      deliberate substitution.
+    - Upstream's changes to `refmod_edit.py` and `refmod_nodes.py` (the Edit
+      node's bundle copies, `stack_pictures_n`) stay out: those files were
+      deleted in 3.0.0, and the changes reach users through the original
+      pack's own nodes. README/REFMODS now ask for that pack at 1.8.1+.
+    - **RefMod card numbering adapted to Prompt Studio.** Upstream numbers a
+      stack's cards after the Media Loader feeding the Text Encode; here that
+      media is usually Prompt Studio's own panel, so `mediaBefore()` accepts
+      it too. Upstream's rewire hook is ported to Prompt Studio's
+      `onConnectionsChange` and to a small connection-only extension on the
+      Text Encode types. New `labels.mjs` (4 checks): unwired counts from 1;
+      wired, two pictures in the panel put Ann at `<Picture 3>`; the card
+      text says so; a media change redraws it. Without the adaptation the
+      second check reads `<Picture 1>`.
+    - The library's new "⤡ Size" is a bare ⚙, last beside Close (item 54's
+      rule).
+    - Custom long edge in the trim editor, mask-preview fixes: auto-merged;
+      custom size checked in Chromium (option listed, box appears, 1500
+      applied).
+    - pyproject 3.1.0; publish changelog rewritten for this release.

@@ -51,6 +51,32 @@ any frame straight out of a video into your picture references.*
 
 ---
 
+## What's new in 3.1.0
+
+Folds in the original pack's 1.8.1. No breakage of saved workflows; RefMods
+and masked editing want **the original pack at 1.8.1 or newer** alongside,
+since several of these changes are in its nodes.
+
+- **Custom size.** The trim and crop editor's size menu has **custom…**:
+  type any long edge, applied with Apply like the presets.
+- **Mask preview fixes.** The overlay redraws when you change the size or
+  the crop, and no longer draws grow and the regenerated cells too large on
+  a cropped clip. The edit itself was always right.
+- **RefMod cards number after the media.** The RefMods panel and a RefMod
+  Stack's cards now number RefMods after the media the Text Encode is fed —
+  Prompt Studio's own panel included — as the Text Encode will. Before, the
+  cards counted from 1 even when the media came first; the editor's chips
+  were already right.
+- **Library size.** The RefMod library has its own window and text size,
+  under a **⚙** beside its Close (upstream labels it ⤡ Size; this pack keeps
+  one bare gear per window).
+- **Edit bundles as copies.** RefMod bundles from ComfyUI-MiniMaxH3Mod 0.2.6+
+  open in **Edit frames & voice**; the result is saved as standalone copies
+  and the bundle is left as it is.
+- **In the original pack's Text Encode:** `stack_pictures` "up to 8" is now
+  **up to N**, with **stack_pictures_n** setting N (8 by default). A workflow
+  saved with "up to 8" needs it picked again.
+
 ## What's new in 3.0.0
 
 **One node again.** This pack installs only **MiniMax H3 Prompt Studio**.
@@ -672,8 +698,8 @@ Highlights:
 - **ComfyUI 0.30.0 or newer** — this is when H3 support landed.
 - **The MiniMax H3 models.** Use the `fl2va` checkpoint for text and keyframe
   work, `ref2va` for reference mode. ComfyUI's own H3 templates will set you up.
-- **[The original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)**,
-  for RefMods and masked editing — see [What you get](#what-you-get). The
+- **[The original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)**
+  1.8.1 or newer, for RefMods and masked editing — see [What you get](#what-you-get). The
   prompt editor and the media panel work without it.
 - **PyAV** — used for video and audio decoding. ComfyUI itself requires PyAV,
   so every working install already has it; the node checks at startup and
@@ -1386,7 +1412,8 @@ other reference — tagged, taggable, and saved with presets.*
 
 **Pictures get the same treatment.** The ▣ button on a picture tile opens the
 editor with the rotate, crop and mirror tools — no timeline, since there's nothing
-to trim. The **size** dropdown caps the long edge of what's actually sent. Videos have
+to trim. The **size** dropdown caps the long edge of what's actually sent, from a
+preset or **custom…** for any long edge you type. Videos have
 the same control in their ✂ editor, where it matters more — a cap saves that
 memory on *every frame*, so a 15-second clip capped at 1280 px costs a fraction
 of the same clip at 4K. Both default to full — media is only resized when you
@@ -1865,7 +1892,8 @@ prompt.
 The stack is a grid of twelve slots, two to a row, and it never resizes
 itself: adding or removing RefMods fills or empties slots, and only
 **⤢ Size** or the resize handle changes the node. Click an empty slot to
-open the library.
+open the library; its own **⚙**, beside its Close, sets the library's
+window and text size.
 
 Each card shows the RefMod's thumbnail and name, an on/off switch, **⋯**
 and **×**, and a slider per channel labelled with the tag it will get —
@@ -1924,8 +1952,9 @@ same settings); RefMods keep the size they were saved at. A clip is shown
 to the encoder at two frames a second, as the native node samples video.
 For a RefMod made from several pictures, `stack_pictures` (experimental)
 sets how many of them the encoder sees: every 4th (the default and the
-fewest tokens), up to 8, or all. More may help lock in identity and reduce
-bleed between RefMods, but what the encoder sees rides through every
+fewest tokens), up to N (set by `stack_pictures_n`, default 8), or all. More
+may help lock in identity and reduce bleed between RefMods, but what the
+encoder sees rides through every
 sampling step, so it costs memory and generation time. Connect its
 conditioning straight to the sampler — it has already attached the
 references — and its `latent` output is the empty AV latent to sample
@@ -1933,9 +1962,12 @@ from, so no separate Empty Latent node is needed. The editor shows the same
 labels on its reference chips, media and RefMods together, groups a pick's
 copies under its first label (citing `<Picture 1>` is enough when 1–3 are
 the same file), and warns when the prompt cites a label the stack doesn't
-send. The stack's `labels` output carries the same map as text, and its
-optional `mods` input appends to another stack or loader, whose entries are
-numbered first.
+send. The cards number RefMods after the media the Text Encode is fed —
+Prompt Studio's own panel, or the original pack's Media Loader — as the
+Text Encode will; a stack's
+`labels` output lists the RefMods alone, counted from 1. Its optional
+`mods` input appends to another stack or loader, whose entries are numbered
+first.
 
 `voice_description_at_label` (off by default) doesn't change whether your
 voices are used — they always are. On, each voice RefMod's saved Voice
@@ -1954,8 +1986,9 @@ the visual file; they load with the visual half only and are marked
 single-file **bundles** (format version 5, several references in one file)
 are listed with a *bundle* badge and addressed as `name#index`; the first
 look and first voice inside become the card's channels. They can be picked,
-inspected, renamed, described and deleted here, but not edited — use that
-pack's Save H3 RefMods node to split one into standalone files first.
+inspected, renamed, described and deleted here. **Edit frames & voice** saves
+a bundle's changes as a copy in standalone files and leaves the bundle as
+that pack wrote it.
 
 ---
 

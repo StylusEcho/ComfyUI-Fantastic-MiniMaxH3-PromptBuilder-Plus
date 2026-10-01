@@ -16,7 +16,7 @@ import {
   openEditor, openQuickEdit, updateSummary, promptFields, hideWidget, el,
   injectCSS, restoreDraftFlag,
 } from "./promptbuilder.js";
-import { StackPanel, readStack, openStackModal } from "./refmodstack.js";
+import { StackPanel, readStack, openStackModal, refreshStackLabels } from "./refmodstack.js";
 
 // Logged at module scope: if this line is missing from the console the file
 // never loaded (or one of its imports threw), which is a very different fault
@@ -352,6 +352,16 @@ app.registerExtension({
     nodeType.prototype.onRemoved = function () {
       try { this._mmrPanel?.destroy(); } catch (e) { /* nothing to undo */ }
       return onRemoved?.apply(this, arguments);
+    };
+
+    // RefMods are numbered after the media the Text Encode is fed, so a
+    // rewire of this node's references or mods can move every stack's labels
+    // (upstream does the same from its Prompt Builder).
+    const onConnectionsChange = nodeType.prototype.onConnectionsChange;
+    nodeType.prototype.onConnectionsChange = function () {
+      const r = onConnectionsChange?.apply(this, arguments);
+      setTimeout(() => { try { refreshStackLabels(); } catch (e) { /* cosmetic */ } }, 0);
+      return r;
     };
 
     const onDblClick = nodeType.prototype.onDblClick;

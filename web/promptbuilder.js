@@ -14,7 +14,7 @@ import { LOADER_NAME, STUDIO_NAME, computeTags, viewURL as loaderViewURL,
 } from "./medialoader.js";
 import { STACK_NAME, STACK_NAMES, ENCODE_NAMES, readStack, deriveEntries, labelGroups,
   rangeText as refmodRange, previewURL as refmodPreviewURL, KIND as REFMOD_KIND,
-  openStackModal } from "./refmodstack.js";
+  openStackModal, refreshStackLabels } from "./refmodstack.js";
 
 // The node this editor is mounted on. Upstream names its own builder here;
 // in this pack the prompt and the media panel are the one Prompt Studio node,

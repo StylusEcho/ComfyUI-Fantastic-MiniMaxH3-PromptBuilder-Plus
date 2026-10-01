@@ -6,7 +6,7 @@
  */
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { postApi, STUDIO_NAME, originalNodeMissing, viewURL, openCropEditor, keepNameChars, outputTargets, setterOf,
+import { postApi, STUDIO_NAME, LOADER_NAME, computeTags, originalNodeMissing, viewURL, openCropEditor, keepNameChars, outputTargets, setterOf,
          clampScale, SCALE_MIN, SCALE_MAX, TEXT_SCALE_MAX } from "./medialoader.js";
 
 // This pack installs one node, Prompt Studio, with its own RefMods tab. The
@@ -20,6 +20,8 @@ export const STACK_NAME = "MiniMaxH3RefModStack";
 // pack registered before 3.0.0 (a workflow saved then is remapped on load
 // when the original pack is installed; see promptstudio.js).
 export const STACK_NAMES = new Set([STACK_NAME, "MiniMaxH3StudioRefModStack"]);
+// The original pack's Prompt Builder, which a chain can pass through.
+const BUILDER_NAME = "MiniMaxH3PromptBuilder";
 // Every Text Encode whose bundle this builder can drive and label from: the
 // original pack's, this pack's pre-3.0.0 copy of it, and
 // ComfyUI-MiniMaxH3Mod's `MiniMaxH3RefModTextEncode` — all number and label
@@ -49,18 +51,67 @@ const SLOTS = 12;
 const NODE_W = 600;
 const PANEL_H = 620;
 
-/* Node and text scale, remembered per user like the Media Loader's. */
+/* Node, library window and text scale, remembered per user like the Media Loader's. */
 const STACK_SCALE_KEY = "mmh3.stackScale";
+const LIBRARY_SCALE_KEY = "mmh3.libraryScale";
 
-function loadStackScale() {
+/** The stored scale under `key`: { [size]: factor, text: factor }, where
+ *  `size` is "node" for the stack and "window" for the library. */
+function loadScale(key, size) {
   try {
-    const v = JSON.parse(localStorage.getItem(STACK_SCALE_KEY) || "{}");
-    return { node: clampScale(v.node ?? 1), text: clampScale(v.text ?? 1, TEXT_SCALE_MAX) };
-  } catch (e) { return { node: 1, text: 1 }; }
+    const v = JSON.parse(localStorage.getItem(key) || "{}");
+    return { [size]: clampScale(v[size] ?? 1), text: clampScale(v.text ?? 1, TEXT_SCALE_MAX) };
+  } catch (e) { return { [size]: 1, text: 1 }; }
 }
 
-function saveStackScale(prefs) {
-  try { localStorage.setItem(STACK_SCALE_KEY, JSON.stringify(prefs)); } catch (e) { /* private mode */ }
+function saveScale(key, prefs) {
+  try { localStorage.setItem(key, JSON.stringify(prefs)); } catch (e) { /* private mode */ }
+}
+
+/** The popover under a ⤡ Size button: a size slider and a text-size slider.
+ *  Sliders and typed numbers set pending values, and nothing moves until
+ *  Apply or Reset. `prefs` holds the applied values under `size` and
+ *  `text`; `commit(s, t)` saves and applies them. */
+function sizeMenu(prefs, size, sizeLabel, note, commit) {
+  const pending = { [size]: prefs[size], text: prefs.text };
+  const inputs = {}, outs = {};
+  const dirty = () => applyBtn.classList.toggle("primary", pending[size] !== prefs[size] || pending.text !== prefs.text);
+  const maxFor = (key) => key === "text" ? TEXT_SCALE_MAX : SCALE_MAX;
+  const slider = (key, label) => {
+    const out = el("input", { type: "number", class: "mmrp-scaleval",
+      min: String(Math.round(SCALE_MIN * 100)), max: String(Math.round(maxFor(key) * 100)), step: "5",
+      value: String(Math.round(pending[key] * 100)),
+      onchange: (e) => {
+        pending[key] = clampScale(Number(e.target.value) / 100, maxFor(key));
+        const shown = Math.round(pending[key] * 100);
+        e.target.value = String(shown); input.value = String(shown); dirty();
+      },
+      onkeydown: (e) => { if (e.key === "Enter") e.target.blur(); } });
+    const input = el("input", { type: "range", class: "mmrp-scalerange",
+      min: String(Math.round(SCALE_MIN * 100)), max: String(Math.round(maxFor(key) * 100)), step: "5",
+      value: String(Math.round(pending[key] * 100)),
+      oninput: (e) => {
+        pending[key] = clampScale(Number(e.target.value) / 100, maxFor(key));
+        out.value = String(Math.round(pending[key] * 100)); dirty();
+      } });
+    inputs[key] = input; outs[key] = out;
+    return el("label", { class: "mmrp-scalerow" }, el("span", { class: "mmrp-scalelabel" }, label), input, out,
+      el("span", { class: "mmrp-scalepct" }, "%"));
+  };
+  const set = (s, t) => {
+    prefs[size] = s; prefs.text = t; pending[size] = s; pending.text = t;
+    inputs[size].value = outs[size].value = String(Math.round(s * 100));
+    inputs.text.value = outs.text.value = String(Math.round(t * 100));
+    commit(s, t);
+    applyBtn.classList.remove("primary");
+  };
+  const applyBtn = el("button", { class: "mmrp-btn mmrp-sm", onclick: (e) => { e.stopPropagation(); set(pending[size], pending.text); } }, "Apply");
+  return el("div", { class: "mmrp-scalemenu", onmousedown: (e) => e.stopPropagation() },
+    slider(size, sizeLabel), slider("text", "Text size"),
+    el("div", { class: "mmrp-scalefoot" },
+      el("span", {}, note),
+      el("button", { class: "mmrp-btn mmrp-sm", onclick: (e) => { e.stopPropagation(); set(1, 1); } }, "Reset"),
+      applyBtn));
 }
 
 /** Size the node to a scale factor. With growOnly (workflow load) a node
@@ -102,7 +153,7 @@ function applyStackText(panel, factor) {
 }
 
 function applyStoredStackScale(node, { force = false } = {}) {
-  const sp = loadStackScale();
+  const sp = loadScale(STACK_SCALE_KEY, "node");
   applyStackText(node._mmrPanel, sp.text);
   applyStackSize(node, sp.node, { growOnly: !force });
 }
@@ -153,6 +204,41 @@ function chainOf(node) {
     cur = next;
   }
   return { up, down, partial };
+}
+
+/** How many labels of each kind Text Encode gives the reference media, which
+ *  it numbers before any RefMod: the media on the references input of the
+ *  Text Encode this chain feeds, directly or through a Prompt Builder. That
+ *  media is usually a Prompt Studio's own panel (here the chain also ends at
+ *  a Prompt Studio, whose RefMods follow everything wired into its mods);
+ *  the original pack's Media Loader counts the same way. */
+function mediaBefore(node, chain) {
+  const counts = { image: 0, video: 0, audio: 0 };
+  const modsOut = (n) => (n.outputs || []).findIndex((o) => o.name === "mods");
+  const refsIn = (n) => (n.inputs || []).findIndex((x) => x.name === "references");
+  const last = chain.down.length ? chain.down[chain.down.length - 1] : node;
+  const enc = outputTargets(last, modsOut(last))
+    .flatMap((t) => t.type === BUILDER_NAME ? outputTargets(t, modsOut(t)) : [t])
+    .find((t) => ENCODE_NAMES.has(t.type));
+  let src = enc && refsIn(enc) >= 0 ? inputOrigin(enc, refsIn(enc)) : null;
+  if (src?.type === BUILDER_NAME) src = refsIn(src) >= 0 ? inputOrigin(src, refsIn(src)) : null;
+  if (src?.type !== LOADER_NAME && src?.type !== STUDIO_NAME) return counts;
+  let items;
+  try { items = JSON.parse(src.widgets?.find((w) => w.name === "media_state")?.value || "[]"); } catch (e) { return counts; }
+  const { tags, extra } = computeTags(items);
+  for (const t of [...tags.values(), ...extra.values()]) {
+    const [, label, n] = t.match(/<(\w+) (\d+)>/);
+    const kind = label === "Picture" ? "image" : label.toLowerCase();
+    counts[kind] = Math.max(counts[kind], +n);
+  }
+  return counts;
+}
+
+/** Redraw the stacks whose labels moved because loader media or wiring changed. */
+export function refreshStackLabels() {
+  for (const p of StackPanel.all) {
+    if (p.root.isConnected && JSON.stringify(mediaBefore(p.node, p.chain())) !== p._mediaKey) p.render();
+  }
 }
 
 /* Presets: a saved stack. */
@@ -721,7 +807,7 @@ export class StackPanel {
       this.closePop(); this.closeScaleMenu(); this.closePresetMenu();
     };
     window.addEventListener("pointerdown", this._outside, true);
-    if (!embedded) applyStackText(this, loadStackScale().text);
+    if (!embedded) applyStackText(this, loadScale(STACK_SCALE_KEY, "node").text);
     StackPanel.all.add(this);
     if (renumbered) this.write();
     this.render();
@@ -803,16 +889,16 @@ export class StackPanel {
 
   chain() { return chainOf(this.node); }
 
-  /** Every entry Text Encode will see, numbered in send order: upstream
-   *  stacks first (from = their position in the chain), then this node's
-   *  own picks (from = 0). */
-  allGroups(chain = this.chain()) {
+  /** Every entry Text Encode will see, numbered in send order after the
+   *  loader media it labels first: upstream stacks (from = their position in
+   *  the chain), then this node's own picks (from = 0). */
+  allGroups(chain = this.chain(), start = mediaBefore(this.node, chain)) {
     const entries = [];
     chain.up.forEach((st, i) => {
       for (const e of deriveEntries(readStack(st).picks)) entries.push({ ...e, from: i + 1 });
     });
     for (const e of deriveEntries(this.state.picks)) entries.push({ ...e, from: 0 });
-    return labelGroups(entries);
+    return labelGroups(entries).map((g) => ({ ...g, nums: g.nums.map((n) => n + start[g.kind]) }));
   }
 
   groups() { return this.allGroups().filter((g) => g.from === 0); }
@@ -822,7 +908,9 @@ export class StackPanel {
   render() {
     const { picks, budget } = this.state;
     const chain = this.chain();
-    const all = this.allGroups(chain);
+    const start = mediaBefore(this.node, chain);
+    this._mediaKey = JSON.stringify(start);
+    const all = this.allGroups(chain, start);
     const own = all.filter((g) => g.from === 0);
     const tokens = own.reduce((n, g) => n + g.strengths.length * g.tokens, 0);
     this.closePop();
@@ -1177,48 +1265,13 @@ export class StackPanel {
   /* ---- node and text size, remembered per user like the Media Loader's */
 
   scaleControl() {
-    const prefs = this.scalePrefs || (this.scalePrefs = loadStackScale());
-    const pending = { node: prefs.node, text: prefs.text };
-    const inputs = {}, outs = {};
-    const dirty = () => applyBtn.classList.toggle("primary", pending.node !== prefs.node || pending.text !== prefs.text);
-    const maxFor = (key) => key === "text" ? TEXT_SCALE_MAX : SCALE_MAX;
-    const slider = (key, label) => {
-      const out = el("input", { type: "number", class: "mmrp-scaleval",
-        min: String(Math.round(SCALE_MIN * 100)), max: String(Math.round(maxFor(key) * 100)), step: "5",
-        value: String(Math.round(pending[key] * 100)),
-        onchange: (e) => {
-          pending[key] = clampScale(Number(e.target.value) / 100, maxFor(key));
-          const shown = Math.round(pending[key] * 100);
-          e.target.value = String(shown); input.value = String(shown); dirty();
-        },
-        onkeydown: (e) => { if (e.key === "Enter") e.target.blur(); } });
-      const input = el("input", { type: "range", class: "mmrp-scalerange",
-        min: String(Math.round(SCALE_MIN * 100)), max: String(Math.round(maxFor(key) * 100)), step: "5",
-        value: String(Math.round(pending[key] * 100)),
-        oninput: (e) => {
-          pending[key] = clampScale(Number(e.target.value) / 100, maxFor(key));
-          out.value = String(Math.round(pending[key] * 100)); dirty();
-        } });
-      inputs[key] = input; outs[key] = out;
-      return el("label", { class: "mmrp-scalerow" }, el("span", { class: "mmrp-scalelabel" }, label), input, out,
-        el("span", { class: "mmrp-scalepct" }, "%"));
-    };
-    const commit = (n, t) => {
-      prefs.node = n; prefs.text = t; pending.node = n; pending.text = t;
-      inputs.node.value = outs.node.value = String(Math.round(n * 100));
-      inputs.text.value = outs.text.value = String(Math.round(t * 100));
-      saveStackScale(prefs);
-      applyStackText(this, t);
-      applyStackSize(this.node, n);        // last: this moves the popover
-      applyBtn.classList.remove("primary");
-    };
-    const applyBtn = el("button", { class: "mmrp-btn mmrp-sm", onclick: (e) => { e.stopPropagation(); commit(pending.node, pending.text); } }, "Apply");
-    const menu = el("div", { class: "mmrp-scalemenu", onmousedown: (e) => e.stopPropagation() },
-      slider("node", "Node size"), slider("text", "Text size"),
-      el("div", { class: "mmrp-scalefoot" },
-        el("span", {}, "Remembered for new nodes. Adding RefMods never resizes the node."),
-        el("button", { class: "mmrp-btn mmrp-sm", onclick: (e) => { e.stopPropagation(); commit(1, 1); } }, "Reset"),
-        applyBtn));
+    const prefs = this.scalePrefs || (this.scalePrefs = loadScale(STACK_SCALE_KEY, "node"));
+    const menu = sizeMenu(prefs, "node", "Node size", "Remembered for new nodes. Adding RefMods never resizes the node.",
+      (n, t) => {
+        saveScale(STACK_SCALE_KEY, prefs);
+        applyStackText(this, t);
+        applyStackSize(this.node, n);        // last: this moves the popover
+      });
     const btn = el("button", { class: "mmrp-btn mmrp-sm", title: "Node and text size",
       onclick: (e) => { e.stopPropagation(); const open = menu.classList.toggle("on"); btn.classList.toggle("on", open); } },
       "⤡ Size");
@@ -1462,6 +1515,7 @@ export class StackPanel {
 }
 StackPanel.seq = 0;
 StackPanel.all = new Set();
+window.addEventListener("mmlp-media-changed", refreshStackLabels);
 
 /* ---------------------------------------------------------- library */
 
@@ -1806,19 +1860,33 @@ export function openLibrary(panel, opts = {}) {
   window.addEventListener("keydown", onKey);
   const libraryPane = el("div", { class: "mmrp-pane" });
   const createPane = el("div", { class: "mmrp-pane" });
-  const overlay = el("div", { class: "mmrp-overlay", onmousedown: (e) => { if (e.target === overlay) close(); } },
-    el("div", { class: "mmrp-modal", role: "dialog", "aria-label": "RefMod library" },
-      el("div", { class: "mmrp-head" }, el("strong", {}, "RefMod library"), summary, tabs, el("span", { class: "mmrp-grow" }),
-        el("button", { class: "mmrp-btn", onclick: () => load(true) }, "Refresh"),
-        el("button", { class: "mmrp-btn", onclick: close }, "Close")),
-      libraryPane, createPane));
+  // The library's own window and text size; its text size wins over the Prompt Builder's inside it.
+  const scale = loadScale(LIBRARY_SCALE_KEY, "window");
+  const scaleMenu = sizeMenu(scale, "window", "Window size", "Remembered for the library",
+    () => { saveScale(LIBRARY_SCALE_KEY, scale); applyScale(); });
+  const scaleBtn = el("button", { class: "mmrp-btn", title: "Window and text size",
+    onclick: (e) => { e.stopPropagation(); scaleBtn.classList.toggle("on", scaleMenu.classList.toggle("on")); } }, "\u2699");
+  const modal = el("div", { class: "mmrp-modal", role: "dialog", "aria-label": "RefMod library",
+      onmousedown: (e) => { if (!e.target.closest(".mmrp-scalewrap")) { scaleMenu.classList.remove("on"); scaleBtn.classList.remove("on"); } } },
+    el("div", { class: "mmrp-head" }, el("strong", {}, "RefMod library"), summary, tabs, el("span", { class: "mmrp-grow" }),
+      el("button", { class: "mmrp-btn", onclick: () => load(true) }, "Refresh"),
+      // This pack's rule for every window: a bare ⚙, last, beside the close.
+      el("span", { class: "mmrp-scalewrap" }, scaleBtn, scaleMenu),
+      el("button", { class: "mmrp-btn", onclick: close }, "Close")),
+    libraryPane, createPane);
+  const applyScale = () => {
+    modal.style.width = `min(${Math.round(1100 * scale.window)}px, 95vw)`;
+    modal.style.height = `min(${Math.round(760 * scale.window)}px, 92vh)`;
+    modal.style.setProperty("--mmh3-fs", String(scale.text));
+  };
+  applyScale();
+  const overlay = el("div", { class: "mmrp-overlay", onmousedown: (e) => { if (e.target === overlay) close(); } }, modal);
   document.body.append(overlay);
   overlay.addEventListener("scroll", hidePeek, true);
 
   // Files dropped anywhere on the dialog, or on the dimmed page around it,
   // go to the Create tab. Taking the event here also stops the browser from
   // opening the file and ComfyUI from reading a PNG as a workflow.
-  const modal = overlay.firstChild;
   const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
   let dragDepth = 0;
   const setDropping = (on) => modal.classList.toggle("dropping", on);
@@ -1922,7 +1990,7 @@ export function openLibrary(panel, opts = {}) {
     if (it.paired) b.push(el("span", { class: "mmrp-b pair" }, "pair"));
     if (it.subject_name) b.push(el("span", { class: "mmrp-b", title: "Subject name used in prompts" }, `name \u00b7 ${it.subject_name}`));
     if (it.bundle) b.push(el("span", { class: "mmrp-b pair", title: "A single-file bundle made by ComfyUI-MiniMaxH3Mod. " +
-      "Its first look and first voice are used here; it can be inspected but not edited in this library." },
+      "Its first look and first voice are used here. Editing it saves a copy; the bundle itself isn't changed." },
       `bundle · ${it.bundle} member${it.bundle === 1 ? "" : "s"}`));
     if (it.visual) b.push(el("span", { class: "mmrp-b",
       title: it.visual.mode === "encode"
@@ -2124,17 +2192,18 @@ export function openLibrary(panel, opts = {}) {
         "Strength", slider, sval),
       btn, box,
       it.bundle
-        ? el("div", { class: "mmrp-dim mmrp-isub" }, "A single-file bundle from ComfyUI-MiniMaxH3Mod: usable and inspectable here, " +
-            "but edit it with that pack (or save its members as standalone files there first).")
-        : el("div", { class: "mmrp-iactions" },
-            el("button", { class: "mmrp-btn primary", title: "Drop, reorder or add frames and change the voice on the Create tab",
-              onclick: () => startEdit(it) }, "Edit frames & voice…"),
-            needsFrames(it) ? el("button", { class: "mmrp-btn", disabled: framesPending(it.name), title: FRAMES_TIP,
-              onclick: async (e) => {
-                const b = e.currentTarget; b.disabled = true;
-                if (await storeFrames([it])) b.textContent = "Storing encoder frames…"; else b.disabled = false;
-              } },
-              framesPending(it.name) ? "Storing encoder frames…" : "Store encoder frames") : null));
+        ? el("div", { class: "mmrp-dim mmrp-isub" }, "A single-file bundle from ComfyUI-MiniMaxH3Mod. Editing it saves a copy " +
+            "as standalone files; the bundle itself isn't changed.")
+        : null,
+      el("div", { class: "mmrp-iactions" },
+        el("button", { class: "mmrp-btn primary", title: "Drop, reorder or add frames and change the voice on the Create tab",
+          onclick: () => startEdit(it) }, "Edit frames & voice…"),
+        needsFrames(it) ? el("button", { class: "mmrp-btn", disabled: framesPending(it.name), title: FRAMES_TIP,
+          onclick: async (e) => {
+            const b = e.currentTarget; b.disabled = true;
+            if (await storeFrames([it])) b.textContent = "Storing encoder frames…"; else b.disabled = false;
+          } },
+          framesPending(it.name) ? "Storing encoder frames…" : "Store encoder frames") : null));
   }
 
   /* ---- encoder frames: RefMods saved before they carried the frames the
@@ -2341,7 +2410,7 @@ export function openLibrary(panel, opts = {}) {
     if (editing) cancelEdit(false);
     editing = { name: it.name, it, visual: it.visual, audio: it.audio, decoded: false, decodeError: "", subject: it.subject_name || "",
       appearance: it.appearance || "", voiceDesc: it.voice_description || "", retained: it.retained_attributes || "",
-      copy: false, copyName: `${it.label} copy` };
+      copy: !!it.bundle, copyName: `${it.label} copy` };      // a bundle is only ever saved as a copy
     // The file's own shape, in pixels: what new pictures are fitted to.
     let w = (it.visual?.w || 0) * 16, h = (it.visual?.h || 0) * 16;
     const first = String(it.visual?.source_shape || "").split("+")[0].trim().split("x");
@@ -2741,8 +2810,10 @@ export function openLibrary(panel, opts = {}) {
           el("span", { class: "mmrp-grow" }),
           el("button", { class: "mmrp-btn", onclick: () => cancelEdit() }, "Cancel")),
         el("div", { class: "mmrp-cbar" },
-          el("label", { class: "mmrp-inline", title: "Leave the original as it is and write the result as a new RefMod" },
-            el("input", { type: "checkbox", checked: editing.copy,
+          el("label", { class: "mmrp-inline", title: editing.it.bundle
+              ? "A bundle from ComfyUI-MiniMaxH3Mod is always saved as a copy: new standalone files, with the bundle left as it is"
+              : "Leave the original as it is and write the result as a new RefMod" },
+            el("input", { type: "checkbox", checked: editing.copy, disabled: !!editing.it.bundle,
               onchange: (e) => { editing.copy = e.target.checked; paintCreate(); } }), "Save as a copy"),
           editing.copy ? el("input", { class: "mmrp-search", value: editing.copyName, "aria-label": "Name for the copy",
             placeholder: "name for the copy", style: { flex: "1 1 160px" },
@@ -3292,3 +3363,20 @@ app.registerExtension({
 // No stack-node extension: this pack registers no RefMod Stack. The original
 // pack draws its own stack's panel; this file's StackPanel is Prompt
 // Studio's RefMods tab and the window openStackModal() opens on either.
+
+// Upstream hooks every Text Encode type so the stack cards' numbering
+// follows what feeds its references; this pack's panels (Prompt Studio's
+// RefMods, and the window openStackModal() opens) need the same. Only the
+// connection hook: the encode nodes themselves are the original pack's.
+app.registerExtension({
+  name: "MiniMaxH3Plus.RefModLabels",
+  beforeRegisterNodeDef(nodeType, nodeData) {
+    if (!ENCODE_NAMES.has(nodeData.name)) return;
+    const prev = nodeType.prototype.onConnectionsChange;
+    nodeType.prototype.onConnectionsChange = function () {
+      const r = prev?.apply(this, arguments);
+      setTimeout(refreshStackLabels, 0);
+      return r;
+    };
+  },
+});
