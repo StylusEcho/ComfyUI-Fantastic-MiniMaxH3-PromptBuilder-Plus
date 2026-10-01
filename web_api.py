@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import os
+import shutil
 import re
 import secrets
 import time
@@ -888,15 +889,46 @@ if PromptServer is not None and web is not None:
         except Exception as exc:
             return web.json_response({"error": f"delete failed: {exc}"}, status=500)
 
-    # Masks, their overlay sprites and saved edit/reference latents pile up
-    # as people re-mask and change settings. These list and delete them; the
-    # page decides which are unused and asks before deleting.
+    # Masks and their overlay sprites pile up as people re-mask. These list
+    # and delete them; the page decides which are unused and asks before
+    # deleting. Only this pack's own masks folder: saved edit/reference
+    # latents are written by the original pack's Text Encode, into its own
+    # folder, and its own Clean up looks after them.
     def _edit_file_dirs():
-        from . import latent_cache
         from .object_mask import SUBFOLDER as MASKS
         base = folder_paths.get_input_directory()
-        return {"mask": os.path.realpath(os.path.join(base, MASKS)),
-                "cache": os.path.realpath(os.path.join(base, latent_cache.SUBFOLDER))}
+        return {"mask": os.path.realpath(os.path.join(base, MASKS))}
+
+    def _adopt_layer_results(layers, masks):
+        """Copy Auto Mask results the original pack's Object Mask saved in its
+        own masks folder into this pack's, and point the layers at the copies.
+        The original pack's Clean up only knows its own nodes, so left there
+        they could be deleted while Prompt Studio still uses them. Names are
+        kept (they are already unique); an existing copy is reused."""
+        from .object_mask import SUBFOLDER as MASKS, UPSTREAM_SUBFOLDER
+        theirs = os.path.realpath(os.path.join(folder_paths.get_input_directory(), UPSTREAM_SUBFOLDER))
+
+        def adopt(annotated):
+            if not annotated:
+                return annotated
+            src = os.path.realpath(media_io.resolve(str(annotated)))
+            if os.path.dirname(src) != theirs:
+                return annotated
+            name = os.path.basename(src)
+            dst = os.path.join(masks, name)
+            if not os.path.isfile(dst):
+                os.makedirs(masks, exist_ok=True)
+                shutil.copy2(src, dst)
+            return f"{MASKS}/{name} [input]"
+
+        for layer in layers:
+            if not isinstance(layer, dict) or not layer.get("result"):
+                continue
+            layer["result"] = adopt(layer["result"])
+            sprite = (layer.get("result_info") or {}).get("sprite")
+            if isinstance(sprite, dict) and sprite.get("file"):
+                sprite["file"] = adopt(sprite["file"])
+        return layers
 
     def _saved_masks():
         """Mask files named in saved media presets and Prompt Builder drafts,
@@ -925,13 +957,18 @@ if PromptServer is not None and web is not None:
             if not isinstance(layers, list) or not layers or len(layers) > 64:
                 return web.json_response({"error": "expected 1 to 64 layers"}, status=400)
             masks = _edit_file_dirs()["mask"]
+            # Auto Mask results come from the original pack's Object Mask, in
+            # its masks folder; anything else must already be in this pack's.
+            theirs = os.path.realpath(os.path.join(folder_paths.get_input_directory(),
+                                                   object_mask.UPSTREAM_SUBFOLDER))
             for layer in layers:
                 result = layer.get("result") if isinstance(layer, dict) else None
-                if result and os.path.dirname(os.path.realpath(media_io.resolve(str(result)))) != masks:
+                if result and os.path.dirname(os.path.realpath(media_io.resolve(str(result)))) not in (masks, theirs):
                     return web.json_response({"error": "a layer names something that isn't a mask file"}, status=400)
+            layers = await asyncio.to_thread(_adopt_layer_results, layers, masks)
             info = await asyncio.to_thread(object_mask.compose_layers, str(body.get("clip") or ""), layers,
                                            float(body.get("start") or 0), float(body.get("end") or 0))
-            return web.json_response({"mask": info})
+            return web.json_response({"mask": info, "layers": layers})
         except ValueError as exc:
             return web.json_response({"error": str(exc)}, status=400)
         except Exception as exc:

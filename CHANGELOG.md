@@ -7,7 +7,7 @@ Every release of **ComfyUI Fantastic H3 Prompt Builder**, newest first. The
 > version numbers are upstream's (1.x), not this pack's (2.x). Where it says
 > Prompt Builder or Media Loader, this pack has the one Prompt Studio node.
 > This pack's own release notes, including what each 2.x folded in from
-> upstream, are in the [README](README.md#whats-new-in-290).
+> upstream, are in the [README](README.md#whats-new-in-300).
 
 ## 1.8.0
 

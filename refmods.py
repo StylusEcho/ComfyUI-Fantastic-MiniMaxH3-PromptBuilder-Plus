@@ -593,54 +593,10 @@ def build_stack(stack_state="{}", mods=None, label="RefMod Stack"):
     return (rows, labels)
 
 
-class MiniMaxH3StudioRefModStack:
-    CATEGORY = "conditioning/video_models"
-    DESCRIPTION = (
-        "Pick saved RefMods from a thumbnail library and send them as one "
-        "bundle. Prompt Studio has its own RefMods tab, so this node is only "
-        "needed to share one set across several prompts or to chain stacks: "
-        "wire its 'mods' into Prompt Studio's 'mods' and its entries come "
-        "first. Each pick has a weight per channel (look and voice): up to 1 "
-        "is strength, above 1 adds copies. 'labels' lists the <Picture n> / "
-        "<Video n> / <Audio n> names Text Encode will assign."
-    )
-    RETURN_TYPES = ("H3_REF_MODS", "STRING")
-    RETURN_NAMES = ("mods", "labels")
-    FUNCTION = "load"
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                # JSON written by the node's panel. Single-line for the same
-                # reason as the Media Loader's media_state.
-                "stack_state": ("STRING", {"multiline": False, "default": "{}"}),
-            },
-            "optional": {
-                "mods": ("H3_REF_MODS", {
-                    "tooltip": "Another stack or loader to append to. Its "
-                               "entries come first, so their labels keep "
-                               "their numbers."}),
-            },
-        }
-
-    @classmethod
-    def VALIDATE_INPUTS(cls, stack_state="{}"):
-        # Named parameter only: a **kwargs validator switches off ComfyUI's
-        # own min/max checks for the node's other inputs.
-        return validate_stack_state(stack_state)
-
-    @classmethod
-    def IS_CHANGED(cls, stack_state="{}", **kwargs):
-        # Re-run when a pick changes or a picked file is rewritten on disk.
-        return json.dumps(stack_stamps(stack_state), default=str)
-
-    def load(self, stack_state="{}", mods=None):
-        return build_stack(stack_state, mods, "MiniMaxH3StudioRefModStack")
-
-
-NODE_CLASS_MAPPINGS = {"MiniMaxH3StudioRefModStack": MiniMaxH3StudioRefModStack}
-NODE_DISPLAY_NAME_MAPPINGS = {"MiniMaxH3StudioRefModStack": "MiniMax H3 RefMod Stack"}
+# No RefMod Stack node here: Prompt Studio's RefMods tab holds its own picks
+# (build_stack above), and for sharing one set across prompts or chaining,
+# the original pack's RefMod Stack does the job and plugs into Prompt
+# Studio's `mods` input.
 
 
 # --------------------------------------------------------------------------

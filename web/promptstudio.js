@@ -46,28 +46,42 @@ const BOTTOM_GAP = 8;
    toolbar and the prompt fields. Two heights, one of them stale. They are one
    element now and the browser does the split, so there is no second number to
    fall out of step. */
-/* The Media | RefMods switch above the two panels. Outside the media panel
-   on purpose: in T2VA's "Used" layout that panel collapses to its toolbar,
-   and a switch inside it would go with it. */
-const TABS_H = 30;
-const STACK_H = PANEL_H + SUMMARY_H + TABS_H;
+const STACK_H = PANEL_H + SUMMARY_H;
 
 /** Show the media panel or the RefMods grid in the node's panel area. Both
  *  stay mounted — hiding keeps each one's scroll position, open menus aside,
- *  and an edit in the RefMods window lands in a panel that already exists. */
+ *  and an edit in the RefMods window lands in a panel that already exists.
+ *  The one now showing is redrawn, so its ◈ reads the current state. */
 function showTab(node, tab) {
-  const refmods = tab === "refmods";
+  const refmods = tab === "refmods" && !!node._mmrPanel;
   node._mmh3Tab = refmods ? "refmods" : "media";
   node.properties = node.properties || {};
   node.properties.mmh3_tab = node._mmh3Tab;
-  if (node._mmlPanel) node._mmlPanel.root.hidden = refmods;
+  if (node._mmlPanel) {
+    node._mmlPanel.root.hidden = refmods;
+    if (!refmods) node._mmlPanel.render();
+  }
   if (node._mmrPanel) {
     node._mmrPanel.root.hidden = !refmods;
     if (refmods) node._mmrPanel.render();
   }
-  for (const b of node._mmh3Tabs?.querySelectorAll?.(".mmh3p-nodetab") || [])
-    b.classList.toggle("on", b.dataset.tab === node._mmh3Tab);
   refreshBar(node);
+}
+
+/** The ◈ that leads both panels' toolbars and swaps one for the other. Built
+ *  fresh on each redraw, so its count and state never go stale. It sits
+ *  inside the toolbars rather than above them: the media panel's toolbar is
+ *  the one part of it T2VA's "Used" layout keeps, so the button stays. */
+function swapButton(node, btnClass) {
+  const onRefmods = node._mmh3Tab === "refmods";
+  const n = refmodCount(node);
+  return el("button", {
+    class: `${btnClass} mmh3p-swapbtn` + (onRefmods ? " on" : ""),
+    title: onRefmods ? "Back to this node's media"
+      : `Show this node's RefMods in place of its media${n ? ` (${n} picked)` : ""}`,
+    "aria-pressed": onRefmods ? "true" : "false",
+    onclick: (e) => { e.stopPropagation(); showTab(node, onRefmods ? "media" : "refmods"); },
+  }, "\u25c8", n ? el("span", { class: "mmh3p-swapcount" }, String(n)) : null);
 }
 
 /** The RefMods grid follows the node's own text size, like the media panel —
@@ -77,13 +91,18 @@ function applyTabText(node) {
   catch (e) { /* the panel's own default applies */ }
 }
 
-/** The RefMods tab's label carries its count, so the picks are visible from
- *  the Media side too. */
+/** RefMods picked on this node, shown on the ◈ so they're visible from the
+ *  media side too. */
+function refmodCount(node) {
+  try { return readStack(node).picks.filter((p) => p && p.on !== false).length; }
+  catch (e) { return 0; }
+}
+
+/** After the picks change: redraw the media panel's ◈ (the RefMods panel
+ *  redraws itself). Skipped while the media panel is hidden — showTab()
+ *  redraws it on the way back. */
 function refreshTabCount(node) {
-  const n = readStack(node).picks.filter((p) => p && p.on !== false).length;
-  const b = [...(node._mmh3Tabs?.querySelectorAll?.(".mmh3p-nodetab") || [])]
-    .find((x) => x.dataset.tab === "refmods");
-  if (b) b.textContent = n ? `\u25c8 RefMods ${n}` : "\u25c8 RefMods";
+  if (node._mmlPanel && !node._mmlPanel.root.hidden) node._mmlPanel.render();
 }
 
 /** In T2VA there is no reference media, so the mode-shaped loader steps aside
@@ -239,6 +258,9 @@ app.registerExtension({
         // own "open the Prompt Builder" button — a hook rather than an
         // import, since medialoader.js has no dependency on promptbuilder.js.
         this._mmh3OpenEditor = () => openEditor(this);
+        // The media panel's toolbar asks for this when it draws (see
+        // drawPanel in medialoader.js); set before the panel is built.
+        this._mmh3SwapButton = () => (this._mmrPanel ? swapButton(this, "mmlp-btn") : null);
 
         this._mmlPanel = new LoaderPanel(this);
         // The prompt bar mounts flush beneath this panel, so the two square
@@ -273,7 +295,8 @@ app.registerExtension({
         // (the RefMods window, a draft's snapshot being applied).
         let stackRoot = null;
         try {
-          this._mmrPanel = new StackPanel(this, { embedded: true });
+          this._mmrPanel = new StackPanel(this, { embedded: true,
+            swap: () => swapButton(this, "mmrp-btn") });
           this._mmrOnCommit = () => refreshTabCount(this);
           // For the full-size media loader's ◈ RefMods button: this node's
           // RefMods docked beside it (see openLoaderModal). A hook rather
@@ -288,16 +311,8 @@ app.registerExtension({
           console.error("[MiniMaxH3 PromptStudio] RefMods tab failed:", e);
           this._mmrPanel = null;
         }
-        const tab = (key, label, title) => el("button", {
-          class: "mmh3p-nodetab", dataset: { tab: key }, title,
-          onclick: (e) => { e.stopPropagation(); showTab(this, key); },
-        }, label);
-        this._mmh3Tabs = stackRoot ? el("div", { class: "mmh3p-nodetabs" },
-          tab("media", "Media", "Pictures, clips and audio loaded on this node"),
-          tab("refmods", "\u25c8 RefMods", "Saved RefMods this prompt uses")) : null;
-
         this._mmh3Stack = el("div", { class: "mmh3p-nodestack" },
-          this._mmh3Tabs, this._mmlPanel.root, stackRoot, summary);
+          this._mmlPanel.root, stackRoot, summary);
         const widget = this.addDOMWidget("mml_panel", "div",
           this._mmh3Stack, { serialize: false });
         applyCanvasSizing(this, widget, NODE_W, STACK_H);
@@ -307,7 +322,7 @@ app.registerExtension({
       }
 
       setTimeout(() => {
-        try { showTab(this, this.properties?.mmh3_tab); refreshTabCount(this); }
+        try { showTab(this, this.properties?.mmh3_tab); }
         catch (e) { /* cosmetic */ }
         try { refreshBar(this); } catch (e) { /* cosmetic */ }
         try { restoreDraftFlag(this); } catch (e) { /* cosmetic */ }
@@ -364,7 +379,7 @@ app.registerExtension({
         try { applyTextScale(this._mmlPanel, loadScalePrefs().text); applyTabText(this); }
         catch (e) { /* the panel's own CSS keeps it readable */ }
         // The widget values are in now: the RefMods tab re-reads its picks.
-        try { this._mmrPanel?.reload(); showTab(this, this.properties?.mmh3_tab); refreshTabCount(this); }
+        try { this._mmrPanel?.reload(); showTab(this, this.properties?.mmh3_tab); }
         catch (e) { /* cosmetic */ }
         // A saved node restores its own height, so re-fit after that lands.
         fitPanel(this, baseComputeSize);
@@ -373,5 +388,63 @@ app.registerExtension({
       }, 0);
       return r;
     };
+  },
+});
+
+/* Before 3.0.0 this pack registered its own copies of the original pack's
+   RefMod and masked-editing nodes. It registers only Prompt Studio now, so a
+   workflow saved with one of those copies would open with missing nodes.
+   Each is renamed to the original pack's node it was copied from — the same
+   inputs, outputs and widget order, so links and values carry over — when
+   that pack is installed. Left alone otherwise, so the missing-nodes dialog
+   still names something real to install. */
+const LEGACY_TYPES = {
+  MiniMaxH3StudioRefModStack: "MiniMaxH3RefModStack",
+  MiniMaxH3StudioRefModTextEncode: "MiniMaxH3FantasticRefModTextEncode",
+  MiniMaxH3StudioRefModApply: "MiniMaxH3FantasticRefModApply",
+  MiniMaxH3StudioRefModCreate: "MiniMaxH3FantasticRefModCreate",
+  MiniMaxH3StudioRefModInspect: "MiniMaxH3FantasticRefModInspect",
+  MiniMaxH3StudioRefModEdit: "MiniMaxH3FantasticRefModEdit",
+  MiniMaxH3StudioRefModStoreFrames: "MiniMaxH3FantasticRefModStoreFrames",
+  MiniMaxH3StudioVideoEditLatent: "MiniMaxH3FantasticVideoEditLatent",
+  MiniMaxH3StudioEditComposite: "MiniMaxH3FantasticEditComposite",
+  MiniMaxH3StudioObjectMask: "MiniMaxH3FantasticObjectMask",
+};
+
+/** Rename legacy node types in a workflow (and its subgraphs) in place; the
+ *  set of old types renamed. Exported for the tests. */
+export function remapLegacyTypes(graphData, registered) {
+  const moved = new Set();
+  const graphs = [graphData, ...(graphData?.definitions?.subgraphs || [])];
+  for (const g of graphs) {
+    for (const n of g?.nodes || []) {
+      const from = n?.type, to = LEGACY_TYPES[from];
+      if (!to || !registered?.[to]) continue;
+      n.type = to;
+      if (n.properties?.["Node name for S&R"] === from) n.properties["Node name for S&R"] = to;
+      moved.add(from);
+    }
+  }
+  return moved;
+}
+
+app.registerExtension({
+  name: "MiniMaxH3Plus.LegacyNodeTypes",
+  beforeConfigureGraph(graphData, missingNodeTypes) {
+    try {
+      const moved = remapLegacyTypes(graphData, globalThis.LiteGraph?.registered_node_types);
+      if (!moved.size) return;
+      // Already counted as missing before this hook ran: take them back out.
+      if (Array.isArray(missingNodeTypes)) {
+        for (let i = missingNodeTypes.length - 1; i >= 0; i--) {
+          const m = missingNodeTypes[i];
+          if (moved.has(typeof m === "string" ? m : m?.type)) missingNodeTypes.splice(i, 1);
+        }
+      }
+      console.log(`[MiniMaxH3 PromptStudio] opened ${[...moved].join(", ")} as the original pack's ` +
+        "nodes; this pack no longer installs its own copies.");
+    } catch (e) {
+      console.error("[MiniMaxH3 PromptStudio] couldn't remap older node types:", e);
+    }
   },
 });

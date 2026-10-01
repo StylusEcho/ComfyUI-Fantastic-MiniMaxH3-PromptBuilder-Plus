@@ -5,6 +5,12 @@ node can expose: HTTP routes on the shared PromptServer, and free-text
 widgets that turn into paths. Written for a reviewer; every claim names the
 function that enforces it. Re-read against the code before each release.
 
+Since 3.0.0 the pack registers one node, Prompt Studio. The RefMod and
+masked-editing nodes its frontend queues (Create, Inspect, Edit, Store
+encoder frames, Object Mask) and those it is wired to (Text Encode, Edit
+Composite) belong to the original Fantastic H3 pack and are covered by that
+pack's own review; nothing below describes their code.
+
 ## Routes: who may fire a side effect
 
 Every state-changing route (all POSTs) runs behind one decorator,
@@ -44,8 +50,9 @@ Origin authority is parsed by hand (`_host_port`); anything that is not
 The frontend sends every POST through one helper, `postApi()` in
 `web/medialoader.js`, which attaches the token. `grep -n 'method: "POST"' web/*.js`
 shows that helper plus the calls that queue a workflow on core's own
-`/prompt` route (RefMod Create, Edit and Inspect run through the queue like
-any workflow; nothing in this pack encodes or writes from a request thread).
+`/prompt` route (the RefMod library and Auto Mask queue the original pack's
+nodes there like any workflow; nothing in this pack encodes from a request
+thread).
 
 ## GET has no side effect
 
@@ -58,7 +65,7 @@ Every GET only reads:
 | `/minimax_h3_plus/refmods` | scans the RefMod folders' file headers (`refmods.scan_library`) |
 | `/minimax_h3_plus/refmods/preview` | serves the image beside a RefMod — only a name that `refmods.resolve_file` resolves inside a RefMod root, and only with a `.png/.jpg/.jpeg/.webp` extension |
 | `/minimax_h3_plus/presets`, `/refmod_presets`, `/prompts`, `/phrases`, `/drafts` | list or count saved JSON |
-| `/minimax_h3_plus/edit_files` | lists the mask files and saved latents (name, size, date) in the two edit folders below, and which masks saved presets or drafts use |
+| `/minimax_h3_plus/edit_files` | lists the mask files (name, size, date) in this pack's masks folder, and which of them saved presets or drafts use |
 
 No GET creates a directory, writes, deletes or loads a model.
 
@@ -76,12 +83,11 @@ name is first reduced to a safe character set (`sanitize_name`, `_slug`,
 | Uploaded media (`/minimax_h3_plus/upload`) | `input/minimax_h3/` | basename only via `_safe()`, extension allow-list (`IMAGE_EXT`/`VIDEO_EXT`/`AUDIO_EXT`), unique name, written to a temp name then `os.replace` |
 | Media file names carried in the Prompt Studio node's `media_state` widget, preset files, and every route that reads media | ComfyUI's input, output and temp directories | `media_io.resolve()` — core's `get_annotated_filepath` plus an independent realpath prefix check; raises, no fallback join |
 | Prompt library, presets, RefMod presets, phrases, drafts | the pack's own folders under the user directory | `_slug()`/`_preset_path()`/`_refmod_preset_path()` reduce names to one safe path component; `_contained()` re-checks the realpath beside each write and delete. A RefMod preset stores only file names, weights and switches; loading one resolves each name through `refmods.resolve_file()` and reports what is missing rather than failing |
-| RefMod file names — the Stack's `stack_state` widget, the Inspect/Edit `file` widgets, the library routes | the registered `refmods` folders (`models/refmods` and `extra_model_paths.yaml` entries) | `refmods.resolve_file()`: relative names only, no `..` segment, realpath + commonpath per root, and only the requested extension |
-| New RefMod names (`Create` `name`/`subfolder`, `Edit` `save_as`, `/refmods/rename`) | the first registered `refmods` folder | `sanitize_name()` + `valid_rel()` (no `..`, no absolute path, no hidden or reserved folder) and `_contained_target()` (realpath + commonpath); an existing file is never overwritten by a copy |
+| RefMod file names — Prompt Studio's `stack_state` widget, the library routes | the registered `refmods` folders (`models/refmods` and `extra_model_paths.yaml` entries) | `refmods.resolve_file()`: relative names only, no `..` segment, realpath + commonpath per root, and only the requested extension |
+| New RefMod names (`/refmods/rename`) | the first registered `refmods` folder | `sanitize_name()` + `valid_rel()` (no `..`, no absolute path, no hidden or reserved folder) and `_contained_target()` (realpath + commonpath); an existing file is never overwritten by a copy |
 | RefMod curation (`/refmods/rename`, `/meta`, `/delete`, `/set_preview`) | the RefMod root that holds the named file | `item_files()` resolves every name through `resolve_file()`; moves go through `_contained_target()`; previews are written with an image extension only |
-| Mask files and saved edit/reference latents (masking runs, `/mask_compose`, the Text Encode's cache) | `input/minimax_h3_plus/masks/` and `input/minimax_h3_plus/cache/` — this pack's own, apart from the original pack's `input/minimax_h3/` folders | file names are generated — a mask is the source clip's stem reduced to `[A-Za-z0-9_-]` (`object_mask._stem`) plus a random suffix, a latent is a SHA-1 of its settings (`latent_cache.path_for`) — never a path taken from input. `/mask_compose` refuses any layer result whose realpath is not directly in the masks folder and caps a request at 64 layers |
-| Clean up (`/minimax_h3_plus/edit_files/delete`) | those two folders only | `kind` picks the folder from a fixed map; `basename()` of the name, `.png`/`.safetensors` only, realpath's parent must equal the folder, must be an existing file; masks named by saved presets or drafts are skipped server-side whatever the client sent |
-| Inspect's decoded previews | ComfyUI's temp directory, `minimax_h3_inspect/` | file names are generated (timestamp + hash), never taken from input |
+| Combined masks (`/mask_compose`) and the Auto Mask results it adopts | `input/minimax_h3_plus/masks/` — this pack's own, apart from the original pack's `input/minimax_h3/masks/` | a combined mask's name is generated — the source clip's stem reduced to `[A-Za-z0-9_-]` (`object_mask._stem`) plus a random suffix — never a path taken from input. Every layer result must resolve directly inside one of the two masks folders or the request is refused; at most 64 layers. `_adopt_layer_results()` copies a result (and its sprite) only when its realpath's parent is exactly the original pack's masks folder, keeps the basename, and never overwrites an existing copy |
+| Clean up (`/minimax_h3_plus/edit_files/delete`) | this pack's masks folder only | `kind` picks the folder from a fixed map; `basename()` of the name, `.png`/`.safetensors` only, realpath's parent must equal the folder, must be an existing file; masks named by saved presets or drafts are skipped server-side whatever the client sent |
 
 RefMod files are `.safetensors` read with the safetensors library's loader,
 which parses a fixed header format and never deserialises arbitrary
@@ -101,10 +107,11 @@ library scan to its folders.
 
 ## Model loading
 
-No route loads a model. The RefMod Create, Edit and Inspect nodes take the
-H3 VAEs as ordinary node inputs, so the executor owns every model load,
-and the library dialog queues those nodes through core's `/prompt` route
-like any workflow.
+No route loads a model, and the one node this pack registers loads none
+either: Prompt Studio passes through whichever MODEL is wired into it. The
+RefMod library and Auto Mask queue the original pack's nodes through core's
+`/prompt` route, with VAEs and checkpoints as ordinary node inputs, so the
+executor owns every model load.
 
 ## Verification
 

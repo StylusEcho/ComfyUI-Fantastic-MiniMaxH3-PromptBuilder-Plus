@@ -18,6 +18,17 @@ export const LOADER_NAME = "MiniMaxH3MediaLoader";
 // so promptbuilder.js and refmodstack.js can recognise it without importing
 // the module that registers it.
 export const STUDIO_NAME = "MiniMaxH3PromptStudio";
+
+/** Node types this pack queues but doesn't install: Auto Mask and the RefMod
+ *  library run the original pack's nodes, installed alongside. Returns the
+ *  message to show when `type` isn't registered, or null when it is (or when
+ *  there's no node registry to ask, as in tests). */
+export function originalNodeMissing(type, what) {
+  const reg = globalThis.LiteGraph?.registered_node_types;
+  if (!reg || reg[type]) return null;
+  return `${what} runs the original Fantastic H3 pack's ${type} node, which isn't installed. ` +
+    "Install ComfyUI-Fantastic-MiniMaxH3-PromptBuilder alongside this pack and restart ComfyUI.";
+}
 export const MAX = { picture: 9, video: 3, audio: 3, total: 12 };
 // H3 policy: 2-15s per reference clip, 15s total per media type.
 export const TRIM_FPS = 24;   // H3's timeline; used for frame-stepping
@@ -2606,7 +2617,8 @@ export class TrimModal {
 /* Mask for editing: the editor's mask mode, with SAM 3.1              */
 /* ------------------------------------------------------------------ */
 
-const MASK_NODE = "MiniMaxH3StudioObjectMask";
+// The original pack's Object Mask (SAM 3.1): this pack has no node of its own.
+const MASK_NODE = "MiniMaxH3FantasticObjectMask";
 const MASK_KEYS = ["edit", "mask_box", "mask", "mask_info", "mask_layers", "mask_grow", "mask_range", "keep_audio",
   "mask_feather", "mask_invert", "mask_crop", "mask_context", "mask_ref_strength", "mask_hide", "mask_blur"];
 const REF_TOKEN_WARN = 30000;   // matches the Text Encode's warning
@@ -4168,6 +4180,15 @@ class MaskMode {
         body: JSON.stringify({ clip: h.item.file, layers: this.layers, start, end }) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      // Auto Mask results are copied out of the original pack's masks folder
+      // into this pack's (see /mask_compose); point the layers at the copies.
+      (d.layers || []).forEach((l, i) => {
+        const mine = this.layers[i];
+        if (!mine || !l || mine.id !== l.id) return;
+        if (l.result) mine.result = l.result;
+        const sp = l.result_info?.sprite;
+        if (sp?.file && mine.result_info?.sprite) mine.result_info.sprite.file = sp.file;
+      });
       const info = d.mask;
       this.composed = { file: info.file, ...info };
       this.dirty = false;
@@ -4251,6 +4272,8 @@ class MaskMode {
     const frames = (layer.marks || []).filter((m) => m.positive.length);
     if (!frames.length && !text) { this.say("Click on what you want masked, or type what it is, first.", true); return; }
     if (!this.ckpt.value) { this.say("Choose the Auto model first.", true); return; }
+    const missing = originalNodeMissing(MASK_NODE, "Auto Mask");
+    if (missing) { this.say(missing, true); return; }
     const points = frames.length ? JSON.stringify({ frames: frames.map((m) => ({ time: m.time,
       positive: m.positive, negative: m.negative })) }) : "";
     const end = h.end >= h.dur - 0.05 ? 0 : +h.end.toFixed(3);
@@ -5548,9 +5571,9 @@ export class LoaderPanel {
   }
 
 
-  /** Mask files (and their overlay sprites) that no Media Loader in this
-   *  workflow, saved media set or Prompt Builder draft points at (a clip's
-   *  Auto Mask layers each have one too), plus saved edit/reference latents. */
+  /** Mask files (and their overlay sprites) in this pack's masks folder that
+   *  no Prompt Studio or Media Loader in this workflow, saved media set or
+   *  draft points at (a clip's Auto Mask layers each have one too). */
   async findCleanup() {
     const pick = await this.unusedFiles();
     this.cleanupNudge = null;
@@ -5577,7 +5600,7 @@ export class LoaderPanel {
         }
       }
     }
-    return files.filter((f) => f.kind === "cache" || (!used.has(f.name) && !f.saved));
+    return files.filter((f) => f.kind === "mask" && !used.has(f.name) && !f.saved);
   }
 
   /** Prompt a Clean up once unused mask files pass the ⚙ reminder size. */
@@ -6123,6 +6146,9 @@ export class LoaderPanel {
     // display-related pushed to the right-hand end, with Settings last.
     const modeCtl = this.topRight();
     kids.push(el("div", { class: "mmlp-top" },
+      // Prompt Studio's ◈: swaps this panel for the node's RefMods. On the
+      // node only — the full-size window has its own ◈ RefMods, which docks.
+      this.modal ? null : this.node?._mmh3SwapButton?.(),
       modeCtl.window,
       el("button", { class: "mmlp-btn", onclick: () => this.picker.click(),
         title: `Load reference files. You can also drop them on any slot, or ` +
@@ -6136,7 +6162,7 @@ export class LoaderPanel {
             "Unload All")
         : null,
       el("button", { class: "mmlp-btn mmlp-sm",
-        title: "Delete mask files no Media Loader here uses, and saved edit latents (rebuilt when needed)",
+        title: "Delete mask files nothing in this workflow, a saved media set or a draft uses",
         onclick: () => this.findCleanup() }, "Clean up\u2026"),
       presetGroup,
       el("span", { class: "mmlp-topspace" }),
@@ -6156,10 +6182,10 @@ export class LoaderPanel {
       const c = this.cleanup;
       kids.push(el("div", { class: "mmlp-presetrow" },
         el("span", { class: "mmlp-presetwarn" }, c.files.length
-          ? `${c.masks} unused mask file(s) and ${c.cache} saved latent(s), ${fmtMB(c.bytes)}. Masks used by a ` +
-            "Media Loader in this workflow, a saved media set or a Prompt Builder draft are kept; saved latents " +
-            "are rebuilt when needed. Masks used only in other workflows would be lost."
-          : "Nothing to clean up: every mask file is in use and there are no saved latents."),
+          ? `${c.masks} unused mask file(s), ${fmtMB(c.bytes)}. Masks used by a Prompt Studio in this ` +
+            "workflow, a saved media set or a draft are kept. Masks used only in other workflows would be lost. " +
+            "Saved edit latents belong to the original pack's Text Encode; its own Clean up handles them."
+          : "Nothing to clean up: every mask file is in use."),
         c.files.length ? el("button", { class: "mmlp-btn mmlp-sm mmlp-danger", onclick: () => this.runCleanup() },
           "Delete") : null,
         el("button", { class: "mmlp-btn mmlp-sm", onclick: () => { this.cleanup = null; this.render(); } },

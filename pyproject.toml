@@ -47,7 +47,13 @@ name = "fantastic-minimax-h3-promptstudio"
 # nodes, carried through Prompt Studio's references output), encoder frames
 # stored in RefMods, and compressed RefMods trimming instead of squeezing —
 # no breakage of saved workflows.
-version = "2.9.0"
+# 3.0.0 is a pack of one node again: the RefMod and masked-editing nodes
+# (copies of the original pack's) are unregistered, and Prompt Studio uses the
+# original pack's, installed alongside. A workflow saved with the old copies
+# is remapped to them on load when that pack is installed; without it they
+# show as missing — hence the major version. The node's Media | RefMods tabs
+# became a ◈ swap button.
+version = "3.0.0"
 description = "MiniMax H3 Prompt Studio: a single guided prompt-writing and reference-media node for the H3 video model, with live checking against MiniMax's prompt guide."
 license = { file = "LICENSE" }
 requires-python = ">=3.9"

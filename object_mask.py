@@ -1,11 +1,11 @@
-"""Object Mask: find something in a Media Loader clip with SAM 3.1 and save
-its mask next to the clip, so that area can be regenerated: replaced,
-changed or removed.
+"""Mask helpers for Prompt Studio's Mask for editing panel.
 
-The Media Loader's Mask for editing panel queues this node on its own, the way
-the RefMod library queues Create — nothing on the canvas runs. It uses core
-ComfyUI's SAM 3 nodes and nothing else: the checkpoint is whatever the user
-put in models/checkpoints; this pack never downloads one.
+This pack registers no Object Mask node of its own. Auto Mask queues the
+original pack's (MiniMaxH3FantasticObjectMask), which runs SAM 3.1 and saves
+each layer's result in its input/minimax_h3/masks. What stays here is what
+this pack's own /mask_compose route needs: combining the layers into the
+clip's mask, and reading and saving masks. The notes below describe the
+whole mask format, both packs' halves of it.
 
 Dots can go on several frames. Each marked frame is segmented from its own
 dots (and the typed name, which picks the match under them) and tracked
@@ -47,9 +47,12 @@ import folder_paths
 
 from . import media_io
 
-# Kept apart from upstream's input/minimax_h3/masks for the same reason as
-# latent_cache.SUBFOLDER: each pack's Clean up only sees its own nodes.
+# Combined masks live apart from upstream's input/minimax_h3/masks: each
+# pack's Clean up only sees its own nodes, so a shared folder would let the
+# original pack's delete masks Prompt Studio still uses. Auto Mask results
+# arrive in UPSTREAM_SUBFOLDER and are copied here when a mask is combined.
 SUBFOLDER = "minimax_h3_plus/masks"
+UPSTREAM_SUBFOLDER = "minimax_h3/masks"
 DECODE_CAP = 1008          # SAM 3 works at 1008 px; decoding larger only costs memory
 SPRITE_W = 320             # the overlay the editor and loader card draw: one small tile per frame
 SPRITE_MAX = 600           # longer masks keep every Nth frame
@@ -195,110 +198,6 @@ def _aligned(base, first, n, h, w):
     out = torch.zeros(n, h, w, dtype=torch.bool)
     out[inside] = bm[idx[inside]]
     return out
-
-
-class MiniMaxH3StudioObjectMask:
-    CATEGORY = "conditioning/video_models"
-    DESCRIPTION = (
-        "Used by the Media Loader's Mask for editing panel: finds an object or person in a loaded clip with SAM 3.1 (core "
-        "ComfyUI's SAM 3 nodes) and saves its mask beside the clip. You don't need to place this node yourself."
-    )
-    RETURN_TYPES = ()
-    FUNCTION = "run"
-    OUTPUT_NODE = True
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "model": ("MODEL", {"tooltip": "SAM 3.1, from Load Checkpoint."}),
-                "clip": ("CLIP", {"tooltip": "SAM 3.1's text encoder, from the same Load Checkpoint."}),
-                "video": ("STRING", {"default": "", "tooltip": "A Media Loader file, e.g. minimax_h3/clip.mp4 [input]."}),
-                "text": ("STRING", {"default": "", "tooltip": "What to find, e.g. phone. Commas for several."}),
-                "points": ("STRING", {"default": "", "tooltip": "Clicked points as JSON: {\"frames\": [{\"time\": "
-                    "seconds, \"positive\": [{\"x\", \"y\"}], \"negative\": [...]}]}, x and y from 0 to 1 on the source frame."}),
-                "start": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 36000.0, "step": 0.001,
-                    "tooltip": "Trim start in seconds: only the kept span is masked."}),
-                "end": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 36000.0, "step": 0.001,
-                    "tooltip": "Trim end in seconds; 0 is the end of the clip."}),
-                "threshold": ("FLOAT", {"default": 0.5, "min": 0.05, "max": 0.95, "step": 0.05}),
-                "max_objects": ("INT", {"default": 4, "min": 1, "max": 16}),
-            },
-            "optional": {
-                "mode": (["replace", "add", "subtract"], {"default": "replace",
-                    "tooltip": "What to do with the clip's current mask: replace it, add what's found to it, "
-                               "or take what's found out of it."}),
-                "base": ("STRING", {"default": "", "tooltip": "The layer's current mask file, for add and subtract."}),
-                "every_frame": ("BOOLEAN", {"default": False,
-                    "tooltip": "With dots and a name: also look for the name on every frame, and use what it finds "
-                               "wherever tracking lost the object (after a cut, say). Can pick up look-alikes."}),
-            },
-        }
-
-    def run(self, model, clip, video, text, points, start=0.0, end=0.0, threshold=0.5, max_objects=4,
-            mode="replace", base="", every_frame=False):
-        try:
-            import comfy_extras.nodes_sam3 as sam3
-        except Exception as exc:
-            raise RuntimeError("This ComfyUI has no SAM 3 support; update it.") from exc
-
-        frames = media_io.load_video_frames(video, start=start or None, end=end or None, resize=DECODE_CAP)
-        first = round(float(start or 0) * media_io.FPS)
-        n, h, w = frames.shape[0], frames.shape[1], frames.shape[2]
-        keys = _keyframes(json.loads(points) if points.strip() else {}, first, n, w, h)
-        text = " ".join(text.split())
-        cond = clip.encode_from_tokens_scheduled(clip.tokenize(text)) if text else None
-
-        if keys:
-            seeds, named = [], 0
-            for k, pos, neg in keys:
-                seed, by_name = _seed(sam3, model, cond, frames[k:k + 1], pos, neg, threshold)
-                if not seed.any():
-                    raise ValueError(f"SAM found nothing at the dots on frame {k + 1}; click on the object itself.")
-                seeds.append(seed[:1])
-                named += by_name
-            parts = []
-            if keys[0][0] > 0:
-                parts.append(_track(sam3, model, frames[:keys[0][0] + 1].flip(0), initial_mask=seeds[0],
-                                    max_objects=max_objects).flip(0)[:keys[0][0]])
-            for i, (k, _p, _n) in enumerate(keys):
-                stop = keys[i + 1][0] if i + 1 < len(keys) else n
-                parts.append(_track(sam3, model, frames[k:stop], initial_mask=seeds[i], max_objects=max_objects))
-            masks = torch.cat([m.float().cpu() for m in parts], dim=0)
-            how = (f"dots on {len(keys)} frame(s)" + (f", matching {text!r}" if named else "")
-                   + (", tracked from each" if len(keys) > 1 else ", tracked both ways"))
-        elif text:
-            masks = _track(sam3, model, frames, conditioning=cond, detection_threshold=threshold,
-                           max_objects=max_objects, detect_interval=1)
-            how = f"found by name ({text!r})"
-        else:
-            raise ValueError("Click the object or type its name first.")
-
-        masks = masks.float().cpu() > 0.5
-        if tuple(masks.shape[1:]) != (h, w):
-            masks = F.interpolate(masks[:, None].float(), size=(h, w), mode="nearest")[:, 0] > 0.5
-        if keys and every_frame and cond is not None:
-            # frames where tracking lost it take what the name finds there
-            named = _track(sam3, model, frames, conditioning=cond, detection_threshold=threshold,
-                           max_objects=max_objects, detect_interval=1).float().cpu() > 0.5
-            if tuple(named.shape[1:]) != (h, w):
-                named = F.interpolate(named[:, None].float(), size=(h, w), mode="nearest")[:, 0] > 0.5
-            filled = ~masks.flatten(1).any(dim=1) & named.flatten(1).any(dim=1)
-            masks[filled] = named[filled]
-            if filled.any():
-                how += f", re-found by name on {int(filled.sum())} frame(s)"
-        if not masks.any():
-            raise ValueError("SAM didn't find the object on any frame. Try other wording or click on it.")
-        if mode in ("add", "subtract") and base.strip():
-            current = _aligned(base, first, n, h, w)
-            masks = current | masks if mode == "add" else current & ~masks
-            how = f"{'added' if mode == 'add' else 'subtracted'}: {how}"
-            if not masks.any():
-                raise ValueError("Subtracting that leaves nothing masked.")
-        info = save_mask(masks, video, first, how)
-        print(f"[MiniMaxH3StudioObjectMask] {os.path.basename(str(video))}: masked on {info['hit']} of {n} "
-              f"frames ({how}), saved {info['file'].split(' [')[0]}")
-        return {"ui": {"mmh3_mask": [info]}}
 
 
 def _stamp(stroke, h, w):
@@ -492,5 +391,3 @@ def load_mask(annotated, n, start=None, mirror=False, crop=None):
     return media_io._apply_crop(media_io._apply_mirror(m[..., None], mirror), crop)[..., 0]
 
 
-NODE_CLASS_MAPPINGS = {"MiniMaxH3StudioObjectMask": MiniMaxH3StudioObjectMask}
-NODE_DISPLAY_NAME_MAPPINGS = {"MiniMaxH3StudioObjectMask": "MiniMax H3 Object Mask (SAM 3.1)"}

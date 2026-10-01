@@ -2637,19 +2637,20 @@ ${RAISE_CSS}
    arithmetic, which is the bug this replaced: the panel's element collapsed
    while its widget went on reserving the old height. */
 .mmh3p-nodestack>.mmlp-panel.mmlp-min{flex:0 0 auto;}
-/* The Media | RefMods switch. A fixed strip, like the bar: whichever panel is
-   showing takes the flexible room between them. */
-.mmh3p-nodetabs{flex:0 0 auto;display:flex;gap:4px;padding:0 0 4px;}
-.mmh3p-nodetab{font-family:system-ui,sans-serif;font-size:calc(12px * var(--mml-fs, 1));color:#a9b2c2;
-  background:#1e222a;border:1px solid #2a2f3a;border-radius:6px 6px 0 0;
-  padding:3px 12px;cursor:pointer;white-space:nowrap;}
-.mmh3p-nodetab:hover{background:#242a34;color:#d7dbe2;}
-.mmh3p-nodetab.on{background:#191c22;color:#e8ebf0;border-color:#3a4252;
-  border-bottom-color:#191c22;}
+/* The ◈ at the left of both toolbars swaps the node's panel between its
+   media and its RefMods. Amber while the RefMods show, like the full-size
+   window's ◈ RefMods button; the count is the node's RefMods picked. */
+.mmh3p-swapbtn{flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;
+  font-size:calc(13px * var(--mml-fs, 1));line-height:1;}
+.mmh3p-swapbtn.on{background:#3a3220 !important;border-color:#c89a3c !important;color:#f0d9a8 !important;}
+.mmh3p-swapcount{font-size:calc(10px * var(--mml-fs, 1));font-family:ui-monospace,monospace;color:#c9cfda;}
+.mmh3p-swapbtn.on .mmh3p-swapcount{color:#f0d9a8;}
 /* The RefMods grid in the node: the stack node's fixed 620px panel would
-   overflow a node sized for the media panel, so it flexes like that one. */
+   overflow a node sized for the media panel, so it flexes like that one, and
+   squares its bottom corners against the prompt bar the way the media panel
+   does. */
 .mmh3p-nodestack>.mmrp-panel{flex:1 1 auto;height:auto;min-height:0;
-  border-radius:0 0 8px 8px;}
+  border-radius:8px 8px 0 0;}
 /* Both panels set display:flex, which outranks the browser's own rule for
    the hidden attribute — without this the "hidden" tab would still draw. */
 .mmh3p-nodestack>[hidden]{display:none !important;}
@@ -8128,7 +8129,9 @@ function addRefModStack(node, { focus = true } = {}) {
     stack = LiteGraph.createNode(STACK_NAME);
   } catch (e) { stack = null; }
   if (!stack) {
-    toast("RefMod Stack node not found \u2014 restart ComfyUI");
+    // The stack node is the original pack's; this pack installs none.
+    toast("RefMod Stack is the original Fantastic H3 pack's node \u2014 install " +
+          "ComfyUI-Fantastic-MiniMaxH3-PromptBuilder alongside this pack", 6000);
     return null;
   }
   app.graph.add(stack);

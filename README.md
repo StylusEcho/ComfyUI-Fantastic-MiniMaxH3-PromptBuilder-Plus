@@ -51,6 +51,44 @@ any frame straight out of a video into your picture references.*
 
 ---
 
+## What's new in 3.0.0
+
+**One node again.** This pack installs only **MiniMax H3 Prompt Studio**.
+The RefMod and masked-editing nodes it carried were copies of
+[the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)'s,
+which this pack is meant to sit beside, so they're gone and Prompt Studio
+works with the original pack's own:
+
+- **Removed:** RefMod Stack, RefMod Text Encode, RefMod Apply, Create /
+  Inspect / Edit RefMod, Store RefMod Encoder Frames, Edit Composite, Video
+  Edit Latent and Object Mask. Prompt Studio's `references` and `mods`
+  outputs plug into the original pack's **Fantastic H3** versions unchanged.
+- **Install the original pack alongside** for RefMods (the library's Create,
+  Inspect, Edit and Store encoder frames queue its nodes) and masked editing
+  (Auto Mask queues its Object Mask; Edit Composite and RefMod Text Encode
+  are its nodes). Prompt Studio's media, prompt editor and its own RefMod
+  picks work without it; anything that needs one of its nodes says so
+  instead of failing in the queue.
+- **Older workflows still open.** A workflow saved with this pack's copies
+  opens with the original pack's nodes in their place — same inputs, outputs
+  and settings — when that pack is installed.
+- **Auto Mask results move in.** Auto Mask now runs the original pack's
+  Object Mask, which saves each layer's result in its own
+  `input/minimax_h3/masks`. **Use this mask** copies them into this pack's
+  `input/minimax_h3_plus/masks` and points the layers there, so the original
+  pack's Clean up (which only knows its own Media Loader) can't delete layers
+  Prompt Studio still uses.
+- **Saved edit latents** are now made by the original pack's Text Encode, in
+  its folder, and its Clean up handles them. This pack's Clean up lists only
+  its own masks.
+
+**◈ swaps media and RefMods.** The Media | ◈ RefMods tabs above the node's
+panel are replaced by a **◈** button at the left of the panel's toolbar. It
+shows the RefMods (amber while they're showing, with the number picked
+beside it), and the same ◈ at the left of the RefMods toolbar swaps back.
+The node remembers which one you left showing, and the panel gains the
+height the tab strip took.
+
 ## What's new in 2.9.0
 
 Folds in upstream's 1.7.4 and 1.8.0. No breakage of saved workflows; the
@@ -525,40 +563,29 @@ media** — that's the pack:
 
 | Node | What it's for |
 |---|---|
-| **MiniMax H3 Prompt Studio** | The prompt editor and the reference-media panel in one node. No inputs required — prompt, the gated reference bundle, two keyframe images, a mode flag, and a routed MODEL all come out. Start here. |
+| **MiniMax H3 Prompt Studio** | The prompt editor, the reference-media panel and the node's own RefMod picks in one node. No inputs required — prompt, the gated reference bundle, two keyframe images, a mode flag, a RefMod bundle and a routed MODEL all come out. Start here. |
 
-That's deliberate: this pack exists so you don't need two nodes wired together
-for the common case.
+That's the whole pack, deliberately: this pack exists so you don't need
+several nodes wired together for the common case.
 
-The next seven are the [RefMods](#refmods) subsystem, added in 2.6.0. You only
-meet them if you use RefMods, and even then mostly through windows rather than
-by wiring:
-
-| Node | What it's for |
-|---|---|
-| **MiniMax H3 RefMod Stack** | Optional since 2.8.0 — Prompt Studio has its own **RefMods** tab. Use this to share one set of RefMods across several prompts, or to chain stacks. |
-| **MiniMax H3 RefMod Text Encode** | Stands in for *MiniMax H3 Reference to Video* when RefMods are in play. |
-| **MiniMax H3 RefMod Apply** | Attaches references to conditioning encoded elsewhere. |
-| **MiniMax H3 Create RefMod** | Makes a RefMod. The library queues this for you. |
-| **MiniMax H3 Inspect RefMod** | Decodes a RefMod to see what's stored in it. |
-| **MiniMax H3 Edit RefMod** | Changes a RefMod's frames or voice. |
-| **MiniMax H3 Store RefMod Encoder Frames** | Adds the encoder's pictures to older RefMods. The library's *Store encoder frames* queues this. |
-
-Masked editing, added in 2.9.0 (see
-[Editing a clip with a mask](#editing-a-clip-with-a-mask)):
-
-| Node | What it's for |
-|---|---|
-| **MiniMax H3 Edit Composite** | Pastes the regenerated area into the original frames, so the rest is the source untouched. Feed it Prompt Studio's `references`. |
-| **MiniMax H3 Video Edit Latent** | Optional. Builds a masked-edit latent from frames and a mask made elsewhere. |
-| **MiniMax H3 Object Mask (SAM 3.1)** | The node Auto Mask queues for you; you don't normally wire it. |
-
-If you also install
+It's built to sit beside
 [the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder),
-its Prompt Builder, Media Loader, Reference Splitter, and Filename Prefix
-nodes appear alongside these with no name clashes — the two packs are built to
-coexist, RefMod nodes included, and both read the same `models/refmods`
-folder.
+with no name clashes, and uses that pack's nodes for everything past the
+prompt and the media rather than carrying copies of them. Install it too for
+[RefMods](#refmods) and [masked editing](#editing-a-clip-with-a-mask):
+
+| The original pack's node | What Prompt Studio uses it for |
+|---|---|
+| **Fantastic H3 RefMod Text Encode** | Stands in for *MiniMax H3 Reference to Video* when RefMods are in play. Takes Prompt Studio's `prompt`, `references` and `mods`. |
+| **Fantastic H3 RefMod Stack** | Optional — Prompt Studio holds its own picks. Use one to share a set across several prompts, wired into Prompt Studio's `mods`. |
+| **Fantastic H3 RefMod Apply** | Attaches references to conditioning encoded elsewhere. |
+| **Fantastic H3 Create / Inspect / Edit RefMod**, **Store RefMod Encoder Frames** | Queued by the RefMod library; you don't wire them. |
+| **Fantastic H3 Edit Composite** | For masked edits: pastes the regenerated area into the original frames. Feed it Prompt Studio's `references`. |
+| **Fantastic H3 Video Edit Latent** | Optional. A masked-edit latent from frames and a mask made elsewhere. |
+| **Fantastic H3 Object Mask (SAM 3.1)** | Queued by Auto Mask; you don't wire it. |
+
+Its Prompt Builder, Media Loader, Reference Splitter and Filename Prefix
+appear alongside too. Both packs read the same `models/refmods` folder.
 
 ### Example workflows
 
@@ -645,6 +672,9 @@ Highlights:
 - **ComfyUI 0.30.0 or newer** — this is when H3 support landed.
 - **The MiniMax H3 models.** Use the `fl2va` checkpoint for text and keyframe
   work, `ref2va` for reference mode. ComfyUI's own H3 templates will set you up.
+- **[The original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)**,
+  for RefMods and masked editing — see [What you get](#what-you-get). The
+  prompt editor and the media panel work without it.
 - **PyAV** — used for video and audio decoding. ComfyUI itself requires PyAV,
   so every working install already has it; the node checks at startup and
   tells you if videos are unavailable rather than failing when you hit queue.
@@ -669,7 +699,8 @@ end up with `ComfyUI/custom_nodes/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder-Plus
 
 This installs alongside
 [the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)
-without conflict — install one or both.
+without conflict. Install both: this one is the prompt-and-media node, and
+the original pack supplies the RefMod and masked-editing nodes it works with.
 
 Then **restart ComfyUI completely** — not just a browser refresh. Nodes are only
 registered at startup.
@@ -730,11 +761,12 @@ panel on one node. There's nothing to wire between them: the media lives on
 the same node that writes the prompt, so the tags the editor offers are always
 the tags the output actually carries.
 
-The panel has two tabs. **Media** is the drag-and-drop reference panel;
-**◈ RefMods** is the twelve-slot [RefMod](#refmods) grid a RefMod Stack node
-carries, holding this node's own RefMods — so, like media, they need no
-separate node and no wiring. The RefMods tab shows how many are picked, and
-the node remembers which tab you left it on.
+The panel shows one of two things, and the **◈** button at the left of its
+toolbar swaps between them: the drag-and-drop **media** panel, and the
+twelve-slot [RefMod](#refmods) grid holding this node's own RefMods — so, like
+media, they need no separate node and no wiring. ◈ shows how many RefMods are
+picked, turns amber while the RefMods are showing, and the node remembers
+which one you left showing.
 
 It takes **no required inputs** — one optional `mods` for
 [RefMods](#refmods), alongside the two optional checkpoint inputs below — and
@@ -748,7 +780,7 @@ has seven outputs:
 | `first_frame` | `IMAGE` | `first_frame` on **Image to Video** |
 | `last_frame` | `IMAGE` | `last_frame` on **Image to Video** |
 | `ref2va_needed` | `BOOLEAN` | a switch node, to pick which H3 node runs |
-| `mods` | `H3_REF_MODS` | the RefMods tab's picks (after anything chained into the `mods` input) — to **RefMod Text Encode**'s `mods` input, which **◈ RefMods** wires for you |
+| `mods` | `H3_REF_MODS` | the node's RefMod picks (after anything chained into the `mods` input) — to **RefMod Text Encode**'s `mods` input, which **◈ RefMods** wires for you |
 
 `ref2va_needed` is true only in **Reference** mode — the one mode whose prompt
 goes to **Reference to Video** instead of **Image to Video**. Feed it to a
@@ -784,8 +816,8 @@ hand every time you switch modes.
 
 A third optional input, `mods`, is only for **chaining**: a RefMod Stack (or
 another pack's RefMod loader) wired there is sent first, and the node's own
-RefMods tab follows, numbered after it. You don't need it to use RefMods —
-the tab is enough. Not lazy: unlike the checkpoints, reading it is cheap.
+RefMods follow, numbered after it. You don't need it to use RefMods — the
+node's own picks are enough. Not lazy: unlike the checkpoints, reading it is cheap.
 
 The node carries no buttons — everything is reachable from the panel itself.
 The media panel sits at the top; drag the node's bottom edge and it grows with
@@ -1722,15 +1754,17 @@ RefMods are saved reference files for H3: a character's look, a voice, a
 place or a style, compressed once into a small latent and reused without
 re-encoding the source media. The format comes from
 [ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod)
-(MIT), and this pack can make, keep and use them on its own: the nodes below
-carry their own copy of that pack's runtime, credited in `refmod_core.py`
-and `refmod_create.py`, and share its `H3_REF_MODS` bundle type, so the two
-mix freely in one graph — our stack into its Step Curve or Inspect, its
-loaders into our Text Encode.
+(MIT). Since 3.0.0 this pack keeps only the part Prompt Studio needs to hold
+its own picks (`refmods.py`, `refmod_core.py`, credited there); making,
+inspecting, editing and encoding RefMods use
+[the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)'s
+**Fantastic H3** nodes, installed alongside. Everything shares the
+`H3_REF_MODS` bundle type, so ComfyUI-MiniMaxH3Mod's nodes mix in too — its
+loaders into the Text Encode, a stack into its Step Curve or Inspect.
 
 ### The library
 
-**MiniMax H3 RefMod Stack** holds every pick in one node. **Browse
+**Fantastic H3 RefMod Stack** holds every pick in one node. **Browse
 library…** opens the library: a thumbnail grid of everything under your
 `refmods` folders (including any mapped in `extra_model_paths.yaml`), with
 search, folders and a type filter. A card shows the file's token cost
@@ -1749,7 +1783,7 @@ like Create) and shows what the model is actually given: each stored frame
 as a thumbnail — right for a stack of photos — or the frames played as a
 clip, and the voice as an audio player. The **Strength** slider previews
 the softening a weight below 1 applies, so you can see what 0.5 really
-looks like. **MiniMax H3 Inspect RefMod** does the same in a graph.
+looks like. **Fantastic H3 Inspect RefMod** does the same in a graph.
 
 **Edit frames & voice…** in the details panel pulls a RefMod back into
 the Create tab. Its stored frames are listed first as sources — untick or
@@ -1765,7 +1799,7 @@ original alone and write the result as a new RefMod (its voice and preview
 come along). A RefMod that had no voice is renamed to the
 `_visual`/`_audio` pair when one is added. The **Subject name**, **Appearance** and
 **Voice** boxes in the settings pane set or clear those fields; when that's the
-only change, just the file headers are rewritten. **MiniMax H3 Edit RefMod** is
+only change, just the file headers are rewritten. **Fantastic H3 Edit RefMod** is
 the node behind it, should you want it in a graph.
 
 **Store encoder frames** is for RefMods saved before they carried the
@@ -1776,7 +1810,7 @@ still missing them from the button beside the sort menu. Each is decoded
 once, through the queue with the video VAE; its latent isn't touched. A
 RefMod made from several pictures keeps every picture, which roughly
 doubles its file.
-**MiniMax H3 Store RefMod Encoder Frames** is the node behind it.
+**Fantastic H3 Store RefMod Encoder Frames** is the node behind it.
 
 The **Create** tab makes new ones. Drop pictures, clips or audio anywhere
 on the library, or pull the items from any Prompt Studio in the workflow
@@ -1812,7 +1846,7 @@ runs through the queue like any workflow, so ComfyUI manages memory and you
 can follow it in the queue panel, and the new card appears in the library
 when it lands, with a preview image written beside the file.
 
-**MiniMax H3 Create RefMod** is the node the library queues. It also
+**Fantastic H3 Create RefMod** is the node the library queues. It also
 works by hand in a graph with IMAGE and AUDIO inputs, and its `source`
 field takes a media-panel item, or a list of them to stack, as JSON. Not carried over from the
 original pack: masks, multi-reference merging, motion-only mode and
@@ -1859,16 +1893,16 @@ picker. The prompt library's save form can link a prompt to the RefMod
 preset the stack currently matches, the way it links media presets, and
 loading that prompt offers to load the RefMods too.
 
-To use RefMods, open the **◈ RefMods** tab on the Prompt Studio node and pick
-them there — it is the same twelve-slot grid a RefMod Stack node has, with
+To use RefMods, click **◈** at the left of the Prompt Studio node's toolbar
+and pick them there — it is the same twelve-slot grid a RefMod Stack node has, with
 **Browse library…**, **Create…**, presets and a weight per channel. **◈ RefMods**
 in the prompt editor's header opens the same picks in a window. Wire the node's
 `prompt`, `mods` and `references` outputs into RefMod Text Encode; the header
 button does the `mods` half itself when the Text Encode is already there, and
 the editor warns when a bundle doesn't reach one.
 
-The separate **RefMod Stack** node is still there for sharing one set of
-RefMods across several prompts: wire its `mods` into Prompt Studio's `mods`
+The original pack's **Fantastic H3 RefMod Stack** node is there for sharing
+one set of RefMods across several prompts: wire its `mods` into Prompt Studio's `mods`
 input and its entries are sent first, with the node's own RefMods numbered
 after them (the stack's toolbar shows "stack 1 / 2"). A stack wired straight
 into the Text Encode, as 2.6.0 workflows were built, still works: the node
@@ -1876,7 +1910,7 @@ finds it by following its `prompt` output. Loaded media and RefMods can be used 
 this way; the editor numbers the media first, then the RefMods, matching Text
 Encode.
 
-**MiniMax H3 RefMod Text Encode** stands in for *MiniMax H3 Reference to
+**Fantastic H3 RefMod Text Encode** stands in for *MiniMax H3 Reference to
 Video*. It takes the H3 CLIP, a prompt, the RefMod bundle on `mods`, and a
 reference bundle on `references` — Prompt Studio's `references` output, or a
 Media Loader's own — with the video VAE for pictures and clips
@@ -1909,7 +1943,7 @@ description is also written right after its `<Audio n>:` label, where the
 encoder is introduced to the reference, instead of only in the prompt body.
 Off, the encoder sees exactly what core's node gives it.
 
-**MiniMax H3 RefMod Apply** appends the references to conditioning encoded
+**Fantastic H3 RefMod Apply** appends the references to conditioning encoded
 elsewhere, with a `retention` multiplier on every entry. The model sees them,
 but the prompt cannot name them — use it when a workflow already has its
 own text encoding.
@@ -1933,7 +1967,11 @@ becomes.
 
 **What you need:** the SAM 3.1 checkpoint,
 [`sam3.1_multiplex_fp16.safetensors`](https://huggingface.co/Comfy-Org/sam3.1/resolve/main/checkpoints/sam3.1_multiplex_fp16.safetensors),
-in `models/checkpoints`. The pack never downloads it.
+in `models/checkpoints`. The pack never downloads it. And
+[the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder),
+installed alongside: Auto Mask runs its Object Mask, and its RefMod Text
+Encode and Edit Composite build and finish the edit. Drawn shapes and brush
+layers, and combining them, are this pack's own.
 
 **Masking.** Right-click a video in Prompt Studio's media panel → **◐ Mask for
 editing…** (or the **◐ Mask** tab in its trim editor). It works on the clip
@@ -2014,7 +2052,7 @@ shape, never enlarged), encoded, with the mask on H3's latent grid. It's
 saved the first time and loaded on later runs until a setting that changes
 it does — the prompt, seed and sampler don't. Cited reference clips are
 saved the same way. Wire the Text Encode's `latent` into the sampler, and
-put **MiniMax H3 Edit Composite** between VAE Decode and Create Video with
+put **Fantastic H3 Edit Composite** between VAE Decode and Create Video with
 the same `references`: it pastes exactly the area H3 regenerated, the cells
 the ▦ overlay shows plus any feather (scaled back into place when crop to
 mask is on), into your original frames through a soft edge, so everything
@@ -2030,10 +2068,12 @@ the open workflow, saved media set or draft uses (each Auto Mask layer's result 
 plus saved latents (they're rebuilt when needed). Once those unused mask
 files pass 500 MB the panel offers a Clean up; set the size, or 0 for
 never, under *Clean-up reminder* in its ⚙ menu. This pack keeps its masks
-and saved latents in `input/minimax_h3_plus/`, apart from the original
-pack's, so neither pack's Clean up can delete files the other still uses.
+in `input/minimax_h3_plus/masks`, apart from the original pack's; **Use this
+mask** copies Auto Mask's results in there too, so the original pack's Clean
+up can't delete layers Prompt Studio still uses. Saved latents are the
+original pack's Text Encode's, and its own Clean up handles them.
 
-Masks made elsewhere work too: **MiniMax H3 Video Edit Latent** takes
+Masks made elsewhere work too: **Fantastic H3 Video Edit Latent** takes
 frames, a MASK and a megapixel budget and outputs the latent, width, height
 and length.
 

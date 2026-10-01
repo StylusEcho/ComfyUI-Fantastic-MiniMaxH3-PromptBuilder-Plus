@@ -6,24 +6,36 @@
  */
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { postApi, STUDIO_NAME, viewURL, openCropEditor, keepNameChars, outputTargets, setterOf,
+import { postApi, STUDIO_NAME, originalNodeMissing, viewURL, openCropEditor, keepNameChars, outputTargets, setterOf,
          clampScale, SCALE_MIN, SCALE_MAX, TEXT_SCALE_MAX } from "./medialoader.js";
 
-export const STACK_NAME = "MiniMaxH3StudioRefModStack";
-// The RefMod Stack types this builder recognises when walking a mods chain
-// (see modsChain() in promptbuilder.js) — this pack's own, and the original
-// Adudeguyman pack's `MiniMaxH3RefModStack`. The two packs are meant to sit
-// side by side, so a stack a workflow already made with either family is
-// adopted rather than getting a second, parallel stack of the other's type.
-// STACK_NAME alone (not this set) is what gets created when neither is
-// found: creating a node needs one concrete type, recognising one doesn't.
-export const STACK_NAMES = new Set([STACK_NAME, "MiniMaxH3RefModStack"]);
-// Every Text Encode whose bundle this builder can drive and label from:
-// this pack's own, the original Adudeguyman pack's, and
-// ComfyUI-MiniMaxH3Mod's `MiniMaxH3RefModTextEncode` — all three number and
-// label a bundle the same way.
-export const ENCODE_NAMES = new Set(["MiniMaxH3StudioRefModTextEncode",
-  "MiniMaxH3FantasticRefModTextEncode", "MiniMaxH3RefModTextEncode"]);
+// This pack installs one node, Prompt Studio, with its own RefMods tab. The
+// RefMod Stack, Text Encode and the library's Create/Inspect/Edit/Store
+// frames nodes are the original Adudeguyman pack's, installed alongside.
+// STACK_NAME is the original pack's stack: what gets created, and whose
+// panel that pack draws itself.
+export const STACK_NAME = "MiniMaxH3RefModStack";
+// The RefMod Stack types recognised when walking a mods chain (see
+// modsChain() in promptbuilder.js): the original pack's, and the stack this
+// pack registered before 3.0.0 (a workflow saved then is remapped on load
+// when the original pack is installed; see promptstudio.js).
+export const STACK_NAMES = new Set([STACK_NAME, "MiniMaxH3StudioRefModStack"]);
+// Every Text Encode whose bundle this builder can drive and label from: the
+// original pack's, this pack's pre-3.0.0 copy of it, and
+// ComfyUI-MiniMaxH3Mod's `MiniMaxH3RefModTextEncode` — all number and label
+// a bundle the same way.
+export const ENCODE_NAMES = new Set(["MiniMaxH3FantasticRefModTextEncode",
+  "MiniMaxH3StudioRefModTextEncode", "MiniMaxH3RefModTextEncode"]);
+
+/** Before queueing the library's work: the original pack's nodes it names
+ *  must be installed, or say so plainly instead of a bare queue error. */
+function requireOriginal(prompt, what) {
+  for (const n of Object.values(prompt)) {
+    if (!String(n.class_type).startsWith("MiniMaxH3Fantastic")) continue;
+    const msg = originalNodeMissing(n.class_type, what);
+    if (msg) throw new Error(msg);
+  }
+}
 export const MAX_WEIGHT = 10;
 export const MAX_COPIES = 10;
 export const KIND = {
@@ -676,10 +688,13 @@ function fixUids(picks) {
 export class StackPanel {
   /** `embedded`: mounted inside Prompt Studio's RefMods tab rather than on a
    *  RefMod Stack node of its own. The host owns the node's size and text
-   *  scale then, so the panel drops its ⤡ Size control and leaves both alone. */
-  constructor(node, { embedded = false } = {}) {
+   *  scale then, so the panel drops its ⤡ Size control and leaves both alone.
+   *  `swap`: on the node itself, a function building the ◈ button that
+   *  swaps the node's panel back to its media; it leads the toolbar. */
+  constructor(node, { embedded = false, swap = null } = {}) {
     this.node = node;
     this.embedded = embedded;
+    this.swap = swap;
     this.state = readStack(node);
     const renumbered = fixUids(this.state.picks);
     injectCSS();
@@ -851,6 +866,7 @@ export class StackPanel {
     const pos = chain.up.length + 1, total = chain.up.length + 1 + chain.down.length;
     const over = budget > 0 && tokens > budget;
     return el("div", { class: "mmrp-toolbar" },
+      this.swap ? this.swap() : null,
       el("button", { class: "mmrp-btn primary", onclick: () => openLibrary(this) }, "Browse library…"),
       el("button", { class: "mmrp-btn", title: "Make a RefMod from a picture, clip or voice",
         onclick: () => openLibrary(this, { tab: "create" }) }, "Create…"),
@@ -1449,7 +1465,7 @@ StackPanel.all = new Set();
 
 /* ---------------------------------------------------------- library */
 
-const CREATE_NAME = "MiniMaxH3StudioRefModCreate";
+const CREATE_NAME = "MiniMaxH3FantasticRefModCreate";
 const CONCEPTS = ["generic", "identity", "pose_motion", "clothing", "background",
   "voice", "singing", "music_style", "sound_fx", "ambience", "style"];
 const SETTINGS_KEY = "mmrp-create-settings";
@@ -2068,11 +2084,11 @@ export function openLibrary(panel, opts = {}) {
   }
 
   /* ---- inspect: decode what's stored, through the queue */
-  const INSPECT_NAME = "MiniMaxH3StudioRefModInspect";
+  const INSPECT_NAME = "MiniMaxH3FantasticRefModInspect";
   const inspectJobs = new Map();          // prompt_id -> { name, images, audio, done }
   const inspectResults = new Map();       // item name -> last finished job
   const inspectView = new Map();          // item name -> "frames" | "video"
-  const EDIT_NAME = "MiniMaxH3StudioRefModEdit";
+  const EDIT_NAME = "MiniMaxH3FantasticRefModEdit";
   const SUBJECT_OK = /^[A-Za-z][\w-]{0,39}$/;
   const SUBJECT_RULE = "A subject name is one word: letters, digits, - and _, starting with a letter.";
   const SUBJECT_TIP = "Optional one word used in prompts: Draft from RefMods names the subject this, " +
@@ -2123,7 +2139,7 @@ export function openLibrary(panel, opts = {}) {
 
   /* ---- encoder frames: RefMods saved before they carried the frames the
    *      text encoder is shown get them added, one decode each */
-  const FRAMES_NAME = "MiniMaxH3StudioRefModStoreFrames";
+  const FRAMES_NAME = "MiniMaxH3FantasticRefModStoreFrames";
   const FRAMES_TIP = "Saved without the frames H3's text encoder is shown, so the RefMod Text Encode decodes it " +
     "(once, then keeps them in the cache). Storing them in the file decodes it once, through the queue with the H3 video VAE.";
   const needsFrames = (it) => !it.bundle && !!it.visual && !it.visual.frames;
@@ -2144,6 +2160,7 @@ export function openLibrary(panel, opts = {}) {
     const prompt = { 1: { class_type: "VAELoader", inputs: { vae_name: vae } },
       2: { class_type: FRAMES_NAME, inputs: { files: list.map((it) => it.visual.file).join("\n"), vae: ["1", 0] } } };
     try {
+      requireOriginal(prompt, "Store encoder frames");
       const r = await api.fetchApi("/prompt", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt, client_id: api.clientId }) });
       const d = await r.json();
@@ -2183,6 +2200,7 @@ export function openLibrary(panel, opts = {}) {
     if (btn) btn.disabled = true;
     if (box) setChildren(box, el("div", { class: "mmrp-dim" }, "Decoding… (in the queue)"));
     try {
+      requireOriginal(prompt, "Show what's stored");
       const r = await api.fetchApi("/prompt", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt, client_id: api.clientId }) });
       const d = await r.json();
@@ -3045,6 +3063,7 @@ export function openLibrary(panel, opts = {}) {
     try {
       // Core's own queue route: no pack token involved, and ComfyUI manages
       // the VAEs' memory as for any workflow.
+      requireOriginal(prompt, "Create");
       const r = await api.fetchApi("/prompt", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt, client_id: api.clientId }) });
       const d = await r.json();
@@ -3094,6 +3113,7 @@ export function openLibrary(panel, opts = {}) {
     }
     createBtn.disabled = true;
     try {
+      requireOriginal(prompt, "Edit");
       const r = await api.fetchApi("/prompt", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt, client_id: api.clientId }) });
       const d = await r.json();
@@ -3269,63 +3289,6 @@ app.registerExtension({
   },
 });
 
-app.registerExtension({
-  name: "MiniMaxH3Plus.RefModStack",
-  async beforeRegisterNodeDef(nodeType, nodeData) {
-    if (nodeData.name !== STACK_NAME) return;
-
-    const onNodeCreated = nodeType.prototype.onNodeCreated;
-    nodeType.prototype.onNodeCreated = function () {
-      const r = onNodeCreated?.apply(this, arguments);
-      try {
-        const w = this.widgets?.find((x) => x.name === "stack_state");
-        if (w) { w.hidden = true; w.type = "hidden"; w.computeSize = () => [0, -4]; }
-        this._mmrPanel = new StackPanel(this);
-        const widget = this.addDOMWidget("mmr_panel", "div", this._mmrPanel.root, { serialize: false });
-        this._mmrWidget = widget;
-        applyStoredStackScale(this, { force: true });
-      } catch (err) {
-        console.error("[MiniMax H3 RefMod Stack] setup failed:", err);
-        try { this.addWidget("button", "⚠ UI failed — click", null, () => {
-          alert("MiniMax H3 RefMod Stack could not build its interface.\n\n" + err);
-        }); } catch (e2) { /* nothing more to do */ }
-      }
-      return r;
-    };
-
-    const onResize = nodeType.prototype.onResize;
-    nodeType.prototype.onResize = function (size) {
-      try {
-        const min = this.computeSize();
-        size[0] = Math.max(NODE_W, size[0]);
-        size[1] = Math.max(min[1], size[1]);
-      } catch (e) { /* leave it */ }
-      return onResize?.apply(this, arguments);
-    };
-
-    const onConfigure = nodeType.prototype.onConfigure;
-    nodeType.prototype.onConfigure = function () {
-      const r = onConfigure?.apply(this, arguments);
-      // The saved size is applied after onNodeCreated sized the node, so a
-      // workflow saved with a shorter node would draw the panel past its
-      // bottom edge. Grow back to the panel's minimum; never shrink.
-      applyStoredStackScale(this, { force: false });
-      setTimeout(() => this._mmrPanel?.reload(), 0);
-      return r;
-    };
-
-    // Chain position and the labels footer follow the wires.
-    const onConnectionsChange = nodeType.prototype.onConnectionsChange;
-    nodeType.prototype.onConnectionsChange = function () {
-      const r = onConnectionsChange?.apply(this, arguments);
-      setTimeout(() => { for (const p of StackPanel.all) if (p.root.isConnected) p.render(); }, 0);
-      return r;
-    };
-
-    const onRemoved = nodeType.prototype.onRemoved;
-    nodeType.prototype.onRemoved = function () {
-      this._mmrPanel?.destroy();
-      return onRemoved?.apply(this, arguments);
-    };
-  },
-});
+// No stack-node extension: this pack registers no RefMod Stack. The original
+// pack draws its own stack's panel; this file's StackPanel is Prompt
+// Studio's RefMods tab and the window openStackModal() opens on either.

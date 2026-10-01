@@ -50,6 +50,11 @@ You need:
   <https://huggingface.co/smhfacct/Minimax-H3-fl2va-ref2va-hybrid-models>
 - **The H3 video VAE** for anything with pictures, and **the H3 audio
   VAE** for voices.
+- **[The original Fantastic H3 pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)**
+  installed alongside this one. Prompt Studio holds your RefMod picks, but
+  the nodes that make, inspect, edit and encode RefMods are that pack's
+  (**Fantastic H3 …**); the library queues them for you, and tells you if
+  they're missing.
 
 Your RefMods are saved in `ComfyUI/models/refmods`. You never have to go
 there yourself, but it's handy to know if you want to back them up or
@@ -58,7 +63,7 @@ share them.
 There are two ready-made workflows in `example_workflows`. Load one, pick
 your model files, and everything below is already wired up:
 
-- **MMH3_RefMod_Vanilla_Stack_Example.json** uses only this pack and
+- **MMH3_RefMod_Vanilla_Stack_Example.json** uses only the original pack and
   ComfyUI's own nodes.
 - **MMH3_RefMod_Fully_Fantastic_Example.json** is the same chain with the
   Fantastic LoRA loader and seed nodes from the
@@ -69,22 +74,24 @@ your model files, and everything below is already wired up:
 
 ## Quick and easy setup
 
-Click the **◈ RefMods** tab on the **Prompt Studio** node. That's where this
-prompt's RefMods live — right on the node, next to its media, with nothing to
+Click **◈** at the left of the **Prompt Studio** node's toolbar. That swaps
+the node's media for this prompt's RefMods, which live — right on the node, next to its media, with nothing to
 add or wire. (**◈ RefMods** in the prompt editor's header opens the same picks
 in a window, and connects a **RefMod Text Encode** that's already in the
-workflow.) From here, everything happens inside that panel and its windows.
+workflow.) From here, everything happens inside that panel and its windows;
+the ◈ at the left of the RefMods toolbar swaps back to the media.
 
 ![The RefMod Stack, Prompt Builder and RefMod Text Encode wired together](docs/refmods/02-nodes.png)
 
 ### The nodes
 
 - **MiniMax H3 Prompt Studio** is where you write the prompt, load your
-  reference media, and pick your RefMods on its **◈ RefMods** tab. It shows
+  reference media, and pick your RefMods (**◈** swaps its panel to them). It shows
   your RefMods as chips and passes them on. (In the picture above, this is
   the Prompt Builder, the Media Loader and the RefMod Stack together.)
-- **MiniMax H3 RefMod Text Encode** takes the place of the native
-  **MiniMax H3 Reference to Video** node. Use one or the other, not both.
+- **Fantastic H3 RefMod Text Encode**, from the original pack, takes the
+  place of the native **MiniMax H3 Reference to Video** node. Use one or
+  the other, not both.
 
 The Text Encode node does everything Reference to Video did, and it
 understands RefMods:
@@ -110,14 +117,14 @@ To show a RefMod to H3's text encoder, the Text Encode needs it as pictures.
 RefMods made or edited with a VAE keep those frames inside their file,
 so it never has to decode them. Older ones get them from the library's
 **Store encoder frames**. Until then they're decoded the first time they're
-used and kept in `input/minimax_h3_plus/cache`, where the media panel's
+used and kept in the original pack's `input/minimax_h3/cache`, where its
 **Clean up…** lists them; deleting them only means one more decode.
 
 Media from Prompt Studio's own panel still works through it, so you can mix
 RefMods with one-off pictures and clips in the same prompt. There's more on that
 under [Using RefMods with regular media](#using-refmods-with-regular-media).
 
-The RefMods tab has three buttons at the top:
+The RefMods panel has three buttons at the top, after the ◈:
 
 - **Browse library…** opens your saved RefMods.
 - **Create…** opens the library straight on the Create tab.
@@ -126,7 +133,7 @@ The RefMods tab has three buttons at the top:
 It has twelve fixed slots, and adding RefMods fills them rather than growing
 the node.
 
-**The separate RefMod Stack node** is still available if you want one set of
+**The original pack's RefMod Stack node** is there if you want one set of
 RefMods shared by several prompts: wire its `mods` into Prompt Studio's `mods`
 input and its RefMods are sent first, with the node's own numbered after them.
 On its own node it also has **⤢ Size** for the node and text size.

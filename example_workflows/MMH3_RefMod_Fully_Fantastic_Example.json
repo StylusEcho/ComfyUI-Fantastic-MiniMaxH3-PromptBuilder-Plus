@@ -2429,7 +2429,7 @@
   },
   {
    "id": 376,
-   "type": "MiniMaxH3StudioRefModTextEncode",
+   "type": "MiniMaxH3FantasticRefModTextEncode",
    "pos": [
     1073.9039961445444,
     5652.55177456979
@@ -2526,7 +2526,7 @@
     }
    ],
    "properties": {
-    "Node name for S&R": "MiniMaxH3StudioRefModTextEncode",
+    "Node name for S&R": "MiniMaxH3FantasticRefModTextEncode",
     "ue_properties": {
      "widget_ue_connectable": {},
      "input_ue_unconnectable": {},
@@ -3429,7 +3429,7 @@
   },
   {
    "id": 378,
-   "type": "MiniMaxH3StudioRefModStack",
+   "type": "MiniMaxH3RefModStack",
    "pos": [
     -1214.5688030213062,
     6161.718569317601
@@ -3464,7 +3464,7 @@
     }
    ],
    "properties": {
-    "Node name for S&R": "MiniMaxH3StudioRefModStack",
+    "Node name for S&R": "MiniMaxH3RefModStack",
     "ue_properties": {
      "widget_ue_connectable": {},
      "input_ue_unconnectable": {},
@@ -3779,7 +3779,7 @@
   },
   {
    "id": 383,
-   "type": "MiniMaxH3StudioEditComposite",
+   "type": "MiniMaxH3FantasticEditComposite",
    "pos": [
     977.9123039777139,
     6392.805763361534
@@ -3813,7 +3813,7 @@
     }
    ],
    "properties": {
-    "Node name for S&R": "MiniMaxH3StudioEditComposite"
+    "Node name for S&R": "MiniMaxH3FantasticEditComposite"
    },
    "widgets_values": [
     8,

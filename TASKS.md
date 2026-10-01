@@ -1445,3 +1445,51 @@ when hiding, makes it a mouse-over caption for the respective section.
       import (11 nodes), headless suites (load, studio, interop, names,
       draftfail, builtin, dock, refstyle), CSSOM 1,124 rules / 0 missing,
       Chromium trim editor + mask mode + ⚙ menu (`pw/trim.cjs`), dock layout.
+
+91. 🟩 drop the nodes that duplicate the original pack's — Prompt Studio is
+    meant to be the all-in-one node, used beside the original pack
+    - Compared each against upstream with the rename undone: Edit Composite,
+      Video Edit Latent, Object Mask, Store Encoder Frames, Create, Inspect,
+      Edit and Text Encode/Apply were byte-identical; the Stack differed only
+      by the refactor that lets Prompt Studio share its code. All unregistered
+      — the pack registers **one node** (was 11). `refmod_nodes.py`,
+      `refmod_create.py`, `refmod_inspect.py`, `refmod_edit.py`,
+      `video_edit.py`, `latent_cache.py` deleted; `refmods.py` keeps the
+      stack helpers Prompt Studio uses, `object_mask.py` keeps the layer
+      compositing `/mask_compose` uses.
+    - Prompt Studio's bundles are duck-typed (`check_bundle` checks
+      attributes, not classes) and its `references` format is the one
+      upstream's Media Loader emits, so the original pack's Text Encode and
+      Edit Composite take them unchanged.
+    - The frontend queues the original pack's node types (Auto Mask → its
+      Object Mask; the library → its Create/Inspect/Edit/Store frames) and
+      says plainly when that pack isn't installed (`originalNodeMissing`),
+      instead of a bare queue error. The "add a stack" path creates the
+      original pack's RefMod Stack; this pack no longer attaches its own UI
+      to stack nodes (that pack draws its own).
+    - **Older workflows:** a `beforeConfigureGraph` hook renames this pack's
+      old node types (subgraphs included) to the original pack's and takes
+      them out of the missing-nodes list, when that pack is installed.
+    - **Auto Mask results:** they now land in upstream's
+      `input/minimax_h3/masks`, where upstream's Clean up (which only knows
+      its own Media Loader) could delete them. `/mask_compose` copies them
+      into this pack's masks folder and the editor repoints its layers.
+      Tested against a stubbed server: copies made, layers repointed, a
+      result outside both folders still refused.
+    - Example workflows are now byte-identical to upstream's. README, REFMODS,
+      guide, SECURITY updated; pyproject 3.0.0 (major: without the original
+      pack, old workflows' RefMod nodes show as missing).
+
+92. 🟩 replace the Media | RefMods tabs with a ◈ button at the top left that
+    swaps between the two
+    - The tab strip is gone; a ◈ leads both toolbars — the media panel's
+      (left of ❐) and the RefMods panel's (left of Browse library…). It shows
+      the number of RefMods picked, is amber while the RefMods show, and the
+      node remembers the choice as before. Inside the toolbars rather than
+      above them, since the media toolbar is what T2VA's "Used" layout keeps.
+    - The panel gets the tab strip's 30px back (media panel 432 → 458px in
+      Chromium). Not shown in the full-size window, which has its own
+      docking ◈ RefMods.
+    - Headless tests rewritten for the button (initial state, swap, swap back,
+      counts on both buttons, docked-window count); Chromium screenshots of
+      both views.
