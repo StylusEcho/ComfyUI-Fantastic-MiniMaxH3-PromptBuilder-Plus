@@ -87,7 +87,7 @@ def _track(sam3, model, frames, **kw):
     return sam3.SAM3_TrackToMask.execute(track_data=track, object_indices="").result[0]
 
 
-def _save_sprite(masks, folder, stem):
+def _save_sprite(masks, folder, stem, sub=SUBFOLDER):
     """The mask as one small PNG of tiles, one per frame, white with the mask
     as alpha. The editor and the loader card draw the tile for the frame on
     screen, so the overlay follows scrubbing exactly. Returns its layout."""
@@ -107,7 +107,7 @@ def _save_sprite(masks, folder, stem):
     name = f"{stem}.png"
     Image.fromarray(np.stack([np.full_like(alpha, 255), alpha], axis=-1), "LA").save(
         os.path.join(folder, name), optimize=True)
-    return {"file": f"{SUBFOLDER}/{name} [input]", "tw": tw, "th": th, "cols": cols,
+    return {"file": f"{sub}/{name} [input]", "tw": tw, "th": th, "cols": cols,
             "count": int(small.shape[0]), "step": int(step)}
 
 
@@ -167,25 +167,36 @@ def read_mask(annotated):
     return meta, stored > 0
 
 
-def save_mask(masks, source, first, how):
+def save_mask(masks, source, first, how, sub=SUBFOLDER, prefix=""):
     """Write bool [n, h, w] as a packed mask plus its overlay sprite; the info
-    the panel keeps on the clip."""
+    the panel keeps on the clip. `sub` is the input subfolder (this pack's
+    masks folder; upstream also uses it for the Create tab's subject masks,
+    which its own Object Mask node writes)."""
     from safetensors.torch import save_file
     n, _h, w = masks.shape
     hit = int(masks.flatten(1).any(dim=1).sum())
     if not hit:
         raise ValueError("The mask is empty on every frame.")
-    folder = os.path.join(folder_paths.get_input_directory(), SUBFOLDER)
+    folder = os.path.join(folder_paths.get_input_directory(), sub)
     os.makedirs(folder, exist_ok=True)
-    tag = f"{_stem(source)}_{uuid.uuid4().hex[:8]}"
+    tag = f"{prefix}{_stem(source)}_{uuid.uuid4().hex[:8]}"
     name = f"{tag}.safetensors"
     save_file({"mask": pack(masks).contiguous()}, os.path.join(folder, name),
               metadata={"format": "packed1", "width": str(w), "fps": str(media_io.FPS),
                         "start_frame": str(first), "source": os.path.basename(str(source).split(" [")[0])})
-    sprite = _save_sprite(masks, folder, tag)
+    sprite = _save_sprite(masks, folder, tag, sub)
     sprite["start"] = first
-    return {"file": f"{SUBFOLDER}/{name} [input]", "frames": n, "hit": hit,
+    return {"file": f"{sub}/{name} [input]", "frames": n, "hit": hit,
             "share": round(np.count_nonzero(masks.numpy()) / masks.numel(), 4), "how": how, "sprite": sprite}
+
+
+def turn(masks, rotate, mirror):
+    """[n, h, w] the way the editor shows its picture: turned `rotate`
+    degrees clockwise, then mirrored (load_image's order)."""
+    k = (int(rotate or 0) % 360) // 90
+    if k:
+        masks = torch.rot90(masks, -k, dims=(1, 2))
+    return masks.flip(2) if mirror else masks
 
 
 def _aligned(base, first, n, h, w):
@@ -373,12 +384,12 @@ def compose_layers(clip, layers, start=0.0, end=0.0):
     return save_mask(out, clip, first, "layers: " + ", ".join(names))
 
 
-def load_mask(annotated, n, start=None, mirror=False, crop=None):
+def load_mask(annotated, n, start=None, mirror=False, crop=None, rotate=0):
     """A saved mask cut and framed the way the Media Loader sends its clip: the
-    trim's `n` frames, mirrored then cropped. It stays at the resolution it was
-    saved at; callers bring it to the size they work at. Frames it doesn't
-    cover (the trim was widened after masking) come out empty, so they are
-    kept as filmed. Returns [n, h, w] float."""
+    trim's `n` frames, turned (pictures only), mirrored then cropped. It stays
+    at the resolution it was saved at; callers bring it to the size they work
+    at. Frames it doesn't cover (the trim was widened after masking) come out
+    empty, so they are kept as filmed. Returns [n, h, w] float."""
     meta, stored = read_mask(annotated)
     at = round(float(start or 0) * media_io.FPS) - int(meta.get("start_frame", 0))
     idx = torch.arange(at, at + n)
@@ -388,6 +399,4 @@ def load_mask(annotated, n, start=None, mirror=False, crop=None):
     if not bool(inside.all()):
         print(f"[MiniMaxH3 mask] the mask covers {int(inside.sum())} of the {n} frames sent; the rest "
               "stay as filmed. Mask the clip again to cover the new trim.")
-    return media_io._apply_crop(media_io._apply_mirror(m[..., None], mirror), crop)[..., 0]
-
-
+    return media_io._apply_crop(turn(m, rotate, mirror)[..., None], crop)[..., 0]

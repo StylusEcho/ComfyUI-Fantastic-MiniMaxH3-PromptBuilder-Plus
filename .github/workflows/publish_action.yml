@@ -16,7 +16,7 @@ jobs:
     # before the version-bump push, since registry versions are immutable.
     env:
       COMFY_NODE_CHANGELOG: |
-        Folds in the original pack's 1.8.1: the trim and crop editor's size menu takes a custom long edge, the mask preview redraws on size and crop changes and no longer draws grow and the regenerated cells too large on a cropped clip, and RefMod cards number RefMods after Prompt Studio's media as the Text Encode will. The RefMod library gets its own window and text size under its gear, and opens ComfyUI-MiniMaxH3Mod bundles in Edit frames & voice, saving the result as standalone copies. Needs the original pack 1.8.1 or newer alongside for RefMods and masked editing.
+        Folds in the original pack's 1.8.2: RefMod Create can crop each picture and clip to its subject and blur the background (Batch Masking with SAM 3.1, and a Crop and mask window with dots and a brush), RefMod names must be unique, and a renamed RefMod keeps its new name in labels. Fixes the trim editor failing to open on any clip longer than 15 seconds. Adds an optional two-column layout for Reference mode in the Prompt Builder. Needs the original pack 1.8.2 or newer alongside for RefMods and masked editing.
     steps:
       - name: Check out code
         uses: actions/checkout@v4

@@ -1189,7 +1189,7 @@ function slotsFromItems(rawItems, sourceLabel, panel = null, own = false) {
   const push = (tag, kind, item, note, previewKind) => {
     const n = +(tag.match(/(\d+)>/) || [])[1];
     const slot = {
-      tag, kind, idx: n, cls: TAG_CLASS[kind], note, edit: !!item.edit,
+      tag, kind, idx: n, cls: TAG_CLASS[kind], note, edit: !!item.edit, name: item.name,
       slotName: `loader:${item.name}`,
       source: `${sourceLabel} \u2022 ${item.name}`,
       preview: { type: previewKind, url: loaderViewURL(item.file) },
@@ -1608,10 +1608,15 @@ function genRef(state) {
       // The name rides on the definition so the model ties it to the label.
       if (line && name && /^<Subject \d+>/.test(line))
         line = line.replace(/\.?\s*$/, "") + `. Their name is ${name}.`;
-      // A voice description rides on its voice line, after the drafted wording.
+      // A voice line says whose voice it is when its subject has a name, and
+      // its description rides along, after the drafted wording.
+      const bind = voiceBinding(line);
+      const owner = bind?.subj && Object.values(names).find((n) => n.tag === bind.subj);
       const voice = oneLine(d.voice);
-      if (line && voice && voiceBinding(line))
-        line = line.replace(/\.?\s*$/, "") + `. It is ${withArticle(voice)}.`;
+      if (line && bind && (owner || voice))
+        line = line.replace(/\.?\s*$/, "") + (owner
+          ? `. It is ${owner.name}'s voice${voice ? `: ${voice}` : ""}.`
+          : `. It is ${withArticle(voice)}.`);
       return line;
     }).filter(Boolean).join("\n");
   const types = TASK_TYPES.filter((t) => r.summaryTypes.includes(t)).join(" + ");
@@ -7670,14 +7675,16 @@ class Editor {
         // is X." and !X anywhere else becomes "<Subject N> X".
         const nameIn = el("input", { class: "mmh3p-defname", type: "text", value: d.name || "",
           placeholder: "name", title: "Optional name for this subject. The prompt adds \u201cTheir name is \u2026\u201d " +
-            `to the line, and typing ${NAME_PREFIX}Name in any field stands for \u201c<Subject N> Name\u201d.`,
+            "to the line and \u201cIt is \u2026's voice\u201d to the subject's voice line, and typing " +
+            `${NAME_PREFIX}Name in any field stands for \u201c<Subject N> Name\u201d.`,
           hidden: !/^\s*<Subject \d+>/.test(d.text || ""),
           oninput: (e) => { keepNameChars(e); d.name = e.target.value.trim(); this._paintSubjChips?.(); this.updatePreview(); } });
         // A voice description rides on a voice-timbre line: the prompt adds
         // "It is a …", and the speaker button can put it into a spoken line.
         const voiceIn = el("input", { class: "mmh3p-defname mmh3p-defvoice", type: "text", value: d.voice || "",
           placeholder: "voice, like low and husky", title: "Optional description of this voice. The prompt adds " +
-            "“It is a …” to the line, and the speaker button can insert it into a spoken line.",
+            "“It is a …” to the line (“It is Name's voice: …” when its subject has a name), and the speaker " +
+            "button can insert it into a spoken line.",
           hidden: !voiceBinding(d.text || ""),
           oninput: (e) => { d.voice = e.target.value; this.updatePreview(); this.refreshDialogueRow(); } });
         paintMini();

@@ -51,6 +51,52 @@ any frame straight out of a video into your picture references.*
 
 ---
 
+## What's new in 3.2.0
+
+Folds in the original pack's 1.8.2. No breakage of saved workflows; RefMods
+and masked editing want **the original pack at 1.8.2 or newer** alongside.
+
+### Fixes (Plus only)
+
+- **The trim editor opens on long clips again.** On any audio or video
+  longer than 15 seconds it failed to open at all: the 15-second marker on
+  its timeline still called a helper the 1.8.0 timeline-zoom merge had
+  removed, and the error stopped the window being built. Short clips never
+  draw the marker, which is why they still worked. The marker now follows
+  the zoom and hides when it's scrolled out of view.
+
+### Reference-mode columns (Plus only)
+
+- **⫼ Columns** in the Prompt Builder's header (Reference mode only) splits
+  the form in two: subject_definitions, the summary and retention_analysis
+  on the left; detailed_description, overall_soundscape and
+  non_diegetic_music on the right. Each column scrolls on its own, so a long
+  retention list never pushes the description out of view, and the subject
+  chip bar stays above both. The window widens to make room (up to the
+  screen's width), drops back to one column if the screen is too narrow
+  for two, and the choice is remembered.
+
+### From the original pack (1.8.2)
+
+- **Masking in RefMod Create.** Crop each picture and clip to its subject
+  and blur the background, so props and backgrounds don't bleed into the
+  RefMod: **Find and Mask All** in **Batch Masking** finds the subject with
+  SAM 3.1, **Crop to subject** crops around it, and **Blur background**
+  blurs the rest. **Crop and mask…** on a row (**Trim, crop and mask…** on
+  a clip) works on one picture with its own word, **▶ Auto mask**, **◉ Dots**
+  and a **✎ Brush**. See
+  [Crop to the subject](REFMODS.md#crop-to-the-subject-and-blur-the-background).
+  The masking runs on the original pack's Object Mask node.
+- **RefMod names must be unique**, and a renamed RefMod keeps its new name
+  in a stack's `labels` and the `reference_map`.
+- **In the original pack's nodes:** a new **Fantastic H3 Reference Map**
+  node, and the Text Encode lists its references in the order the model
+  reads them (**▦ Thumbnails…** for previews). Those are drawn by the
+  original pack; this pack doesn't attach a second copy to them.
+- Smaller fixes: **⬇ Write copy** shows its progress, dropping on the
+  Create tab lights the drop area reliably, and the stale "Audio can't be
+  sent alone" warning is gone.
+
 ## What's new in 3.1.0
 
 Folds in the original pack's 1.8.1. No breakage of saved workflows; RefMods
@@ -605,6 +651,7 @@ prompt and the media rather than carrying copies of them. Install it too for
 | **Fantastic H3 RefMod Text Encode** | Stands in for *MiniMax H3 Reference to Video* when RefMods are in play. Takes Prompt Studio's `prompt`, `references` and `mods`. |
 | **Fantastic H3 RefMod Stack** | Optional — Prompt Studio holds its own picks. Use one to share a set across several prompts, wired into Prompt Studio's `mods`. |
 | **Fantastic H3 RefMod Apply** | Attaches references to conditioning encoded elsewhere. |
+| **Fantastic H3 Reference Map** | Optional. The Text Encode's `reference_map` from Prompt Studio's `references` and `mods` without encoding, live as you edit the graph, for pasting into an LLM. |
 | **Fantastic H3 Create / Inspect / Edit RefMod**, **Store RefMod Encoder Frames** | Queued by the RefMod library; you don't wire them. |
 | **Fantastic H3 Edit Composite** | For masked edits: pastes the regenerated area into the original frames. Feed it Prompt Studio's `references`. |
 | **Fantastic H3 Video Edit Latent** | Optional. A masked-edit latent from frames and a mask made elsewhere. |
@@ -1170,8 +1217,9 @@ the first kept frame. Zoom the timeline with **−** / **+**, the zoom slider
 above it or the - and = keys (around the playhead), or scroll on it (around
 the pointer; Shift+scroll moves along it). **⤢ Kept range** fits the trim,
 and a short trim of a long clip opens zoomed. While zoomed, the strip beside
-the zoom controls shows the whole clip; drag it to move along. With unsaved changes, a
-click outside the editor doesn't close it; ✕ or Esc pressed twice drops them.
+the zoom controls shows the whole clip; drag it to move along. Closing with
+unsaved changes asks first: **Apply**, **Close without applying** or **Keep
+editing**.
 
 Videos that carry sound get an extra control for whether that soundtrack is
 treated as part of the video or as a separate audio reference. The **?** button
@@ -1308,7 +1356,10 @@ Every voice-timbre line in `subject_definitions`, the kind that reads
 `<Audio 1> is the voice-timbre reference for <Subject 1> (S1), …`, has a
 **voice** box beside it. Describe the voice there, like `low, husky voice
 with a slow, warm pace`, and the prompt adds *It is a low, husky voice with
-a slow, warm pace.* after the line. Singing lines don't get one.
+a slow, warm pace.* after the line. Singing lines don't get one. When the
+line's subject has a name, it says whose voice it is instead: *It is Ann's
+voice: low, husky voice with a slow, warm pace.*, or *It is Ann's voice.*
+with the box empty.
 
 The speaker button for that ID in the dialogue row becomes a split button.
 Its arrow offers two lines:
@@ -1660,8 +1711,6 @@ soundtrack spends from both totals at once: a 12-second video with its audio on
 uses 12 of your 15 video seconds *and* 12 of your 15 audio seconds, leaving 3
 seconds of audio for anything else.
 
-Audio also can't be sent without at least one image or video alongside it.
-
 The loader flags all of these, and the ✂ trim is usually the fix — see
 [Trimming and cropping clips](#trimming-and-cropping-clips).
 
@@ -1817,10 +1866,11 @@ the Create tab. Its stored frames are listed first as sources — untick or
 remove the ones you don't want, drag to reorder, and drop new pictures or
 clips in to add them; they're encoded to the file's own size and style and
 the previews show how each one is trimmed to fit. Frames you
-keep are copied exactly as they are, never decoded and re-encoded. The
+keep are copied exactly as they are, never decoded and re-encoded, unless
+you blur their background (see **Batch Masking** below). The
 voice is a source too: untick it to remove it, or add an audio file (or
-tick a clip's soundtrack) to replace it — the first *Voice seconds* are
-kept. **Save changes** writes the result through the queue and the library
+tick a clip's soundtrack) to replace it — a trimmed voice keeps its whole
+trim, otherwise the first *Voice seconds* are kept. **Save changes** writes the result through the queue and the library
 reselects the file; tick **Save as a copy** and give it a name to leave the
 original alone and write the result as a new RefMod (its voice and preview
 come along). A RefMod that had no voice is renamed to the
@@ -1849,11 +1899,11 @@ audio files, or clips whose soundtrack you keep — are joined into one voice
 saved beside it. Every photo in it takes the first one's shape (portrait,
 landscape or square): the others have their edges trimmed to fit, in Full
 and Compressed alike. Each photo's preview shows exactly what will be
-trimmed, so drag your best-framed one to the top. Rather than accept the automatic trim, click **Crop to
-fit…** on any other photo: the crop editor opens locked to the first
-photo's shape, and you drag the box over the part you want to keep. Every
-row also has **Crop…** (or **Crop / trim…** for a clip) for rotating,
-mirroring and trimming. These edits apply to the RefMod only; the node's
+trimmed, so drag your best-framed one to the top. Rather than accept the automatic trim, click **Crop and
+mask…** on any other photo: the crop editor opens locked to the first
+photo's shape, and you drag the box over the part you want to keep. The
+same button (**Trim, crop and mask…** on a clip) rotates, mirrors, trims
+and masks. These edits apply to the RefMod only; the node's
 media panel keeps its own settings. A stacked RefMod is cited in prompts as one
 video, like `<Video 1>`. Switch to **One
 per source** to turn a batch of unrelated items into separate RefMods
@@ -1864,6 +1914,39 @@ media panel), consecutive so the motion is real; H3's video VAE stores 2
 frames for up to 17 and 5 more per further 17, so 22 frames store 7, 39
 store 12, 56 store 17, and other counts are cut down to the nearest of
 those. The setting's caption shows the result live.
+
+**Batch Masking.** In the settings pane, **Find and Mask All** runs SAM 3.1
+(`sam3.1_multiplex_fp16.safetensors` in `models/checkpoints`) over every
+picture and clip in one queue job. It finds the word you type, which starts
+as `person` for the identity and pose/motion concepts, keeping the largest
+match unless **Keep every match** is ticked. A picture with its own word
+uses that, and brushed pictures are left alone. A clip is masked over the
+same frames Create takes from it. **Crop to subject** crops around what was
+found with a **Margin** (1.75×), grown to the stack's shape and kept inside
+the picture. A crop you adjust by hand is kept, and **Back to auto** returns
+it. **Blur background** blurs everything but the subject in pixels before
+encoding; **Blur**, **Grow** and **Edge** are in pixels of the picture as
+encoded. The editor (**Crop and mask…**) draws the mask over the picture
+and masks that picture alone: a **What to mask** box (empty uses Batch
+Masking's word), **▶ Auto mask**, **◉ Dots** to steer it, a **✎ Brush**
+that paints into the mask or erases from it (on a clip, every frame;
+Ctrl+Z undoes a stroke), **Mask | Result** for a live preview, and the
+picture's own settings, each following Batch Masking until changed there
+(**Use batch settings** hands them back). Auto mask starts fresh and drops
+the brush strokes. Apply or ‹ › keeps the window's changes; ‹ › or `,` `.`
+(PgUp/PgDn) step through every source. In edit mode, a Full RefMod's stored
+frames can be blurred too (**Mask…** on the frame): a latent blend outside
+the subject, with **Background kept** setting how much stays. Rows flag
+small crops (under 60% of the resolution), a subject cut off by the stack's
+shape, nothing masked, and masks to redo with Auto mask. The masks are
+temporary: they're deleted once the RefMod is saved, and Clean up sweeps
+any left over. What was done is recorded in the file (Batch Masking's
+settings), shown as a **bg blurred** badge and in Details, and edit mode
+starts from it.
+
+Voices can be trimmed with **Trim…** on their row. A trimmed voice keeps
+its whole trim; Voice seconds only cuts untrimmed ones. The line under
+Create shows the voice's length and tokens, about 80 a second.
 
 Under the Create button the tab shows how many frames and tokens the
 result will have. If that goes over the token limit, Create is blocked
@@ -1876,7 +1959,8 @@ when it lands, with a preview image written beside the file.
 **Fantastic H3 Create RefMod** is the node the library queues. It also
 works by hand in a graph with IMAGE and AUDIO inputs, and its `source`
 field takes a media-panel item, or a list of them to stack, as JSON. Not carried over from the
-original pack: masks, multi-reference merging, motion-only mode and
+original pack: mask inputs (the Create tab's Batch Masking crops and blurs
+around a subject instead), multi-reference merging, motion-only mode and
 presets.
 
 **Full or Compressed?** Full keeps as much of your picture or clip as
@@ -1946,7 +2030,11 @@ and the audio VAE for voices. It presents every reference to the model's own
 encoder during tokenization, so the prompt can cite `<Picture n>`,
 `<Video n>` and `<Audio n>`: loaded media is labelled first, the
 RefMods after it, one counter per kind with every copy numbered, and the
-map is reported on `reference_map`. Loaded media is sized as the native
+map is reported on `reference_map`. **Fantastic H3 Reference Map** gives the
+same map from the same `references` and `mods` without encoding anything.
+It shows the map as you edit the graph, before anything is queued, with a
+**⧉ Copy** button for pasting it into an LLM, and outputs it for an LLM
+node writing the prompt. Loaded media is sized as the native
 node sizes it (`width`, `height`, `length` and `ref_image_size` are the
 same settings); RefMods keep the size they were saved at. A clip is shown
 to the encoder at two frames a second, as the native node samples video.
@@ -1973,7 +2061,19 @@ first.
 voices are used — they always are. On, each voice RefMod's saved Voice
 description is also written right after its `<Audio n>:` label, where the
 encoder is introduced to the reference, instead of only in the prompt body.
-Off, the encoder sees exactly what core's node gives it.
+A RefMod set to identity with a subject name also says whose voice it is:
+`<Audio 1>: It is Kate's voice: female, medium pitched, precise.` Off, the
+encoder sees exactly what core's node gives it.
+
+The node lists its references in the order the model reads them: each
+label and the file or RefMod it stands for, under Media and then RefMods.
+The list follows the graph as you change media, picks, links or the
+builder's mode, so the order can be checked without queueing, and it counts
+media the builder's mode holds back. Past ten lines it scrolls. Click its
+heading to fold it. **▦ Thumbnails…** on the heading shows every reference
+as a small preview in the same order: media as the Media Loader shows it,
+crops marked, and RefMods with their tags and tokens. A clip's soundtrack
+and a RefMod's voice share its card.
 
 **Fantastic H3 RefMod Apply** appends the references to conditioning encoded
 elsewhere, with a `retention` multiplier on every entry. The model sees them,
