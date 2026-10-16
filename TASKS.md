@@ -1518,3 +1518,56 @@ when hiding, makes it a mouse-over caption for the respective section.
       custom size checked in Chromium (option listed, box appears, 1500
       applied).
     - pyproject 3.1.0; publish changelog rewritten for this release.
+
+94. 🟩 the audio trimmer doesn't open (3+ minute file; a 13 s file is fine)
+    - Reproduced in Chromium: `new TrimModal()` threw `ReferenceError: p is
+      not defined` in `layoutTimeline()`, before the window was attached. The
+      line positions this fork's 15-second marker, which only exists on clips
+      over 15 s — hence short files working — and it still called a pct
+      helper that the 1.8.0 timeline-zoom merge removed. Video over 15 s was
+      broken the same way.
+    - Now positioned with `this.pct()` in the zoomed view's terms and hidden
+      when zoomed past it. Measured: a 200 s clip opens with the marker at
+      7.5% (15/200), it hides after zooming in, a 4 s clip shows none.
+    - An `eslint no-undef` sweep of every web file (now part of each check)
+      found one more undefined name, `SPLITTER_NAME`, in the dead
+      `addSplitter()` export: removed, with its now-unused toast helper and
+      CSS.
+
+95. 🟩 Prompt Builder, Reference mode: a toggleable column layout that widens
+    the window (left: everything up to retention_analysis; right:
+    detailed_description, overall_soundscape, non_diegetic_music)
+    - Built the "Enhanced" variant chosen: **⫼ Columns** in the header,
+      shown in Reference mode only, remembered as a preference
+      (`refColumns`). Each column scrolls on its own; the subject chip bar
+      stays full width above both; each column is its own `mmh3p-fields`
+      container so the audio pair's own fold reads its column.
+    - The window grows by 520 px × window scale (cap 98vw) only while
+      Reference mode and the toggle are both on; switching mode shrinks it
+      back. Under ~760 px of form the columns fold into one scroller.
+    - Each column keeps its scroll position across re-renders.
+    - Measured in Chromium at 1900×1000: modal 1240 → 1760 px; two 552 px
+      columns, left scrolling with 14 retention rows, right holding the
+      description with the audio pair at its foot; I2VA back to 1240 with
+      the button hidden; preference persisted. At 1300 wide it folds into
+      one column scrolled by the wrapper.
+
+96. 🟩 upstream 1.8.2 (`01b6d8d..1e8df67`)
+    - RefMod Create's masking (Batch Masking, crop to subject, blur
+      background, the Crop and mask window) merged into the library; it
+      queues the original pack's Object Mask, now behind `requireOriginal`
+      in `runHidden()`. Unique RefMod names and `refmod_label` in
+      `build_stack`.
+    - Left out on purpose: upstream's own UI for its Text Encode (reference
+      order, ▦ Thumbnails) and its new Reference Map node — the original
+      pack draws those on its own nodes, and a second copy would double them
+      — with `encodeSlots()` and its CSS. The Object Mask node and its
+      subject-mask helpers stay out of `object_mask.py` (they need
+      `latent_cache`, deleted in 3.0.0). Node files deleted in 3.0.0 stay
+      deleted.
+    - Upstream's `clipPreview()` adopted for the loader's video rows, with
+      this fork's `hasCrop()` and the lightbox's ← → siblings; pictures keep
+      this fork's `picCell`.
+    - Loss audit, lint, namespace sweep, CSSOM check (no spliced rules),
+      stubbed import (1 node), module load in Chromium all clean.
+      pyproject 3.2.0.

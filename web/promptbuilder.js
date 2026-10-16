@@ -819,6 +819,10 @@ const PREF_DEFAULTS = {
   // Window and text scale, 100%-300%. A 4K monitor makes the default window
   // small; these are per user, so they follow you into every workflow.
   windowScale: 1.0, textScale: 1.0,
+  // Reference mode's form in two columns (the ⫼ Columns header button),
+  // with the window widened to fit. Off by default: one column is the
+  // layout everything else in the editor was sized against.
+  refColumns: false,
   // Chips can be switched off for a plain text field. The mirror still
   // renders (invisibly), so hover previews keep working.
   highlightTags: true,
@@ -894,6 +898,9 @@ function loadPrefs() {
     return { ...PREF_DEFAULTS };
   }
 }
+
+// The width ⫼ Columns adds to the editor: roughly one more form column.
+const REFCOL_EXTRA = 520;
 
 function savePrefs(prefs) {
   try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); }
@@ -2119,6 +2126,29 @@ ${RAISE_CSS}
    below their real rendered size, or the flex-shrink algorithm silently
    overflows them past this section's box and onto whatever follows it. */
 .mmh3p-sec.mmh3p-grow>label,.mmh3p-sec.mmh3p-grow>.hint{flex-shrink:0;}
+/* ⫼ Columns (Reference mode). The form stops scrolling and hands it to the
+   two columns, so a long retention list never pushes the description away;
+   the chip bar and any strip above stay full width. Each column is its own
+   mmh3p-fields container, so the audio pair's own query reads the column it
+   sits in. Under about 760px of form there isn't room for two useful
+   columns: they fold back into one scrolling column. */
+.mmh3p-form.refcols{overflow:hidden;padding-bottom:0;}
+.mmh3p-refcols{flex:1 1 auto;min-height:0;display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;}
+.mmh3p-refcol{min-width:0;min-height:0;overflow-y:auto;display:flex;flex-direction:column;
+  padding-bottom:16px;container:mmh3p-fields / inline-size;}
+.mmh3p-refcol>*{flex:0 0 auto;}
+.mmh3p-refcol>.mmh3p-sec.mmh3p-grow{flex:1 1 auto;}
+.mmh3p-refcol>.mmh3p-audiopair:last-child>.mmh3p-sec,.mmh3p-refcol>.mmh3p-sec:last-child{margin-bottom:0;}
+.mmh3p-btn.mmh3p-colsbtn.on{background:#2b3a52;border-color:#4a6a9a;color:#e6eefc;}
+/* Queried against the form (the columns' container), so the fold-back is
+   styled on the column wrapper, which then does the scrolling itself. */
+@container mmh3p-fields (max-width: 760px){
+  .mmh3p-refcols{display:block;overflow-y:auto;}
+  .mmh3p-refcols>.mmh3p-refcol{overflow:visible;padding-bottom:0;}
+  .mmh3p-refcols>.mmh3p-refcol.left{margin-bottom:16px;}
+  .mmh3p-refcols>.mmh3p-refcol.right{padding-bottom:16px;}
+}
 .mmh3p-side{border-left:1px solid #2a2f3a;display:flex;flex-direction:column;min-height:0;background:#15181e;}
 .mmh3p-sec{margin-bottom:16px;}
 /* The form is a flex column, so margins don't collapse: the last section's own
@@ -4080,6 +4110,11 @@ class Editor {
             "Clear"),
           guideBtn,
           this.modeBar,
+          this.colsBtn = el("button", { class: "mmh3p-btn mmh3p-colsbtn",
+            title: "Reference mode: show the form in two columns \u2014 definitions and " +
+                   "retention on the left, the description and audio on the right. " +
+                   "Widens the window to fit.",
+            onclick: () => this.toggleRefColumns() }, "\u2afc Columns"),
           // Opens over the top rather than handing over. The editor used to
           // close itself first, which meant a trip through the
           // unsaved-changes strip just to glance at the media \u2014 and in draft
@@ -4492,7 +4527,12 @@ class Editor {
     // onto the modal's own width instead, so the rail gets the room without
     // taking it from anything else. 164 is --mmh3-railw's own value at 1x.
     const railExtra = this.sidebar ? Math.max(0, Math.round(128 * chip + 36) - 164) : 0;
-    modal.style.width = `min(${Math.round(1240 * w) + railExtra}px, 95vw)`;
+    // Two columns need a second column's worth of room, added on rather than
+    // taken from the one form column there was. The viewport cap loosens a
+    // little with it; below about 760px of form the columns fold back into
+    // one anyway (see .mmh3p-refcols).
+    const colsExtra = this.refColumns() ? Math.round(REFCOL_EXTRA * w) : 0;
+    modal.style.width = `min(${Math.round(1240 * w) + railExtra + colsExtra}px, ${colsExtra ? 98 : 95}vw)`;
     // Tall mode hands the height to the viewport, so the slider governs
     // width alone — scaling the height as well would immediately clamp back
     // against the same margin and make the slider look broken.
@@ -4504,6 +4544,17 @@ class Editor {
     document.documentElement.style.setProperty("--mmh3-fs", String(t));
     document.documentElement.style.setProperty("--mmh3-chip",
       String(clampScale(this.prefs.chipScale, CHIP_SCALE_MAX)));
+  }
+
+  /** Reference mode drawn as two columns (the preference, in REF only). */
+  refColumns() {
+    return this.state.mode === "REF" && !!this.prefs.refColumns;
+  }
+
+  toggleRefColumns() {
+    this.prefs.refColumns = !this.prefs.refColumns;
+    savePrefs(this.prefs);
+    this.render();
   }
 
   /** Show or hide the checks list, remembering the choice. */
@@ -7418,6 +7469,15 @@ class Editor {
   _render() {
     this._citeText = null;
     const scroll = this.formEl.scrollTop;
+    // Each column scrolls on its own, so each keeps its own place too.
+    const colScroll = [...this.formEl.querySelectorAll(".mmh3p-refcols, .mmh3p-refcol")].map((c) => c.scrollTop);
+    const cols = this.refColumns();
+    this.formEl.classList.toggle("refcols", cols);
+    this.colsBtn.hidden = this.state.mode !== "REF";
+    this.colsBtn.classList.toggle("on", cols);
+    // Only when it changes: applyScale() also rewrites the height and the
+    // document's text size, which every keystroke's render needn't touch.
+    if (cols !== this._colsWide) { this._colsWide = cols; this.applyScale(); }
     [...this.modeBar.children].forEach((b, i) =>
       b.classList.toggle("on", MODES[i].id === this.state.mode));
     this._slotMap = null;                 // slots may have changed
@@ -7444,7 +7504,10 @@ class Editor {
     } else if (this.clearPending) {
       this.formEl.prepend(this.clearStrip());
       this.formEl.scrollTop = 0;
-    } else this.formEl.scrollTop = scroll;
+    } else {
+      this.formEl.scrollTop = scroll;
+      this.formEl.querySelectorAll(".mmh3p-refcols, .mmh3p-refcol").forEach((c, i) => { c.scrollTop = colScroll[i] || 0; });
+    }
     this.applyHints();
     this.applyDraftChrome();
     this.updatePreview();
@@ -7573,6 +7636,16 @@ class Editor {
     this._paintSubjChips = () => subjChipWrap.replaceChildren(...subjChips());
     this._paintSubjChips();
     f.append(this.toolBar([subjChipWrap]));
+    // ⫼ Columns: definitions and retention on the left, the description and
+    // audio on the right, each column scrolling on its own. The chip bar
+    // above stays full width, since it inserts into whichever field has
+    // focus. Off, both sides are the form itself, as before.
+    let left = f, right = f;
+    if (this.refColumns()) {
+      left = el("div", { class: "mmh3p-refcol left" });
+      right = el("div", { class: "mmh3p-refcol right" });
+      f.append(el("div", { class: "mmh3p-refcols" }, left, right));
+    }
 
     /* subject_definitions -------------------------------------------- */
     const defsWrap = el("div");
@@ -7709,7 +7782,7 @@ class Editor {
       if (t) { t.focus(); t.selectionStart = t.selectionEnd = t.value.length; this.lastFocus = t; }
       this.updatePreview();
     };
-    f.append(el("div", { class: "mmh3p-sec" },
+    left.append(el("div", { class: "mmh3p-sec" },
       this.secLabel("subject_definitions"),
       defsWrap,
       el("div", { class: "mmh3p-tools" },
@@ -7740,7 +7813,7 @@ class Editor {
         "storyboards; otherwise cite the picture inside the subject.")));
 
     /* summary --------------------------------------------------------- */
-    f.append(el("div", { class: "mmh3p-sec" },
+    left.append(el("div", { class: "mmh3p-sec" },
       el("label", {}, "summary"),
       el("div", { class: "mmh3p-ttypes" }, TASK_TYPES.map((t) =>
         el("label", {},
@@ -7855,7 +7928,7 @@ class Editor {
             drawRet(); this.updatePreview();
             if (!added) toast("Every defined label already has an entry", 2600);
           } }, "Auto-fill from labels");
-    f.append(el("div", { class: "mmh3p-sec" },
+    left.append(el("div", { class: "mmh3p-sec" },
       this.secLabel("retention_analysis", null, addEntryBtn, autoFillBtn),
       retWrap,
       el("span", { class: "hint" },
@@ -7881,12 +7954,12 @@ class Editor {
     // picker may write.
     const detailFields = [styleWrap, detTa]
       .map((w) => w.querySelector("textarea")).filter(Boolean);
-    f.append(el("div", { class: "mmh3p-sec" },
+    right.append(el("div", { class: "mmh3p-sec" },
       el("label", { class: "act" },
         "detailed_description \u2014 style opening (before [Shot 1])",
         el("span", { class: "mmh3p-secact" }, this.styleSelect(detailFields))),
       styleWrap));
-    f.append(el("div", { class: "mmh3p-sec mmh3p-grow" },
+    right.append(el("div", { class: "mmh3p-sec mmh3p-grow" },
       el("label", {}, "detailed_description \u2014 shots"),
       detTa, wcSpan));
 
@@ -7897,7 +7970,7 @@ class Editor {
     const refMusicTa = this.ta(r, "music", 3,
       "Audience-only score. If reused: \"<Audio 2> is directly reused as the complete " +
       "audience-only score.\"");
-    f.append(el("div", { class: "mmh3p-audiopair" },
+    right.append(el("div", { class: "mmh3p-audiopair" },
       el("div", { class: "mmh3p-sec" },
         this.secLabel("overall_soundscape", null, this.naButton(r, "soundscape")),
         refSoundTa),

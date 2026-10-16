@@ -1182,7 +1182,10 @@ H3 Reference to Video** and the `ref2va` checkpoint.
    lands in the right group.
 2. Open the editor and switch to **Reference** mode. Your media now shows up
    as clickable thumbnails; click one to insert its tag into your text.
-3. Fill in the six sections, then **Save to node**.
+3. Fill in the six sections, then **Save to node**. On a wide screen,
+   **⫼ Columns** in the header puts the definitions, summary and
+   retention_analysis in a left column and the description and audio in a
+   right one, each scrolling on its own; the window widens to fit.
 4. Connect the node's `prompt` output to **MiniMax H3 Reference to Video**'s
    `prompt` input.
 5. `references` carries the whole gated bundle, but **Reference to Video**
