@@ -6,8 +6,8 @@
  */
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { postApi, STUDIO_NAME, LOADER_NAME, computeTags, originalNodeMissing, viewURL, openCropEditor, keepNameChars, outputTargets, setterOf,
-         clampScale, SCALE_MIN, SCALE_MAX, TEXT_SCALE_MAX, MASK_NODE, SAM_KEY, SAM_LINK, samCheckpoints } from "./medialoader.js";
+import { postApi, STUDIO_NAME, LOADER_NAME, computeTags, runHidden, turnRect, viewURL, openCropEditor, keepNameChars, outputTargets, setterOf,
+         requireOriginal, clampScale, SCALE_MIN, SCALE_MAX, TEXT_SCALE_MAX, MASK_NODE, SAM_KEY, SAM_LINK, samCheckpoints } from "./medialoader.js";
 
 // This pack installs one node, Prompt Studio, with its own RefMods tab. The
 // RefMod Stack, Text Encode and the library's Create/Inspect/Edit/Store
@@ -29,15 +29,6 @@ const BUILDER_NAME = "MiniMaxH3PromptBuilder";
 export const ENCODE_NAMES = new Set(["MiniMaxH3FantasticRefModTextEncode",
   "MiniMaxH3StudioRefModTextEncode", "MiniMaxH3RefModTextEncode"]);
 
-/** Before queueing the library's work: the original pack's nodes it names
- *  must be installed, or say so plainly instead of a bare queue error. */
-function requireOriginal(prompt, what) {
-  for (const n of Object.values(prompt)) {
-    if (!String(n.class_type).startsWith("MiniMaxH3Fantastic")) continue;
-    const msg = originalNodeMissing(n.class_type, what);
-    if (msg) throw new Error(msg);
-  }
-}
 export const MAX_WEIGHT = 10;
 export const MAX_COPIES = 10;
 export const KIND = {
@@ -1584,54 +1575,6 @@ function loadSettings() {
 }
 function saveSettings(st) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(st)); } catch (e) { /* private mode */ } }
 
-/** Queue a hidden prompt and resolve with each node's output once it has
- *  run. The live connection carries them; /history is asked every few
- *  seconds too, for a message missed in a reconnect. */
-function runHidden(prompt, what = "This") {
-  // The nodes queued here (Object Mask, Inspect) are the original pack's.
-  try { requireOriginal(prompt, what); } catch (err) { return Promise.reject(err); }
-  return new Promise((resolve, reject) => {
-    let pid = null, done = false;
-    const outputs = {};
-    const finish = (err) => {
-      if (done) return;
-      done = true;
-      clearInterval(timer);
-      for (const [k, f] of Object.entries(on)) api.removeEventListener(k, f);
-      if (err) reject(err); else resolve(outputs);
-    };
-    const on = {
-      executed: (e) => { if (e.detail?.prompt_id === pid) outputs[e.detail.node] = e.detail.output || {}; },
-      execution_success: (e) => { if (e.detail?.prompt_id === pid) finish(); },
-      execution_error: (e) => {
-        if (e.detail?.prompt_id === pid) finish(new Error(e.detail.exception_message || "the job failed; the ComfyUI console has the details"));
-      },
-      execution_interrupted: (e) => { if (e.detail?.prompt_id === pid) finish(new Error("the job was cancelled")); },
-    };
-    for (const [k, f] of Object.entries(on)) api.addEventListener(k, f);
-    const timer = setInterval(async () => {
-      if (!pid) return;
-      try {
-        const entry = (await (await api.fetchApi(`/history/${pid}`)).json())?.[pid];
-        if (!entry?.status || entry.status.completed === undefined) return;
-        Object.assign(outputs, entry.outputs || {});
-        const err = (entry.status.messages || []).map((m) => m[0] === "execution_error" ? m[1]?.exception_message : "").find(Boolean);
-        finish(entry.status.status_str === "success" ? null : new Error(err || "the job failed"));
-      } catch (e) { /* server away: ask again */ }
-    }, 4000);
-    api.fetchApi("/prompt", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, client_id: api.clientId }) })
-      .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok || d.error) {
-          const errs = Object.values(d.node_errors || {}).flatMap((n) => (n.errors || []).map((x) => x.details || x.message || ""));
-          throw new Error((d.error?.message || d.error || `HTTP ${r.status}`) + (errs.length ? `: ${errs.join("; ")}` : ""));
-        }
-        pid = d.prompt_id;
-      })
-      .catch(finish);
-  });
-}
 
 /** What the Create tab did around a RefMod's subject, from the record in
  *  its header, for the library badge and Details. */
@@ -1641,13 +1584,6 @@ function subjectText(r) {
     r.blur > 0 ? `background blurred ${r.blur} px (grow ${r.grow}, edge ${r.edge})` : "",
     r.background != null ? `stored frames blurred, ${Math.round(r.background * 100)}% of the background kept` : ""]
     .filter(Boolean).join("; ");
-}
-
-/** A normalised rect on a picture after it's turned `turn` degrees
- *  clockwise and then mirrored, as the editor shows it. */
-function turnRect(r, turn, mirror) {
-  for (let k = (((turn || 0) % 360) + 360) % 360 / 90; k > 0; k--) r = { x: 1 - r.y - r.h, y: r.x, w: r.h, h: r.w };
-  return mirror ? { ...r, x: 1 - r.x - r.w } : r;
 }
 
 /** Media Loader items -> Create sources. Anything the loader can hold. */

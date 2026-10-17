@@ -53,6 +53,9 @@ from . import media_io
 # arrive in UPSTREAM_SUBFOLDER and are copied here when a mask is combined.
 SUBFOLDER = "minimax_h3_plus/masks"
 UPSTREAM_SUBFOLDER = "minimax_h3/masks"
+# Where the original pack's Object Mask saves subject masks (its latent cache);
+# /adopt_masks copies a loader picture's out of it.
+UPSTREAM_CACHE = "minimax_h3/cache"
 DECODE_CAP = 1008          # SAM 3 works at 1008 px; decoding larger only costs memory
 SPRITE_W = 320             # the overlay the editor and loader card draw: one small tile per frame
 SPRITE_MAX = 600           # longer masks keep every Nth frame
@@ -399,4 +402,20 @@ def load_mask(annotated, n, start=None, mirror=False, crop=None, rotate=0):
     if not bool(inside.all()):
         print(f"[MiniMaxH3 mask] the mask covers {int(inside.sum())} of the {n} frames sent; the rest "
               "stay as filmed. Mask the clip again to cover the new trim.")
+    return media_io._apply_crop(turn(m, rotate, mirror)[..., None], crop)[..., 0]
+
+
+def subject_mask(spec, n, start=None, mirror=False, crop=None, rotate=0, size=None):
+    """A picture's subject mask, framed as load_mask frames a saved one: SAM's
+    mask, or an empty one `size` (w, h) for a subject painted by hand, with
+    its brush strokes painted in or erased on every frame. The strokes are
+    kept the file's way round, like the mask. (Upstream's, for the RefMod
+    Create tab; here the media panel's subject masking uses it.)"""
+    if spec.get("mask"):
+        m = load_mask(spec["mask"], n, start)
+    else:
+        w, h = media_io._scaled_size(*size, DECODE_CAP) or size
+        m = torch.zeros(n, int(h), int(w))
+    for stroke in spec.get("strokes") or []:
+        m[:, torch.from_numpy(_stamp(stroke, m.shape[1], m.shape[2]))] = 0.0 if stroke.get("erase") else 1.0
     return media_io._apply_crop(turn(m, rotate, mirror)[..., None], crop)[..., 0]

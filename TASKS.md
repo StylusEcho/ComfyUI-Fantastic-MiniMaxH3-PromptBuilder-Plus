@@ -1571,3 +1571,33 @@ when hiding, makes it a mouse-over caption for the respective section.
     - Loss audit, lint, namespace sweep, CSSOM check (no spliced rules),
       stubbed import (1 node), module load in Chromium all clean.
       pyproject 3.2.0.
+
+97. 🟩 add the masking feature to images in the media loader
+    - Built as chosen: subject isolation (as in RefMod Create), per picture
+      plus a batch, applied in Reference mode only.
+    - **Editor:** a picture's ▣ (also right-click → Crop and mask…, and the
+      Prompt Builder card's ▣) opens TrimModal with upstream's SubjectLayer,
+      fed by a new loader spec (`loaderSubjectSpec`): Auto mask, dots,
+      brush, Mask | Result, and settings (blur, grow, edge, crop to subject +
+      margin, keep every match), own per picture or following Mask all's.
+      Crop to subject is drawn as a dashed box (`subjectCropRect`).
+    - **Batch:** ◐ Mask all in the pictures heading, a popover with the
+      shared settings and Find and mask all (one queue job on the original
+      pack's Object Mask; brushed pictures keep their mask).
+    - **Storage:** `item.subject` in media_state (so presets and drafts carry
+      it; `_canonical_items` includes it for preset matching). SAM's masks
+      are copied out of the original pack's cache into this pack's masks
+      folder by a new guarded route, `/adopt_masks`; Clean up counts them.
+    - **Send time:** `subject.py` (blur_outside ported from upstream, crop
+      rect) and `object_mask.subject_mask` (restored); `build_bundle(...,
+      subjects=mode == "REF")` so keyframes are untouched.
+    - `runHidden`, `requireOriginal` and `turnRect` moved from refmodstack.js
+      to medialoader.js (shared; refmodstack imports them).
+    - Verified: real-tensor tests (subject pixels unchanged, background
+      blurred, crop 350×350 for a 200 px subject at margin 1.75, rotate 90 +
+      mirror lines up, brush-only works); JS ↔ Python crop maths identical on
+      16 rotate/mirror/margin cases; route test (copies only subject_ files
+      from that cache, refuses others and traversal, needs the token);
+      Chromium: editor, brush → Apply → item.subject, badge, menu, batch
+      popover with a stubbed queue → adopted paths, Clean up keeps them;
+      lint, CSSOM, earlier trim/columns checks.

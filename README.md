@@ -51,6 +51,38 @@ any frame straight out of a video into your picture references.*
 
 ---
 
+## What's new in 3.3.0
+
+### Subject masking on the media panel's pictures (Plus only)
+
+The RefMod Create tab's masking, for pictures you send as references: mask
+the subject and the background is blurred around it, or the picture cropped
+to it, so props and backgrounds don't bleed into the reference. It applies
+in **Reference mode only**, when the picture goes out as a `<Picture N>`;
+as a first or last keyframe the picture is sent as you edited it. The file
+on disk is never changed.
+
+- **▣ on a picture** (or right-click → **Crop and mask…**, or ▣ on its card
+  in the Prompt Builder) opens the editor with a **Masking** row:
+  **▶ Auto mask** finds the subject with SAM 3.1 from a word (`person` to
+  start), **◉ Dots** steer it, and the **✎ Brush** paints into the mask or
+  erases from it. **Mask | Result** previews the blur. Below it: **Blur
+  background** (radius), **Grow**, **Edge**, **Crop to subject** with its
+  **Margin** — drawn as a dashed box over the picture — and **Keep every
+  match**. Settings changed here are the picture's own; **Use batch
+  settings** hands them back.
+- **◐ Mask all** in the pictures heading masks every picture that's on in
+  one queue job, with the settings every picture follows until it has its
+  own. Pictures you brushed by hand keep their mask.
+- A masked picture shows **◐** on its tile (hover for what's applied).
+  Right-click → **Clear the mask** (twice, with Undo) sends it whole again.
+- Auto mask runs on the original pack's **Object Mask** (1.8.2 or newer)
+  with the SAM 3.1 checkpoint (`sam3.1_multiplex_fp16.safetensors` in
+  `models/checkpoints`); the brush works without either. Its results are
+  copied into this pack's `input/minimax_h3_plus/masks`, so the original
+  pack's Clean up (which treats its own copies as disposable) can't take
+  them, and this pack's Clean up keeps them while a picture uses them.
+
 ## What's new in 3.2.0
 
 Folds in the original pack's 1.8.2. No breakage of saved workflows; RefMods

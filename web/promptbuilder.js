@@ -7,7 +7,7 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { LOADER_NAME, STUDIO_NAME, computeTags, viewURL as loaderViewURL,
-  safeCanvasFocus, openLoaderModal, isOn, TrimModal,
+  safeCanvasFocus, openLoaderModal, isOn, openPictureEditor,
   fileCount, MODE_CAPACITY, hasCrop, TAG_COLORS, TAG_VARS,
   raiseIfOpen, RAISE_CSS, postApi, outputTargets, setterOf, linkNodes,
   keepNameChars, overlayOn, maskOverlay, refTokenEstimate, itemLook,
@@ -6398,12 +6398,12 @@ class Editor {
         // button uses, so the two can't disagree.
         class: "mmh3p-cardtool" + (s.item.trim || hasCrop(s.item) || s.item.rotate
           || s.item.mirror || s.item.resize ? " on" : ""),
-        title: still ? "Crop, rotate or mirror this picture"
+        title: still ? "Crop, rotate, mirror or mask this picture"
                      : "Trim this clip, or crop the frame",
         onclick: (e) => {
           e.stopPropagation();
           this.closePeek();
-          const modal = new TrimModal(s.panel, s.item);
+          const modal = openPictureEditor(s.panel, s.item);
           // Every exit runs through close(), so wrapping the instance's copy
           // catches Apply, Cancel and Escape alike.
           const shut = modal.close.bind(modal);

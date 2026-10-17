@@ -10,7 +10,7 @@ nothing else wired in.
 
 import json
 
-from . import media_io
+from . import media_io, subject
 
 PICTURES = 9
 VIDEOS = 3
@@ -182,8 +182,28 @@ def _brief_audio(a):
         return f"unreadable ({exc})"
 
 
-def build_bundle(media_state="[]", label="Studio"):
-    """Decode a media-panel state string into an H3_REFS bundle."""
+def _load_picture(item, label, subjects):
+    """One picture as sent. With `subjects` (Reference mode), a picture with a
+    subject mask is cropped to it and/or has its background blurred around it
+    (subject.py); otherwise, and always as a keyframe, it's sent as edited."""
+    crop = item.get("crop")
+    use = subjects and subject.active(item)
+    if use:
+        crop = subject.crop_rect(item) or crop
+    img = media_io.load_image(item["file"], crop=crop, mirror=bool(item.get("mirror")),
+                              rotate=item.get("rotate") or 0, resize=item.get("resize") or 0)
+    if use:
+        img = subject.apply(img, item, crop)
+        spec = item["subject"]
+        did = [f"background blurred ({float(spec.get('blur') or 0):g}px)" if float(spec.get("blur") or 0) > 0 else "",
+               "cropped to the subject" if subject.crop_rect(item) else ""]
+        print(f"[MiniMaxH3 {label}] {item.get('name') or item['file']}: " + ", ".join(d for d in did if d))
+    return img
+
+
+def build_bundle(media_state="[]", label="Studio", subjects=False):
+    """Decode a media-panel state string into an H3_REFS bundle. `subjects`
+    applies pictures' subject masking (Reference mode only)."""
     try:
         items = json.loads(media_state or "[]")
     except Exception:
@@ -193,11 +213,7 @@ def build_bundle(media_state="[]", label="Studio"):
 
     pictures, videos, video_audios, audios = _partition(items)
 
-    pic_t = [media_io.load_image(i["file"], crop=i.get("crop"),
-                                 mirror=bool(i.get("mirror")),
-                                 rotate=i.get("rotate") or 0,
-                                 resize=i.get("resize") or 0)
-             for i in pictures[:PICTURES]]
+    pic_t = [_load_picture(i, label, subjects) for i in pictures[:PICTURES]]
     vid_t = [media_io.load_video_frames(i["file"], start=_trim_span(i)[0],
              end=_trim_span(i)[1], crop=i.get("crop"),
              mirror=bool(i.get("mirror")),
@@ -458,7 +474,8 @@ class MiniMaxH3PromptStudio:
               stack_state="{}", fl2va_model=None, ref2va_model=None, mods=None,
               prompt=None, unique_id=None):
         mode = _mode_of(builder_state)
-        bundle = build_bundle(media_state, label="Studio")
+        # Subject masking is for references: keyframe modes send pictures as edited.
+        bundle = build_bundle(media_state, label="Studio", subjects=(mode == "REF"))
         gated, _ = gate_bundle(bundle, mode, label="Studio")
         gated["items"] = bundle.get("items", [])
         # Carried past the mode gate, as upstream's Prompt Builder carries

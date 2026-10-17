@@ -287,6 +287,10 @@ def _canonical_items(items):
             v = it.get(k)
             if v:
                 row[k] = v
+        # A picture's subject mask and its settings change what's sent.
+        sub = it.get("subject")
+        if isinstance(sub, dict) and (sub.get("mask") or sub.get("strokes")):
+            row["subject"] = {k: sub.get(k) for k in ("mask", "strokes", "blur", "grow", "edge", "crop", "margin")}
         out.append(row)
     return out
 
@@ -945,6 +949,43 @@ if PromptServer is not None and web is not None:
             except OSError:
                 continue
         return names
+
+    @routes.post("/minimax_h3_plus/adopt_masks")
+    @_guard()
+    async def adopt_masks(request):
+        """Copy subject masks the original pack's Object Mask saved for Auto
+        mask on a loader picture into this pack's masks folder, and say where
+        each went. That pack keeps them in its cache, which its own Clean up
+        treats as disposable; a picture's mask has to outlive that. Only
+        `subject_` files directly in that cache folder are copied; names are
+        kept (they are already unique) and an existing copy is reused."""
+        from .object_mask import SUBFOLDER as MASKS, UPSTREAM_CACHE
+        try:
+            body = await request.json()
+            files = body.get("files")
+            if not isinstance(files, list) or len(files) > 64:
+                return web.json_response({"error": "expected up to 64 files"}, status=400)
+            base = folder_paths.get_input_directory()
+            theirs = os.path.realpath(os.path.join(base, UPSTREAM_CACHE))
+            masks = _edit_file_dirs()["mask"]
+            moved = {}
+            for annotated in files:
+                annotated = str(annotated or "")
+                src = os.path.realpath(media_io.resolve(annotated))
+                name = os.path.basename(src)
+                if (os.path.dirname(src) != theirs or not name.startswith("subject_")
+                        or not name.endswith((".safetensors", ".png")) or not os.path.isfile(src)):
+                    return web.json_response({"error": f"{name} isn't a subject mask from Auto mask"}, status=400)
+                dst = os.path.join(masks, name)
+                if not os.path.isfile(dst):
+                    os.makedirs(masks, exist_ok=True)
+                    await asyncio.to_thread(shutil.copy2, src, dst)
+                moved[annotated] = f"{MASKS}/{name} [input]"
+            return web.json_response({"files": moved})
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+        except Exception as exc:
+            return web.json_response({"error": f"keeping the masks failed: {exc}"}, status=500)
 
     @routes.post("/minimax_h3_plus/mask_compose")
     @_guard()

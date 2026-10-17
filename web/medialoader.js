@@ -29,6 +29,72 @@ export function originalNodeMissing(type, what) {
   return `${what} runs the original Fantastic H3 pack's ${type} node, which isn't installed. ` +
     "Install ComfyUI-Fantastic-MiniMaxH3-PromptBuilder alongside this pack and restart ComfyUI.";
 }
+
+/** Before queueing hidden work (the RefMod library, Auto mask): the original pack's nodes it names
+ *  must be installed, or say so plainly instead of a bare queue error. */
+export function requireOriginal(prompt, what) {
+  for (const n of Object.values(prompt)) {
+    if (!String(n.class_type).startsWith("MiniMaxH3Fantastic")) continue;
+    const msg = originalNodeMissing(n.class_type, what);
+    if (msg) throw new Error(msg);
+  }
+}
+
+/** Queue a hidden prompt and resolve with each node's output once it has
+ *  run. The live connection carries them; /history is asked every few
+ *  seconds too, for a message missed in a reconnect. */
+export function runHidden(prompt, what = "This") {
+  // The nodes queued here (Object Mask, Inspect, …) are the original pack's.
+  try { requireOriginal(prompt, what); } catch (err) { return Promise.reject(err); }
+  return new Promise((resolve, reject) => {
+    let pid = null, done = false;
+    const outputs = {};
+    const finish = (err) => {
+      if (done) return;
+      done = true;
+      clearInterval(timer);
+      for (const [k, f] of Object.entries(on)) api.removeEventListener(k, f);
+      if (err) reject(err); else resolve(outputs);
+    };
+    const on = {
+      executed: (e) => { if (e.detail?.prompt_id === pid) outputs[e.detail.node] = e.detail.output || {}; },
+      execution_success: (e) => { if (e.detail?.prompt_id === pid) finish(); },
+      execution_error: (e) => {
+        if (e.detail?.prompt_id === pid) finish(new Error(e.detail.exception_message || "the job failed; the ComfyUI console has the details"));
+      },
+      execution_interrupted: (e) => { if (e.detail?.prompt_id === pid) finish(new Error("the job was cancelled")); },
+    };
+    for (const [k, f] of Object.entries(on)) api.addEventListener(k, f);
+    const timer = setInterval(async () => {
+      if (!pid) return;
+      try {
+        const entry = (await (await api.fetchApi(`/history/${pid}`)).json())?.[pid];
+        if (!entry?.status || entry.status.completed === undefined) return;
+        Object.assign(outputs, entry.outputs || {});
+        const err = (entry.status.messages || []).map((m) => m[0] === "execution_error" ? m[1]?.exception_message : "").find(Boolean);
+        finish(entry.status.status_str === "success" ? null : new Error(err || "the job failed"));
+      } catch (e) { /* server away: ask again */ }
+    }, 4000);
+    api.fetchApi("/prompt", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, client_id: api.clientId }) })
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok || d.error) {
+          const errs = Object.values(d.node_errors || {}).flatMap((n) => (n.errors || []).map((x) => x.details || x.message || ""));
+          throw new Error((d.error?.message || d.error || `HTTP ${r.status}`) + (errs.length ? `: ${errs.join("; ")}` : ""));
+        }
+        pid = d.prompt_id;
+      })
+      .catch(finish);
+  });
+}
+
+/** A box in the file's own frame, turned `turn` degrees clockwise and then
+ *  mirrored, as load_image and the editor show the picture. */
+export function turnRect(r, turn, mirror) {
+  for (let k = (((turn || 0) % 360) + 360) % 360 / 90; k > 0; k--) r = { x: 1 - r.y - r.h, y: r.x, w: r.h, h: r.w };
+  return mirror ? { ...r, x: 1 - r.x - r.w } : r;
+}
 export const MAX = { picture: 9, video: 3, audio: 3, total: 12 };
 // H3 policy: 2-15s per reference clip, 15s total per media type.
 export const TRIM_FPS = 24;   // H3's timeline; used for frame-stepping
@@ -1010,6 +1076,22 @@ ${RAISE_CSS}
 .mmlp-subjtools{display:inline-flex;align-items:center;gap:8px;}
 .mmlp-subjtools input[type=range]{width:calc(80px * var(--mml-fs, 1));accent-color:#4d6ea6;}
 .mmlp-subjown{color:#e0b45a;}
+/* The loader's own subject masking (Plus only): the crop to subject drawn
+   over the editor's picture, the tile badge, Mask all and its popover. */
+.mmlp-subjcrop{position:absolute;box-sizing:border-box;border:1.5px dashed #e86a8a;pointer-events:none;
+  box-shadow:0 0 0 9999px rgba(0,0,0,.35);}
+.mmlp-subjnum{width:calc(5ch + 18px);}
+.mmlp-subjbadge{flex:0 0 auto;cursor:pointer;color:#e86a8a;font-size:calc(12px * var(--mml-fs, 1));line-height:1;
+  user-select:none;text-shadow:0 0 6px rgba(232,106,138,.45);}
+.mmlp-subjall{margin-left:8px;background:none;border:1px solid #3a4252;border-radius:4px;color:#c9cfda;cursor:pointer;
+  padding:0 6px;font-size:calc(10px * var(--mml-fs, 1));line-height:1.6;font-family:system-ui,sans-serif;
+  text-transform:none;letter-spacing:0;}
+.mmlp-subjall:hover{border-color:#e86a8a;color:#f3b3c4;}
+.mmlp-subjpop{position:fixed;z-index:10055;width:min(calc(460px * var(--mml-fs, 1)), 94vw);box-sizing:border-box;
+  display:flex;flex-direction:column;gap:8px;padding:10px 12px;background:#1e222a;border:1px solid #3a4252;
+  border-radius:9px;box-shadow:0 16px 40px rgba(0,0,0,.55);font-family:system-ui,sans-serif;color:#dde2ea;
+  font-size:calc(12px * var(--mml-fs, 1));}
+.mmlp-subjpop .mmlp-mktext{flex:1 1 auto;}
 .mmlp-subjstatus{min-width:0;color:#9fb4c8;line-height:1.35;}
 /* overflow:hidden is the safety net for the rotate bug: a CSS transform does
    not change an element's layout box, so a quarter-turned preview painted
@@ -4995,6 +5077,339 @@ class SubjectLayer {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Subject masking on the loader's pictures (Plus only)                */
+/* ------------------------------------------------------------------ */
+
+/* The RefMod Create tab's subject masking, for a picture sent as a
+   reference: SAM 3.1 finds what it's of (the original pack's Object Mask),
+   the brush corrects it, and the background is blurred around it and/or the
+   picture cropped to it. Applied in Reference mode only, when the picture
+   goes out as a <Picture N> (nodes.build_bundle); as a keyframe it's sent
+   untouched. The file on disk is never changed.
+
+   item.subject = { mask, sprite, bbox, how, found,   SAM's result, the file's way round
+                    marks, markTurn, word,            the dots and word it ran with
+                    strokes, size, brushBox,          the brush, as SubjectLayer commits it
+                    own: { key: value },              settings this picture has of its own
+                    blur, grow, edge, crop, margin }  the settings in force, for Python */
+
+const SUBJ_KEY = "mmh3.loaderSubject";
+const SUBJ_DEFAULT = { word: "person", blur_on: true, blur: 24, grow: 16, edge: 12,
+  crop: false, margin: 1.75, keep_all: false };
+
+/** Mask all's settings, which every picture follows until it has its own. */
+export function loaderSubjectCfg() {
+  try { return { ...SUBJ_DEFAULT, ...JSON.parse(localStorage.getItem(SUBJ_KEY) || "{}") }; }
+  catch (e) { return { ...SUBJ_DEFAULT }; }
+}
+
+function saveLoaderSubjectCfg(v) {
+  try { localStorage.setItem(SUBJ_KEY, JSON.stringify(v)); } catch (e) { /* this session only */ }
+}
+
+/** A picture's settings in force: Mask all's, with its own on top. */
+function subjectSettings(sub) {
+  return { ...loaderSubjectCfg(), ...(sub?.own || {}) };
+}
+
+/** Write the settings in force onto the record, where nodes.py reads them. */
+function stampSubject(sub) {
+  const c = subjectSettings(sub);
+  Object.assign(sub, { blur: c.blur_on ? Math.max(0, +c.blur || 0) : 0,
+    grow: Math.max(0, Math.round(+c.grow || 0)), edge: Math.max(0, Math.round(+c.edge || 0)),
+    crop: !!c.crop, margin: Math.min(4, Math.max(1, +c.margin || 1)) });
+  return sub;
+}
+
+/** The box around what's masked, the file's way round, or null. */
+function subjectBox(sub) {
+  if (!sub) return null;
+  return sub.strokes?.length ? sub.brushBox || null : sub.found ? sub.bbox || null : null;
+}
+
+/** Masked, and set to do something with it. Mirrors nodes.py's test. */
+export function subjectActive(it) {
+  const s = it?.subject;
+  return !!s && it.kind === "picture" && !!((s.found && s.mask) || s.strokes?.length)
+    && (s.blur > 0 || (s.crop && !!subjectBox(s)));
+}
+
+/** The crop to the subject on the picture as shown (turned, mirrored): its
+ *  box enlarged by the margin around its centre and slid to stay inside.
+ *  subject.crop_rect in Python is the same sum, so this box is what's sent. */
+export function subjectCropRect(it, { turn = it.rotate, mirror = it.mirror, box, margin } = {}) {
+  const b = box !== undefined ? box : subjectBox(it.subject);
+  if (!b) return null;
+  const r = turnRect(b, parseInt(turn, 10) || 0, !!mirror);
+  const m = margin ?? it.subject?.margin ?? SUBJ_DEFAULT.margin;
+  const w = Math.min(1, r.w * m), h = Math.min(1, r.h * m);
+  const x = Math.min(1 - w, Math.max(0, r.x + r.w / 2 - w / 2));
+  const y = Math.min(1 - h, Math.max(0, r.y + r.h / 2 - h / 2));
+  return { x, y, w, h };
+}
+
+/** Sent pixels per pixel of the picture as cropped: the size cap's share. */
+function sentScale(it) {
+  const [ow] = outSize(it), [cw] = outSize({ ...it, resize: 0 });
+  return ow && cw ? ow / cw : 1;
+}
+
+async function samChoice() {
+  const list = await samCheckpoints();
+  let saved = "";
+  try { saved = localStorage.getItem(SAM_KEY) || ""; } catch (e) { /* private mode */ }
+  return list.includes(saved) ? saved : (list.find((c) => /sam3/i.test(c)) || "");
+}
+
+/** SAM on these pictures in one queue job, grouped by word and Keep every
+ *  match. Each picture's dots steer it; the word finds it, the largest match
+ *  unless Keep every match. The original pack keeps subject masks in its
+ *  cache, which its own Clean up treats as disposable, so they are copied
+ *  into this pack's masks folder (/adopt_masks). True once it has run. */
+export async function findLoaderSubjects(panel, list) {
+  const ckpt = await samChoice();
+  if (!ckpt || !/sam3/i.test(ckpt)) {
+    panel.say?.("Masking needs the SAM 3.1 checkpoint (sam3.1_multiplex_fp16.safetensors) in models/checkpoints.", true);
+    return false;
+  }
+  const wordOf = (it) => (it.subject?.word || loaderSubjectCfg().word || "").trim();
+  const dotsOf = (it) => it.subject?.marks?.[0] || { positive: [], negative: [] };
+  list = list.filter((it) => it.kind === "picture" && it.file && (wordOf(it) || dotsOf(it).positive.length));
+  if (!list.length) { panel.say?.("Type what to mask first, like person.", true); return false; }
+  const groups = new Map();
+  for (const it of list) {
+    const key = JSON.stringify([wordOf(it), subjectSettings(it.subject).keep_all ? 4 : 1]);
+    groups.set(key, [...(groups.get(key) || []), it]);
+  }
+  const prompt = { 1: { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: ckpt } } }, targets = {};
+  let id = 2;
+  for (const [key, its] of groups) {
+    const [text, max_objects] = JSON.parse(key);
+    prompt[id] = { class_type: MASK_NODE, inputs: { model: ["1", 0], clip: ["1", 1], threshold: 0.5, subject: true,
+      text, max_objects, video: "", points: "", start: 0, end: 0,
+      pictures: JSON.stringify(its.map((it) => {
+        // dots were placed on the picture as the editor showed it then
+        const [rotate, mirror] = it.subject?.markTurn || [parseInt(it.rotate, 10) || 0, !!it.mirror];
+        const d = dotsOf(it);
+        return { file: it.file, rotate, mirror, positive: d.positive, negative: d.negative };
+      })) } };
+    targets[id++] = its;
+  }
+  const out = await runHidden(prompt, "Auto mask");
+  const found = [];
+  for (const [node, its] of Object.entries(targets)) {
+    const res = out[node]?.mmh3_subject || [];
+    its.forEach((it, k) => found.push([it, res[k] || { found: false }]));
+  }
+  const files = found.flatMap(([, r]) => (r.found ? [r.file, r.sprite?.file] : [])).filter(Boolean);
+  let moved = {};
+  if (files.length) {
+    const r = await postApi("/minimax_h3_plus/adopt_masks", { headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ files }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `keeping the masks failed (${r.status})`);
+    moved = d.files || {};
+  }
+  for (const [it, r] of found) {
+    const live = panel.live?.(it) || it;
+    const sub = live.subject || (live.subject = {});
+    Object.assign(sub, { found: !!r.found, how: r.how || "", bbox: r.found ? r.bbox : undefined,
+      mask: r.found ? (moved[r.file] || r.file) : undefined,
+      sprite: r.found && r.sprite ? { ...r.sprite, file: moved[r.sprite.file] || r.sprite.file } : undefined,
+      strokes: [], brushBox: undefined, size: undefined });          // a fresh mask drops the brush
+    stampSubject(sub);
+  }
+  panel.commit?.();
+  const hits = found.filter(([, r]) => r.found).length;
+  panel.say?.(`Masked ${hits} of ${found.length} picture${found.length === 1 ? "" : "s"}` +
+    (hits < found.length ? " — nothing found in the rest; they're sent as they are." : "."), hits < found.length);
+  return true;
+}
+
+/** Number boxes and switches for the subject settings. `own` holds what's
+ *  changed (a picture's own, or Mask all's whole set); `changed` runs after. */
+function subjectControls(read, write, changed) {
+  const num = (key, label, title, min, max, step = 1) => el("label", { class: "mmlp-mklbl", title }, label,
+    el("input", { type: "number", class: "mmlp-tmnum mmlp-subjnum", min: String(min), max: String(max), step: String(step),
+      value: String(read(key)),
+      onchange: (e) => { const v = Math.min(max, Math.max(min, +e.target.value || 0)); e.target.value = String(v);
+        write(key, v); changed(); },
+      onkeydown: (e) => { if (e.key === "Enter") e.target.blur(); } }));
+  const tick = (key, label, title) => el("label", { class: "mmlp-mklbl", title },
+    el("input", { type: "checkbox", checked: !!read(key), onchange: (e) => { write(key, e.target.checked); changed(true); } }), label);
+  return [
+    tick("blur_on", "Blur background", "Blur everything but the subject, so its background doesn't bleed into the reference"),
+    read("blur_on") ? num("blur", "Blur", "Blur radius, in pixels of the picture as sent", 1, 128) : null,
+    num("grow", "Grow", "Widen the subject by this many pixels, so hair and edges stay sharp", 0, 64),
+    num("edge", "Edge", "Soften the subject's edge over this many pixels, so the blur fades in", 0, 64),
+    tick("crop", "Crop to subject", "Send only the area around the subject (Reference mode)"),
+    read("crop") ? num("margin", "Margin", "How much bigger than the subject the crop is (1 = tight)", 1, 4, 0.05) : null,
+    tick("keep_all", "Keep every match", "Auto mask keeps every match of the word, not just the largest"),
+  ];
+}
+
+/** The subject crop as a dashed box over the editor's picture, while Crop to
+ *  subject is on: what Reference mode will send. */
+function paintSubjectCrop(modal, rect) {
+  const box = modal.cropBox;
+  if (!box) return;
+  let mark = box.querySelector(":scope > .mmlp-subjcrop");
+  if (!rect) { mark?.remove(); return; }
+  if (!mark) box.append(mark = el("div", { class: "mmlp-subjcrop",
+    title: "Crop to subject: what Reference mode sends (your own crop is used everywhere else)" }));
+  Object.assign(mark.style, { left: `${rect.x * 100}%`, top: `${rect.y * 100}%`,
+    width: `${rect.w * 100}%`, height: `${rect.h * 100}%` });
+}
+
+/** SubjectLayer's spec (see its header) for a picture in a loader panel. */
+function loaderSubjectSpec(panel, item, modalRef) {
+  const live = () => panel.live?.(item) || item;
+  const start = live().subject || {};
+  const pend = { own: { ...(start.own || {}) }, box: undefined };
+  const settings = () => ({ ...loaderSubjectCfg(), ...pend.own });
+  const sameOwn = (a, b) => Object.keys(a).length === Object.keys(b).length && Object.keys(a).every((k) => a[k] === b[k]);
+  const refresh = () => {
+    const m = modalRef();
+    if (!m) return;
+    const c = settings(), sub = live().subject;
+    const box = pend.box !== undefined ? pend.box : subjectBox(sub);
+    paintSubjectCrop(m, c.crop && box ? subjectCropRect(live(), { turn: m.rotate, mirror: m.mirror, box, margin: c.margin }) : null);
+  };
+  const spec = {
+    subject: () => { const s = live().subject; return s && "found" in s ? { found: !!s.found, sprite: s.sprite, bbox: s.bbox, how: s.how } : null; },
+    marks: start.marks || [],
+    word: start.word || "",
+    batchWord: () => loaderSubjectCfg().word,
+    find: async (marks, word) => {
+      const m = modalRef(), it = live();
+      it.subject = { ...(it.subject || {}), marks, markTurn: [m?.rotate || 0, !!m?.mirror], word: word || undefined, own: { ...pend.own } };
+      const ok = await findLoaderSubjects(panel, [it]);
+      if (ok) pend.box = undefined;
+      refresh();
+      return ok;
+    },
+    strokes: start.strokes || [],
+    look: () => { const c = settings(); return { blur: c.blur_on ? c.blur : 0, grow: c.grow, edge: c.edge }; },
+    encScale: () => sentScale(live()),
+    flags: () => ["blur and crop apply in Reference mode only"],
+    controls: () => subjectControls((k) => settings()[k], (k, v) => { pend.own[k] = v; },
+      (rerender) => { modalRef()?.subjectLayer?.changed(rerender); refresh(); }),
+    own: () => Object.keys(pend.own).length,
+    reset: () => { for (const k of Object.keys(pend.own)) delete pend.own[k]; refresh(); },
+    dirty: () => !sameOwn(pend.own, live().subject?.own || {}),
+    brushed: (box) => { pend.box = box; refresh(); },
+    commit: ({ strokes, word, box, size }) => {
+      const it = live(), sub = it.subject || {};
+      sub.own = { ...pend.own };
+      sub.word = word || undefined;
+      if (box !== undefined) Object.assign(sub, { strokes, brushBox: box, size });
+      stampSubject(sub);
+      if ("found" in sub || sub.strokes?.length || Object.keys(sub.own).length || sub.word) it.subject = sub;
+    },
+    refresh,
+  };
+  return spec;
+}
+
+/** The crop editor for a picture, with subject masking; anything else gets
+ *  the plain trim/crop editor. Used by the tile's ▣, its right-click menu and
+ *  the Prompt Builder's rail. */
+export function openPictureEditor(panel, item, opts = {}) {
+  if (item.kind !== "picture" || !Array.isArray(panel?.items)) return new TrimModal(panel, item, opts);
+  let modal = null;
+  const subject = loaderSubjectSpec(panel, item, () => modal);
+  modal = new TrimModal(panel, item, { ...opts, subject });
+  const apply = modal.apply;
+  modal.apply = function (...args) { this.subjectLayer?.commit(); return apply.apply(this, args); };
+  for (const name of ["syncRotate", "syncMirror"]) {
+    const orig = modal[name];
+    modal[name] = function (...args) { const r = orig.apply(this, args); subject.refresh(); return r; };
+  }
+  requestAnimationFrame(() => subject.refresh());
+  return modal;
+}
+
+/** Right-click menu on a loader picture. */
+function pictureMenu(panel, item, e) {
+  e.preventDefault(); e.stopPropagation();
+  document.querySelectorAll(".mmlp-ctxmenu").forEach((m) => m.remove());
+  const entry = (label, title, fn) => el("div", { class: "mmlp-ctxitem", title,
+    onclick: () => { menu.remove(); fn(); } }, label);
+  const sub = item.subject;
+  const has = !!sub && ("found" in sub || sub.strokes?.length);
+  const clear = has ? armTwice(el("div", { class: "mmlp-ctxitem mmlp-ctxdanger",
+    title: "Remove the subject mask and its settings; the picture is sent whole (click twice)" }, "Clear the mask"),
+  "Click again to clear the mask", () => { menu.remove(); clearSubjectOn(panel, item); }) : null;
+  const menu = el("div", { class: "mmlp-ctxmenu", style: { left: `${e.clientX}px`, top: `${e.clientY}px` } },
+    entry(has ? "◐ Crop and edit the mask…" : "◐ Crop and mask…",
+      "Mask the subject (Auto mask, dots, brush) to blur its background or crop to it in Reference mode",
+      () => openPictureEditor(panel, item)),
+    clear ? el("div", { class: "mmlp-ctxsep" }) : null, clear);
+  document.body.append(menu);
+  const r = menu.getBoundingClientRect();
+  if (r.right > innerWidth) menu.style.left = `${innerWidth - r.width - 6}px`;
+  if (r.bottom > innerHeight) menu.style.top = `${innerHeight - r.height - 6}px`;
+  const off = (ev) => { if (!menu.contains(ev.target)) { menu.remove(); window.removeEventListener("pointerdown", off, true); } };
+  setTimeout(() => window.addEventListener("pointerdown", off, true), 0);
+}
+
+function clearSubjectOn(panel, item) {
+  const it = panel.live?.(item) || item, saved = it.subject;
+  delete it.subject;
+  panel.say?.(`${it.name}'s subject mask was cleared; it's sent whole.`, false, { label: "Undo", fn: () => {
+    (panel.live?.(it) || it).subject = saved;
+    panel.say?.(`${it.name}'s mask is back.`);
+    panel.commit?.();
+  } });
+  panel.commit?.();
+}
+
+/** ◐ Mask all: Mask all's settings, and Auto mask on every picture that's
+ *  on and wasn't brushed by hand. */
+function maskAllPopover(panel, anchor) {
+  document.querySelectorAll(".mmlp-subjpop").forEach((p) => p.remove());
+  const cfg = loaderSubjectCfg();
+  const pics = () => panel.items.filter((it) => it.kind === "picture" && isOn(it) && !it.subject?.strokes?.length);
+  const status = el("div", { class: "mmlp-mkhint" });
+  const save = () => {
+    saveLoaderSubjectCfg(cfg);
+    // pictures following Mask all pick the change up
+    let n = 0;
+    for (const it of panel.items) if (it.subject) { stampSubject(it.subject); n++; }
+    if (n) panel.commit();
+  };
+  const word = el("input", { type: "text", class: "mmlp-mktext", value: cfg.word, placeholder: "what to mask, like person",
+    oninput: (e) => { cfg.word = e.target.value; }, onchange: save });
+  const controls = el("div", { class: "mmlp-subjrow" });
+  const paint = () => setKids(controls, subjectControls((k) => cfg[k], (k, v) => { cfg[k] = v; }, (rerender) => {
+    save(); if (rerender) paint(); }));
+  paint();
+  const go = el("button", { class: "mmlp-btn mmlp-sm mmlp-mkgo", onclick: async () => {
+    const list = pics();
+    if (!list.length) { status.textContent = "No pictures to mask (brushed ones keep their mask)."; return; }
+    go.disabled = true; status.textContent = `Masking ${list.length} picture${list.length === 1 ? "" : "s"}… (in the queue)`;
+    try {
+      // a batch run uses Mask all's word: a picture's own word is for its editor
+      if (await findLoaderSubjects(panel, list)) pop.remove();
+    } catch (err) { status.textContent = `Masking failed: ${err.message}`; }
+    finally { go.disabled = false; }
+  } }, "Find and mask all");
+  const pop = el("div", { class: "mmlp-subjpop", onmousedown: (e) => e.stopPropagation() },
+    el("div", { class: "mmlp-subjrow" }, el("b", {}, "Mask all pictures"), word),
+    controls,
+    el("div", { class: "mmlp-mkhint" }, "Finds the subject in each picture with SAM 3.1 (the original pack's Object Mask). " +
+      "The blur and crop apply in Reference mode only; each picture's ▣ editor fine-tunes its own."),
+    el("div", { class: "mmlp-subjrow" }, go,
+      el("button", { class: "mmlp-btn mmlp-sm", onclick: () => pop.remove() }, "Close"), status));
+  document.body.append(pop);
+  const r = anchor.getBoundingClientRect();
+  pop.style.left = `${Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8))}px`;
+  pop.style.top = `${Math.min(r.bottom + 6, innerHeight - pop.offsetHeight - 8)}px`;
+  const off = (ev) => { if (!pop.contains(ev.target) && ev.target !== anchor) { pop.remove(); window.removeEventListener("pointerdown", off, true); } };
+  setTimeout(() => window.addEventListener("pointerdown", off, true), 0);
+}
+
 /** Right-click menu on a loader video. */
 function videoMenu(panel, item, e) {
   e.preventDefault(); e.stopPropagation();
@@ -6210,11 +6625,11 @@ export class LoaderPanel {
     return el("span", {
       class: "mmlp-trimbtn" + (active ? " on" : ""),
       title: active ? `${what.join(", ")} \u2014 click to edit`
-        : (still ? "Crop or mirror this picture"
+        : (still ? "Crop, mirror or mask this picture"
                  : "Use only part of this clip"),
       onclick: (e) => {
         e.stopPropagation();
-        new TrimModal(this, item);
+        openPictureEditor(this, item);
       },
     }, still ? "\u25a3" : "\u2702",
     // how long the clip is as it's sent: the kept span, or all of it
@@ -6246,7 +6661,7 @@ export class LoaderPanel {
       try { items = JSON.parse(n.widgets?.find((w) => w.name === "media_state")?.value || "[]"); } catch (e) {}
       for (const it of items) {
         const layers = (it?.mask_layers || []).flatMap((l) => [l.result, l.result_info?.sprite?.file]);
-        for (const f of [it?.mask, it?.mask_info?.sprite?.file, ...layers]) {
+        for (const f of [it?.mask, it?.mask_info?.sprite?.file, it?.subject?.mask, it?.subject?.sprite?.file, ...layers]) {
           if (f) used.add(String(f).split(" [")[0].split("/").pop());
         }
       }
@@ -6337,7 +6752,8 @@ export class LoaderPanel {
       const tag = (tags.get(it) || "").slice(1, -1);
       return (this.reorderable(el("div",
         { class: "mmlp-slot filled pic" + (isOn(it) ? "" : " off")
-            + (note ? " unusable" : "") },
+            + (note ? " unusable" : ""),
+          oncontextmenu: (e) => pictureMenu(this, it, e) },
         (() => {
           // Badge and img are SIBLINGS in the slot: .mmlp-pic is absolutely
           // positioned against the slot, so wrapping it breaks its sizing.
@@ -6412,6 +6828,11 @@ export class LoaderPanel {
         el("div", { class: "mmlp-picbar" },
           this.powerBtn(it),
           el("span", { class: "mmlp-tag pic" }, isOn(it) ? tag : "off"),
+          subjectActive(it) ? el("span", { class: "mmlp-subjbadge",
+            title: [it.subject.blur > 0 ? `background blurred (${it.subject.blur}px)` : "",
+              it.subject.crop ? "cropped to the subject" : ""].filter(Boolean).join(", ") +
+              " \u2014 in Reference mode only. Right-click or \u25a3 to edit.",
+            onclick: (e) => { e.stopPropagation(); openPictureEditor(this, it); } }, "\u25d0") : null,
           this.trimBtn(it),
           reorder
             ? el("span", { class: "mmlp-drag", title: "Drag to reorder" }, "\u2630")
@@ -6983,6 +7404,9 @@ export class LoaderPanel {
     kids.push(el("div", { class: "mmlp-cols" }, left, right));
 
     left.append(el("div", { class: "mmlp-sec" }, "pictures",
+      pics.length ? el("button", { class: "mmlp-subjall",
+        title: "Find the subject in every picture with SAM 3.1, to blur its background or crop to it in Reference mode",
+        onclick: (e) => { e.stopPropagation(); maskAllPopover(this, e.currentTarget); } }, "\u25d0 Mask all") : null,
       el("span", {}, `${pics.length}/${MAX.picture}`)));
     const picCells = [];
     // Filled cells key their mode note off the actual assigned tag number,

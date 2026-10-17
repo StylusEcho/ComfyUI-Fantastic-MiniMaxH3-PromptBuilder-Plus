@@ -62,7 +62,10 @@ name = "fantastic-minimax-h3-promptstudio"
 # background, unique RefMod names), fixes the trim editor not opening on
 # clips over 15 seconds, and adds the Reference-mode column layout — no
 # breakage of saved workflows.
-version = "3.2.0"
+# 3.3.0 adds subject masking to the media panel's pictures (blur the
+# background around the subject and/or crop to it, Reference mode only) —
+# no breakage of saved workflows.
+version = "3.3.0"
 description = "MiniMax H3 Prompt Studio: a single guided prompt-writing and reference-media node for the H3 video model, with live checking against MiniMax's prompt guide."
 license = { file = "LICENSE" }
 requires-python = ">=3.9"
