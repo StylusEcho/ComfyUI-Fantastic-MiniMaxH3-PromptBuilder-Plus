@@ -78,7 +78,12 @@ on disk is never changed.
   Right-click → **Clear the mask** (twice, with Undo) sends it whole again.
 - Auto mask runs on the original pack's **Object Mask** (1.8.2 or newer)
   with the SAM 3.1 checkpoint (`sam3.1_multiplex_fp16.safetensors` in
-  `models/checkpoints`); the brush works without either. Its results are
+  `models/checkpoints`); the brush works without either. **Auto model** in
+  the editor's settings and in Mask all picks the checkpoint (shared with
+  the video mask editor and RefMod Create), whatever it's called. If Auto
+  mask can't run (no checkpoint, nothing to look for, the original pack
+  missing), the editor's status line says why, and so does the browser
+  console. Its results are
   copied into this pack's `input/minimax_h3_plus/masks`, so the original
   pack's Clean up (which treats its own copies as disposable) can't take
   them, and this pack's Clean up keeps them while a picture uses them.

@@ -5155,11 +5155,41 @@ function sentScale(it) {
   return ow && cw ? ow / cw : 1;
 }
 
-async function samChoice() {
-  const list = await samCheckpoints();
+/** The checkpoint Auto mask runs: the one picked (in any of the pack's
+ *  Auto model boxes, which share SAM_KEY) while it's still installed, whatever
+ *  it's called; otherwise the first whose name says SAM 3. */
+async function samChoice(list) {
+  list = list || await samCheckpoints();
   let saved = "";
   try { saved = localStorage.getItem(SAM_KEY) || ""; } catch (e) { /* private mode */ }
   return list.includes(saved) ? saved : (list.find((c) => /sam3/i.test(c)) || "");
+}
+
+/** An Auto model box for the picture editor and Mask all: every checkpoint,
+ *  the one Auto mask will use selected, and a note when none looks like SAM
+ *  3.1. Filled when the list arrives, so it never holds the window up. */
+function samPicker() {
+  const sel = el("select", { class: "mmlp-mkckpt", title: "The SAM 3.1 checkpoint Auto mask runs (models/checkpoints)",
+    onchange: (e) => { try { localStorage.setItem(SAM_KEY, e.target.value); } catch (err) { /* this session only */ } } },
+  el("option", { value: "" }, "looking\u2026"));
+  const note = el("span", { class: "mmlp-mkdim err" });
+  samCheckpoints().then(async (list) => {
+    const pick = await samChoice(list);
+    setKids(sel, list.length ? list.map((c) => el("option", { value: c, selected: c === pick }, c))
+      : el("option", { value: "" }, "no checkpoints"));
+    sel.value = pick;
+    if (!list.some((c) => /sam3/i.test(c))) setKids(note, "No SAM 3.1 checkpoint found: put ",
+      el("a", { href: SAM_LINK, target: "_blank", rel: "noopener" }, "sam3.1_multiplex_fp16.safetensors"),
+      " in models/checkpoints, or pick yours here.");
+  });
+  return el("label", { class: "mmlp-mklbl" }, "Auto model", sel, note);
+}
+
+/** Why Auto mask can't run, thrown so the window that asked shows it (the
+ *  panel's own message line is hidden behind the editor), and logged. */
+function maskRefusal(msg) {
+  console.warn(`[MiniMax H3] Auto mask: ${msg}`);
+  return new Error(msg);
 }
 
 /** SAM on these pictures in one queue job, grouped by word and Keep every
@@ -5169,14 +5199,12 @@ async function samChoice() {
  *  into this pack's masks folder (/adopt_masks). True once it has run. */
 export async function findLoaderSubjects(panel, list) {
   const ckpt = await samChoice();
-  if (!ckpt || !/sam3/i.test(ckpt)) {
-    panel.say?.("Masking needs the SAM 3.1 checkpoint (sam3.1_multiplex_fp16.safetensors) in models/checkpoints.", true);
-    return false;
-  }
+  if (!ckpt) throw maskRefusal("no SAM 3.1 checkpoint: put sam3.1_multiplex_fp16.safetensors in models/checkpoints, " +
+    "or pick yours under Auto model.");
   const wordOf = (it) => (it.subject?.word || loaderSubjectCfg().word || "").trim();
   const dotsOf = (it) => it.subject?.marks?.[0] || { positive: [], negative: [] };
   list = list.filter((it) => it.kind === "picture" && it.file && (wordOf(it) || dotsOf(it).positive.length));
-  if (!list.length) { panel.say?.("Type what to mask first, like person.", true); return false; }
+  if (!list.length) throw maskRefusal("nothing to look for: type what to mask (like person), or place dots on the picture first.");
   const groups = new Map();
   for (const it of list) {
     const key = JSON.stringify([wordOf(it), subjectSettings(it.subject).keep_all ? 4 : 1]);
@@ -5196,7 +5224,12 @@ export async function findLoaderSubjects(panel, list) {
       })) } };
     targets[id++] = its;
   }
-  const out = await runHidden(prompt, "Auto mask");
+  try { requireOriginal(prompt, "Auto mask"); } catch (err) { throw maskRefusal(err.message); }
+  console.info(`[MiniMax H3] Auto mask: ${list.length} picture${list.length === 1 ? "" : "s"} with ${ckpt}, ` +
+    "queued (a running generation finishes first)");
+  let out;
+  try { out = await runHidden(prompt, "Auto mask"); }
+  catch (err) { console.warn(`[MiniMax H3] Auto mask failed: ${err.message}`); throw err; }
   const found = [];
   for (const [node, its] of Object.entries(targets)) {
     const res = out[node]?.mmh3_subject || [];
@@ -5222,14 +5255,16 @@ export async function findLoaderSubjects(panel, list) {
   }
   panel.commit?.();
   const hits = found.filter(([, r]) => r.found).length;
-  panel.say?.(`Masked ${hits} of ${found.length} picture${found.length === 1 ? "" : "s"}` +
-    (hits < found.length ? " — nothing found in the rest; they're sent as they are." : "."), hits < found.length);
-  return true;
+  const summary = `Masked ${hits} of ${found.length} picture${found.length === 1 ? "" : "s"}` +
+    (hits < found.length ? " \u2014 nothing found in the rest; they're sent as they are." : ".");
+  console.info(`[MiniMax H3] Auto mask: ${summary}`);
+  panel.say?.(summary, hits < found.length);
+  return { hits, total: found.length, summary };
 }
 
 /** Number boxes and switches for the subject settings. `own` holds what's
  *  changed (a picture's own, or Mask all's whole set); `changed` runs after. */
-function subjectControls(read, write, changed) {
+function subjectControls(read, write, changed, picker = null) {
   const num = (key, label, title, min, max, step = 1) => el("label", { class: "mmlp-mklbl", title }, label,
     el("input", { type: "number", class: "mmlp-tmnum mmlp-subjnum", min: String(min), max: String(max), step: String(step),
       value: String(read(key)),
@@ -5246,6 +5281,7 @@ function subjectControls(read, write, changed) {
     tick("crop", "Crop to subject", "Send only the area around the subject (Reference mode)"),
     read("crop") ? num("margin", "Margin", "How much bigger than the subject the crop is (1 = tight)", 1, 4, 0.05) : null,
     tick("keep_all", "Keep every match", "Auto mask keeps every match of the word, not just the largest"),
+    picker,
   ];
 }
 
@@ -5268,6 +5304,7 @@ function loaderSubjectSpec(panel, item, modalRef) {
   const start = live().subject || {};
   const pend = { own: { ...(start.own || {}) }, box: undefined };
   const settings = () => ({ ...loaderSubjectCfg(), ...pend.own });
+  const picker = samPicker();          // kept across redraws of the settings
   const sameOwn = (a, b) => Object.keys(a).length === Object.keys(b).length && Object.keys(a).every((k) => a[k] === b[k]);
   const refresh = () => {
     const m = modalRef();
@@ -5294,7 +5331,7 @@ function loaderSubjectSpec(panel, item, modalRef) {
     encScale: () => sentScale(live()),
     flags: () => ["blur and crop apply in Reference mode only"],
     controls: () => subjectControls((k) => settings()[k], (k, v) => { pend.own[k] = v; },
-      (rerender) => { modalRef()?.subjectLayer?.changed(rerender); refresh(); }),
+      (rerender) => { modalRef()?.subjectLayer?.changed(rerender); refresh(); }, picker),
     own: () => Object.keys(pend.own).length,
     reset: () => { for (const k of Object.keys(pend.own)) delete pend.own[k]; refresh(); },
     dirty: () => !sameOwn(pend.own, live().subject?.own || {}),
@@ -5382,8 +5419,9 @@ function maskAllPopover(panel, anchor) {
   const word = el("input", { type: "text", class: "mmlp-mktext", value: cfg.word, placeholder: "what to mask, like person",
     oninput: (e) => { cfg.word = e.target.value; }, onchange: save });
   const controls = el("div", { class: "mmlp-subjrow" });
+  const picker = samPicker();
   const paint = () => setKids(controls, subjectControls((k) => cfg[k], (k, v) => { cfg[k] = v; }, (rerender) => {
-    save(); if (rerender) paint(); }));
+    save(); if (rerender) paint(); }, picker));
   paint();
   const go = el("button", { class: "mmlp-btn mmlp-sm mmlp-mkgo", onclick: async () => {
     const list = pics();
@@ -5391,7 +5429,9 @@ function maskAllPopover(panel, anchor) {
     go.disabled = true; status.textContent = `Masking ${list.length} picture${list.length === 1 ? "" : "s"}… (in the queue)`;
     try {
       // a batch run uses Mask all's word: a picture's own word is for its editor
-      if (await findLoaderSubjects(panel, list)) pop.remove();
+      const done = await findLoaderSubjects(panel, list);
+      status.textContent = done.summary;
+      if (done.hits === done.total) setTimeout(() => pop.remove(), 1200);
     } catch (err) { status.textContent = `Masking failed: ${err.message}`; }
     finally { go.disabled = false; }
   } }, "Find and mask all");

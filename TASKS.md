@@ -1601,3 +1601,22 @@ when hiding, makes it a mouse-over caption for the respective section.
       Chromium: editor, brush → Apply → item.subject, badge, menu, batch
       popover with a stubbed queue → adopted paths, Clean up keeps them;
       lint, CSSOM, earlier trim/columns checks.
+
+98. 🟩 nothing happens when clicking Auto mask (nothing in the console)
+    - Cause: when Auto mask couldn't start, `findLoaderSubjects()` reported
+      it with `panel.say()` and returned false. That message line sits behind
+      the editor overlay, SubjectLayer only shows *thrown* errors, and nothing
+      was logged — so a refusal was invisible. The likeliest refusal: the
+      checkpoint check accepted only a file named like "sam3", rejecting even
+      a model picked in the video editor's Auto model box, and the picture
+      editor had no picker to choose one.
+    - Now every refusal throws (shown as "Auto mask failed: …" in the editor
+      and in Mask all) and logs a console warning; a queued run logs a
+      console line and its result. The saved Auto model choice is used
+      whatever it's called, and an **Auto model** picker (shared SAM_KEY,
+      with the "no SAM 3.1 checkpoint found" note and link) sits in the
+      editor's settings and in Mask all.
+    - Verified in Chromium, five scenarios: no SAM checkpoint, a saved model
+      not named sam3 (used, and sent as ckpt_name), empty word, original pack
+      missing, normal run (mask adopted) — each with a visible status and a
+      console line. Earlier subject test, load, CSSOM, lint re-run.
