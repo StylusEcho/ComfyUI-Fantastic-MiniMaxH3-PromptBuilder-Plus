@@ -1620,3 +1620,26 @@ when hiding, makes it a mouse-over caption for the respective section.
       not named sam3 (used, and sent as ckpt_name), empty word, original pack
       missing, normal run (mask adopted) — each with a visible status and a
       console line. Earlier subject test, load, CSSOM, lint re-run.
+
+99. 🟩 panel squished horizontally after switching workflow tabs (classic canvas, WebView2; only a reload fixed it)
+    - Cause (found in the real frontend, 1.57.1): the right side panel's
+      Parameters tab lists the node's widgets and drew our DOM widget
+      `mml_panel` with `WidgetLegacy`, which sets `widget.width` to the side
+      panel's width (277). `DomWidgets.vue` sizes a DOM widget's element
+      from `widget.width ?? node.width`, so the on-node panel shrank to
+      257 px inside a 900 px node, and nothing ever cleared the value.
+      `WidgetLegacy` re-runs on every graph change (its `currentGraph`
+      watch), hence "after switching tabs"; not WebView2-specific.
+    - Fix (`web/promptstudio.js`): `addDOMWidget(..., { hideInPanel: true })`
+      keeps the panel out of the Parameters list (it showed there as an
+      empty strip anyway), and `widget.width` is pinned as an accessor that
+      reads `undefined` and ignores writes, so the frontend always falls
+      back to the node's width (covers frontends without `hideInPanel`).
+    - Verified in a real ComfyUI (master, frontend 1.57.1, Chromium):
+      before, side panel opened on a 900 px node → panel 257 px, still 257
+      after closing it; after, 880 px throughout (node − 2×10 margin), with
+      each half of the fix alone also passing. Regression pass: fresh node,
+      edge drag to 904, zoom 0.7, page reload, ◈ swap and back, ❐ full-size
+      window, side panel open/closed, three tab round trips; no console
+      errors. Scripts kept in the scratchpad rig (`realui/t/side.cjs`,
+      `regress.cjs`, `tabs.cjs`). Lint clean.

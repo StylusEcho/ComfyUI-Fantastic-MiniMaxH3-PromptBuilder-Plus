@@ -313,8 +313,16 @@ app.registerExtension({
         }
         this._mmh3Stack = el("div", { class: "mmh3p-nodestack" },
           this._mmlPanel.root, stackRoot, summary);
+        // hideInPanel: the side panel's Parameters tab would otherwise draw
+        // the panel as a legacy widget, and that sets widget.width to the
+        // side panel's width; the canvas sizes a DOM widget from
+        // `widget.width ?? node.width`, so the panel stayed squished at
+        // ~260px until a reload. Older frontends ignore the option, so the
+        // width is also pinned to "follow the node" whatever writes to it.
         const widget = this.addDOMWidget("mml_panel", "div",
-          this._mmh3Stack, { serialize: false });
+          this._mmh3Stack, { serialize: false, hideInPanel: true });
+        Object.defineProperty(widget, "width", {
+          configurable: true, get: () => undefined, set: () => {} });
         applyCanvasSizing(this, widget, NODE_W, STACK_H);
       } catch (e) {
         console.error("[MiniMaxH3 PromptStudio] on-node panel failed; "

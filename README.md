@@ -88,6 +88,17 @@ on disk is never changed.
   pack's Clean up (which treats its own copies as disposable) can't take
   them, and this pack's Clean up keeps them while a picture uses them.
 
+### Fixes (Plus only)
+
+- **The node's panel no longer gets squished.** With ComfyUI's right side
+  panel open on the Prompt Studio (its Parameters tab, which also redraws
+  when you switch workflow tabs), the panel inside the node shrank to the
+  side panel's width, about 260 px, with empty space beside it, and stayed
+  that way until a reload. The frontend drew the panel in that list too,
+  and that set a width the canvas then used for the node. The panel is
+  now left out of the Parameters list, and its width always follows the
+  node's.
+
 ## What's new in 3.2.0
 
 Folds in the original pack's 1.8.2. No breakage of saved workflows; RefMods
