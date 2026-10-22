@@ -51,6 +51,40 @@ any frame straight out of a video into your picture references.*
 
 ---
 
+## What's new in 3.4.0
+
+Interface changes, all Plus only. No breakage of saved workflows.
+
+- **The node's ⚙ is text size only.** Node size is gone: drag the node's
+  edge instead. The full-size media window keeps its Window size.
+- **One text size for the whole node.** The ⚙'s Text size now reaches the
+  prompt bar along the bottom (and the fields it opens into in T2VA), and
+  the RefMods view follows it too. Before, the bar and the RefMods view
+  used the Prompt Builder window's text size, or one read once when the
+  node was made.
+- **The RefMods view matches the media view.** It has the same ⚙, and its
+  toolbar is the same height, with the ◈ and ⚙ in the same place, so ◈ swaps
+  the panel without the bar jumping.
+- **Prompt Builder header:** ❐ Media Loader comes first, then ◈ RefMods,
+  ☰ Library and Draft ▶. The two-column Reference form moved from the
+  header's ⫼ Columns button into ⚙ (*Two-column Reference form*).
+- **One grip for the audio boxes.** overall_soundscape and
+  non_diegetic_music no longer have a resize corner each. A grip above them
+  sets both heights together: drag up for taller, double-click for the
+  default. It's remembered, and it's in the Prompt Builder (every mode),
+  Quick edit and T2VA's fields on the node.
+- **Masking only in Reference mode.** In the other modes the media panel
+  has no ◐ Mask all, no ◐ badge, no right-click mask menu, and the picture
+  editor has no Masking row; a mask you set stays on the picture and comes
+  back in Reference mode. (It was only ever applied in Reference mode.)
+- **The Used view shows the pictures that are sent.** In I2VA, FL2VA and
+  L2VA it showed the first pictures whether they were switched on or not,
+  while the node sends the first ones that are on. It now shows those, and
+  the window button's count includes the ones switched off.
+- **T2VA's fields on the node no longer open Quick edit** when you click
+  into them.
+- **Quick edit:** 📜 Prompt Builder sits in the middle of the toolbar.
+
 ## What's new in 3.3.0
 
 ### Subject masking on the media panel's pictures (Plus only)
@@ -115,7 +149,8 @@ and masked editing want **the original pack at 1.8.2 or newer** alongside.
 
 ### Reference-mode columns (Plus only)
 
-- **⫼ Columns** in the Prompt Builder's header (Reference mode only) splits
+- **Two-column Reference form** (the Prompt Builder's ⚙; until 3.4.0 the
+  ⫼ Columns button in its header) splits
   the form in two: subject_definitions, the summary and retention_analysis
   on the left; detailed_description, overall_soundscape and
   non_diegetic_music on the right. Each column scrolls on its own, so a long
@@ -772,13 +807,14 @@ Highlights:
 - **Media presets** so you can reload a set of references in one click.
 - **Unload media** clears the node in one go (after a confirmation) without
   deleting the underlying files, so presets pointing at them still work.
-- **Size control** — ⤢ Size sets the media panel's scale (100–300%) and its
-  text size (100–200%) independently, by slider or by typing the number.
-  Changes apply when you press **Apply**, not while you drag, because
-  resizing the node would pull the slider out from under the pointer. Both are
-  remembered for you rather than for the workflow, so a node dropped into a
-  new graph starts at the size you actually work at. The prompt editor has the
-  same two sliders in its ⚙ menu, which is what you want on a 4K monitor.
+- **Text size** — the node's ⚙ sets the text size (100–200%) for everything
+  in the node: the media panel, its RefMods view and the prompt bar. Size the
+  node itself by dragging its edge. In the full-size media window the ⚙ also
+  sets the window's size (100–300%). By slider or by typing the number;
+  changes apply when you press **Apply**, not while you drag, and are
+  remembered for you rather than for the workflow. The prompt editor has its
+  own window and text size in its ⚙ menu, which is what you want on a 4K
+  monitor.
 - **Detail control for reference video** — decode big clips at a smaller size
   so a long 4K reference doesn't eat gigabytes of RAM.
 - **Optional model routing.** Wire both checkpoints — `fl2va_model` and
@@ -1231,7 +1267,7 @@ H3 Reference to Video** and the `ref2va` checkpoint.
 2. Open the editor and switch to **Reference** mode. Your media now shows up
    as clickable thumbnails; click one to insert its tag into your text.
 3. Fill in the six sections, then **Save to node**. On a wide screen,
-   **⫼ Columns** in the header puts the definitions, summary and
+   ⚙ → **Two-column Reference form** puts the definitions, summary and
    retention_analysis in a left column and the description and audio in a
    right one, each scrolling on its own; the window widens to fit.
 4. Connect the node's `prompt` output to **MiniMax H3 Reference to Video**'s

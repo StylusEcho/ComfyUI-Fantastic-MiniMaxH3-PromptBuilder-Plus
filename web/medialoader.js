@@ -397,15 +397,13 @@ function slotMenuEsc(e) {
   if (e.key === "Escape") { e.stopPropagation(); closeSlotMenu(); }
 }
 
-// Node size presets. L is the natural size; the others scale both axes so
-// the media grid gets proportionally roomier rather than just wider.
-/* Node and text scale, 100%-300%. Stored per user rather than per workflow,
-   so a node dropped into a new graph starts at the size you actually work at.
-   The node's own size still serialises with the workflow — this is only the
-   starting point and what the slider shows. */
+/* The ⚙'s sizes, stored per user rather than per workflow: `text` (100-200%)
+   for everything in the node, and `node` (100-300%), which since the node
+   lost its size slider (3.4.0) sizes only the full-size media window — the
+   node itself is sized by dragging its edge. */
 const LOADER_PREF_KEY = "mmh3.loaderScale";
 export const SCALE_MIN = 1.0;
-export const SCALE_MAX = 3.0;          // node
+export const SCALE_MAX = 3.0;          // window
 export const TEXT_SCALE_MAX = 2.0;     // type gets unwieldy past this
 
 export function loadScalePrefs() {
@@ -430,38 +428,6 @@ export function clampScale(v, max = SCALE_MAX) {
   const n = Number(v);
   if (!Number.isFinite(n)) return 1.0;
   return Math.min(max, Math.max(SCALE_MIN, Math.round(n * 100) / 100));
-}
-
-/** Resize the node to a scale factor. Unlike applyCanvasSizing this sets an
- *  exact size, so going back down actually shrinks the node. */
-export function applyNodeSize(node, factor) {
-  const f = clampScale(factor);
-  const w = Math.round(NODE_W * f);
-  const h = Math.round(PANEL_H * f);
-  try {
-    const widget = node._mmlWidget;
-    if (widget) {
-      widget.computedHeight = h;
-      widget.computeSize = () => [w, h];
-      const elx = widget.element || widget.inputEl;
-      if (elx && elx.style) {
-        elx.style.height = `${h}px`;
-        elx.style.minHeight = `${h}px`;
-      }
-    }
-    if (node._mmlPanel?.root?.style) {
-      node._mmlPanel.root.style.height = `${h}px`;
-    }
-    const min = node.computeSize?.();
-    const target = [w, Math.max(min?.[1] || 0, h)];
-    if (typeof node.setSize === "function") node.setSize(target);
-    else { node.size[0] = target[0]; node.size[1] = target[1]; }
-    node.onResize?.(node.size);
-    node.setDirtyCanvas?.(true, true);
-    node.graph?.setDirtyCanvas?.(true, true);
-  } catch (e) {
-    /* Vue owns layout in Nodes 2.0; the panel's own CSS keeps it usable. */
-  }
 }
 
 /** Text size only — a multiplier on every font-size, not a zoom.
@@ -511,50 +477,6 @@ export function applyTextScale(panel, factor) {
   try {
     document.documentElement.style.setProperty("--mml-fs", String(f));
   } catch (e) { /* nothing to do */ }
-}
-
-/** Re-apply the stored node and text scale to this node's panel.
- *
- *  Must run at node creation AND on workflow load. Without the second call
- *  the node returned at its serialised size while the panel inside it was
- *  rebuilt from the base dimensions with --mml-fs unset — a correct-sized
- *  node containing a 100% workspace. The prefs were saving fine; nothing
- *  was reading them back at startup.
- *
- *  `force` sets an exact node size, which is right for a fresh node. On
- *  load we only ever grow, so a node the user dragged larger keeps its
- *  size — the workflow's geometry wins over the starting-point pref. */
-export function applyStoredScale(node, { force = false } = {}) {
-  let sp;
-  try { sp = loadScalePrefs(); } catch (e) { sp = { node: 1, text: 1 }; }
-  applyTextScale(node._mmlPanel, sp.text);
-  if (force) { applyNodeSize(node, sp.node); return; }
-
-  const f = clampScale(sp.node);
-  const w = Math.round(NODE_W * f);
-  const h = Math.round(PANEL_H * f);
-  try {
-    const widget = node._mmlWidget
-      || node.widgets?.find((x) => x.name === "mml_panel");
-    if (widget) {
-      widget.computedHeight = h;
-      widget.computeSize = () => [w, h];
-      const elx = widget.element || widget.inputEl;
-      if (elx?.style) {
-        elx.style.height = `${h}px`;
-        elx.style.minHeight = `${h}px`;
-      }
-    }
-    // The panel's CSS pins height to the base 476px, so the inline style is
-    // what actually makes the workspace grow.
-    if (node._mmlPanel?.root?.style) node._mmlPanel.root.style.height = `${h}px`;
-    const min = node.computeSize?.();
-    node.size[0] = Math.max(w, node.size[0] || 0);
-    node.size[1] = Math.max(min?.[1] || 0, h, node.size[1] || 0);
-    node.setDirtyCanvas?.(true, true);
-  } catch (e) {
-    /* Vue owns layout in Nodes 2.0; the panel's own CSS keeps it usable. */
-  }
 }
 
 /** The one tag palette, for every surface in the pack.
@@ -5353,7 +5275,10 @@ function loaderSubjectSpec(panel, item, modalRef) {
  *  the plain trim/crop editor. Used by the tile's ▣, its right-click menu and
  *  the Prompt Builder's rail. */
 export function openPictureEditor(panel, item, opts = {}) {
-  if (item.kind !== "picture" || !Array.isArray(panel?.items)) return new TrimModal(panel, item, opts);
+  // `opts.masking` overrides the panel's mode: the Prompt Builder knows its
+  // own (possibly unsaved) mode better than the node does.
+  const masking = opts.masking ?? !!panel?.maskable?.();
+  if (item.kind !== "picture" || !Array.isArray(panel?.items) || !masking) return new TrimModal(panel, item, opts);
   let modal = null;
   const subject = loaderSubjectSpec(panel, item, () => modal);
   modal = new TrimModal(panel, item, { ...opts, subject });
@@ -6159,9 +6084,16 @@ export class LoaderPanel {
 
   count(kind) { return this.items.filter((i) => i.kind === kind).length; }
 
-  /** Node and text scale. Dragging does NOT apply: resizing the node moves
-   *  this popover with it, which pulls the slider out from under the cursor.
-   *  Set both, then Apply. */
+  /** Text size, plus the window's size in the full-size window. Dragging
+   *  does NOT apply: resizing the window moves this popover with it, which
+   *  pulls the slider out from under the cursor. Set, then Apply.
+   *
+   *  On the node there is no size slider: the node is sized by dragging its
+   *  edge, and a second control for the same thing only fought it. The text
+   *  size covers everything inside the node (media, RefMods, the prompt
+   *  bar), so the RefMods view mounts its own copy of this control through
+   *  the node's _mmh3SettingsButton hook; each copy is tracked so a redraw
+   *  or a press elsewhere closes whichever one is open. */
   scaleControl() {
     const prefs = this.scalePrefs || (this.scalePrefs = loadScalePrefs());
     const pending = { node: prefs.node, text: prefs.text };
@@ -6169,8 +6101,9 @@ export class LoaderPanel {
     const inputs = {};
     const outs = {};
 
+    const sized = !!this.modal;      // the window has a size to set; the node doesn't
     const dirty = () => applyBtn.classList.toggle("primary",
-      pending.node !== prefs.node || pending.text !== prefs.text);
+      (sized && pending.node !== prefs.node) || pending.text !== prefs.text);
 
     const maxFor = (key) => key === "text" ? TEXT_SCALE_MAX : SCALE_MAX;
 
@@ -6205,50 +6138,55 @@ export class LoaderPanel {
     };
 
     const commit = (n, t) => {
-      prefs.node = n; prefs.text = t;
-      pending.node = n; pending.text = t;
-      inputs.node.value = String(Math.round(n * 100));
-      inputs.text.value = String(Math.round(t * 100));
-      outs.node.value = String(Math.round(n * 100));
-      outs.text.value = String(Math.round(t * 100));
+      if (sized) {
+        prefs.node = n; pending.node = n;
+        inputs.node.value = outs.node.value = String(Math.round(n * 100));
+      }
+      prefs.text = t; pending.text = t;
+      inputs.text.value = outs.text.value = String(Math.round(t * 100));
       saveScalePrefs(prefs);
       applyTextScale(this, t);
-      // Same stored factor either way, but it has to land on whatever this
-      // panel actually lives in: resizing the node from inside the full-size
-      // window would change something the user can't even see right now.
-      if (this.modal) this.resizeWindow();
-      else applyNodeSize(this.node, n);  // last: this moves the popover
+      if (sized) this.resizeWindow();     // last: this moves the popover
       applyBtn.classList.remove("primary");
     };
 
     const applyBtn = el("button", { class: "mmlp-btn mmlp-sm",
       onclick: (e) => { e.stopPropagation(); commit(pending.node, pending.text); } },
       "Apply");
+    const reset = () => commit(sized ? 1 : prefs.node, 1);
 
     const cleanup = this.cleanupPrefRow();
     const menu = el("div", { class: "mmlp-scalemenu" },
-      // In the full-size window there is no node on screen to size, so the
-      // same factor is presented as what it actually drives here.
-      slider("node", this.modal ? "Window size" : "Node size"),
+      sized ? slider("node", "Window size") : null,
       slider("text", "Text size"),
       cleanup.row,
       el("div", { class: "mmlp-scalefoot" },
-        el("span", {}, "Remembered for new nodes"),
+        el("span", {}, "Remembered for every node"),
         el("button", { class: "mmlp-btn mmlp-sm",
-          onclick: (e) => { e.stopPropagation(); commit(1, 1); } }, "Reset"),
+          onclick: (e) => { e.stopPropagation(); reset(); } }, "Reset"),
         applyBtn));
 
+    // Outside the panel's root (the RefMods view's copy), the root's own
+    // mousedown can't close it, so an open menu listens for itself.
+    const outside = (e) => { if (!wrap.contains(e.target)) close(); };
+    const close = () => {
+      menu.classList.remove("on"); btn.classList.remove("on");
+      window.removeEventListener("pointerdown", outside, true);
+    };
     const btn = el("button", { class: "mmlp-btn mmlp-sm",
-      title: this.modal ? "Window and text size" : "Node and text size",
+      title: sized ? "Window and text size" : "Text size and clean-up",
       onclick: (e) => {
         e.stopPropagation();
-        const open = menu.classList.toggle("on");
-        btn.classList.toggle("on", open);
-        if (open) cleanup.refresh();
+        if (menu.classList.contains("on")) { close(); return; }
+        this.closeScaleMenu();
+        this._scaleClosers.add(close);
+        menu.classList.add("on"); btn.classList.add("on");
+        window.addEventListener("pointerdown", outside, true);
+        cleanup.refresh();
       } }, "\u2699");
-    this._scaleMenu = menu;
-    this._scaleBtn = btn;
-    return el("span", { class: "mmlp-scalewrap" }, btn, menu);
+    const wrap = el("span", { class: "mmlp-scalewrap" }, btn, menu);
+    (this._scaleClosers = this._scaleClosers || new Set()).add(close);
+    return wrap;
   }
 
   /** The clean-up reminder's size, as a row in the ⚙ menu. Upstream gives it
@@ -6280,8 +6218,9 @@ export class LoaderPanel {
   }
 
   closeScaleMenu() {
-    this._scaleMenu?.classList.remove("on");
-    this._scaleBtn?.classList.remove("on");
+    // Copies from earlier redraws are gone from the page; forget them.
+    for (const close of this._scaleClosers || []) close();
+    this._scaleClosers?.clear();
   }
 
   /** Re-apply the stored size factor to the window this panel is mounted in.
@@ -6665,7 +6604,7 @@ export class LoaderPanel {
     return el("span", {
       class: "mmlp-trimbtn" + (active ? " on" : ""),
       title: active ? `${what.join(", ")} \u2014 click to edit`
-        : (still ? "Crop, mirror or mask this picture"
+        : (still ? (this.maskable() ? "Crop, mirror or mask this picture" : "Crop or mirror this picture")
                  : "Use only part of this clip"),
       onclick: (e) => {
         e.stopPropagation();
@@ -6793,7 +6732,8 @@ export class LoaderPanel {
       return (this.reorderable(el("div",
         { class: "mmlp-slot filled pic" + (isOn(it) ? "" : " off")
             + (note ? " unusable" : ""),
-          oncontextmenu: (e) => pictureMenu(this, it, e) },
+          // Masking is Reference-only, so outside it there is no menu.
+          oncontextmenu: this.maskable() ? (e) => pictureMenu(this, it, e) : null },
         (() => {
           // Badge and img are SIBLINGS in the slot: .mmlp-pic is absolutely
           // positioned against the slot, so wrapping it breaks its sizing.
@@ -6868,7 +6808,7 @@ export class LoaderPanel {
         el("div", { class: "mmlp-picbar" },
           this.powerBtn(it),
           el("span", { class: "mmlp-tag pic" }, isOn(it) ? tag : "off"),
-          subjectActive(it) ? el("span", { class: "mmlp-subjbadge",
+          this.maskable() && subjectActive(it) ? el("span", { class: "mmlp-subjbadge",
             title: [it.subject.blur > 0 ? `background blurred (${it.subject.blur}px)` : "",
               it.subject.crop ? "cropped to the subject" : ""].filter(Boolean).join(", ") +
               " \u2014 in Reference mode only. Right-click or \u25a3 to edit.",
@@ -6927,6 +6867,12 @@ export class LoaderPanel {
     } catch (e) { return null; }
   }
 
+  /** Subject masking is sent in Reference mode only (as a <Picture N>), so
+   *  it is only offered there: Mask all, the ◐ badge, the right-click menu
+   *  and the editor's Masking row. A mask set earlier stays on the picture
+   *  and comes back with Reference mode. */
+  maskable() { return this.mode() === "REF"; }
+
   /** The compact layout's shape for the current mode, or null to render the
    *  standard one. Driven by MODE_CAPACITY so it cannot drift from the limits
    *  the rest of the pack enforces. Reference is deliberately unshaped: it can
@@ -6947,8 +6893,21 @@ export class LoaderPanel {
     if (!sh) return 0;
     const over = (kind, room) =>
       Math.max(0, this.items.filter((i) => i.kind === kind).length - room);
-    return over("picture", sh.pictures) + over("video", sh.videos)
+    // Pictures: everything but the enabled ones the layout shows (see
+    // usedPictures), so a switched-off picture counts as not on show.
+    const pics = this.items.filter((i) => i.kind === "picture").length;
+    return (pics - this.usedPictures(sh).length) + over("video", sh.videos)
       + over("audio", sh.audios);
+  }
+
+  /** The pictures the compact layout shows: the first enabled ones, up to
+   *  the mode's keyframe count — exactly the ones the node sends as
+   *  first_frame / last_frame (nodes.py skips a switched-off item). A
+   *  disabled picture used to take a slot here while the next one went out
+   *  instead, so "Used" showed something that wasn't used. */
+  usedPictures(sh = this.shape()) {
+    if (!sh) return [];
+    return this.items.filter((i) => i.kind === "picture" && isOn(i)).slice(0, sh.pictures);
   }
 
   /** Why a slot of this kind/number in the standard grid won't reach the
@@ -7414,9 +7373,9 @@ export class LoaderPanel {
       // ☰ handle and the drag itself are dropped — FL2VA keeps both, where
       // swapping decides which picture is the first frame and which the last.
       const canReorder = sh.pictures > 1;
-      pics.slice(0, sh.pictures).forEach((it, i) =>
-        cells.push(this.picCell(it, tags, canReorder)));
-      for (let i = pics.length; i < sh.pictures; i += 1)
+      const used = this.usedPictures(sh);
+      used.forEach((it) => cells.push(this.picCell(it, tags, canReorder)));
+      for (let i = used.length; i < sh.pictures; i += 1)
         cells.push(this.emptySlot("picture", i + 1));
       if (sh.pictures) {
         kids.push(el("div", {
@@ -7444,7 +7403,7 @@ export class LoaderPanel {
     kids.push(el("div", { class: "mmlp-cols" }, left, right));
 
     left.append(el("div", { class: "mmlp-sec" }, "pictures",
-      pics.length ? el("button", { class: "mmlp-subjall",
+      pics.length && this.maskable() ? el("button", { class: "mmlp-subjall",
         title: "Find the subject in every picture with SAM 3.1, to blur its background or crop to it in Reference mode",
         onclick: (e) => { e.stopPropagation(); maskAllPopover(this, e.currentTarget); } }, "\u25d0 Mask all") : null,
       el("span", {}, `${pics.length}/${MAX.picture}`)));

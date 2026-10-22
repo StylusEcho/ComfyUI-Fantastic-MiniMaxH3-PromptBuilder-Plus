@@ -47,6 +47,7 @@ const BOTTOM_GAP = 8;
    element now and the browser does the split, so there is no second number to
    fall out of step. */
 const STACK_H = PANEL_H + SUMMARY_H;
+const BAR_TITLE = "Quick-edit the prompt \u2014 the scroll opens the full editor";
 
 /** Show the media panel or the RefMods grid in the node's panel area. Both
  *  stay mounted — hiding keeps each one's scroll position, open menus aside,
@@ -84,13 +85,6 @@ function swapButton(node, btnClass) {
   }, "\u25c8", n ? el("span", { class: "mmh3p-swapcount" }, String(n)) : null);
 }
 
-/** The RefMods grid follows the node's own text size, like the media panel —
- *  not the stack node's separate ⤡ Size preference, which it doesn't show. */
-function applyTabText(node) {
-  try { node._mmrPanel?.root?.style.setProperty("--mmh3-fs", String(loadScalePrefs().text || 1)); }
-  catch (e) { /* the panel's own default applies */ }
-}
-
 /** RefMods picked on this node, shown on the ◈ so they're visible from the
  *  media side too. */
 function refmodCount(node) {
@@ -122,6 +116,8 @@ function refreshBar(node) {
     if (node._mmh3Expanded) {
       node._mmh3Expanded = false;
       bar.classList.remove("mmh3p-summary-open");
+      bar.style.cursor = "pointer";
+      bar.title = BAR_TITLE;
     }
     updateSummary(node);
     return;
@@ -138,6 +134,10 @@ function refreshBar(node) {
     timer = setTimeout(() => fields.save(), 300);
   });
   bar.classList.add("mmh3p-summary-open");
+  // The inline style outranks the open bar's cursor:default, and the bar's
+  // tooltip promises a quick editor this state doesn't open.
+  bar.style.cursor = "";
+  bar.title = "";
   bar.replaceChildren(fields.root);
 }
 
@@ -271,13 +271,16 @@ app.registerExtension({
         // scroll at its left opening the full editor.
         const summary = el("div", {
           class: "mmh3p-summary mmh3p-joinabove",
-          title: "Quick-edit the prompt \u2014 the scroll opens the full editor",
+          title: BAR_TITLE,
           // A floor, not a fixed height: the flex rules decide how tall the
           // bar actually is, and setting `height` here is what used to go
           // stale. This only stops the collapsed bar shrinking below the two
           // preview lines it is meant to show.
           style: { cursor: "pointer", minHeight: `${SUMMARY_H}px` },
-          onclick: () => openQuickEdit(this),
+          // Not while the bar holds the fields themselves (T2VA's Used
+          // layout): there a click is for typing, and it bubbled up here and
+          // opened Quick edit over the field you had just clicked into.
+          onclick: () => { if (!this._mmh3Expanded) openQuickEdit(this); },
         });
         this._mmh3Summary = summary;
 
@@ -295,8 +298,13 @@ app.registerExtension({
         // (the RefMods window, a draft's snapshot being applied).
         let stackRoot = null;
         try {
+          // The node's ⚙ too, so its text size is reachable from either view.
+          // Text itself needs no wiring: .mmh3p-nodestack maps the RefMods
+          // grid's and the prompt bar's --mmh3-fs onto the media panel's
+          // --mml-fs (promptbuilder.js CSS), so all three follow one setting.
           this._mmrPanel = new StackPanel(this, { embedded: true,
-            swap: () => swapButton(this, "mmrp-btn") });
+            swap: () => swapButton(this, "mmrp-btn"),
+            settings: () => this._mmlPanel.scaleControl() });
           this._mmrOnCommit = () => refreshTabCount(this);
           // For the full-size media loader's ◈ RefMods button: this node's
           // RefMods docked beside it (see openLoaderModal). A hook rather
@@ -304,7 +312,6 @@ app.registerExtension({
           this._mmrOpenDocked = (host, onUndock) => openStackModal(this, { host,
             onClose: () => { refreshTabCount(this); onUndock?.(); } });
           stackRoot = this._mmrPanel.root;
-          applyTabText(this);
         } catch (e) {
           // RefMods are optional on top of the core node; losing the tab
           // must not take the media panel and the prompt bar with it.
@@ -394,7 +401,7 @@ app.registerExtension({
         // back on workflow load, so a node came back at its serialised size
         // with the panel inside it rebuilt at 100%. Text only — this node's
         // own height comes from fitPanel() below, not from the scale pref.
-        try { applyTextScale(this._mmlPanel, loadScalePrefs().text); applyTabText(this); }
+        try { applyTextScale(this._mmlPanel, loadScalePrefs().text); }
         catch (e) { /* the panel's own CSS keeps it readable */ }
         // The widget values are in now: the RefMods tab re-reads its picks.
         try { this._mmrPanel?.reload(); showTab(this, this.properties?.mmh3_tab); }

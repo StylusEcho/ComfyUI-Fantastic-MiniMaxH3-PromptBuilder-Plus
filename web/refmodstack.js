@@ -779,11 +779,14 @@ export class StackPanel {
    *  RefMod Stack node of its own. The host owns the node's size and text
    *  scale then, so the panel drops its ⤡ Size control and leaves both alone.
    *  `swap`: on the node itself, a function building the ◈ button that
-   *  swaps the node's panel back to its media; it leads the toolbar. */
-  constructor(node, { embedded = false, swap = null } = {}) {
+   *  swaps the node's panel back to its media; it leads the toolbar.
+   *  `settings`: likewise, the node's own ⚙ (its text size), which ends the
+   *  toolbar the way it ends the media panel's. */
+  constructor(node, { embedded = false, swap = null, settings = null } = {}) {
     this.node = node;
     this.embedded = embedded;
     this.swap = swap;
+    this.settings = settings;
     this.state = readStack(node);
     const renumbered = fixUids(this.state.picks);
     injectCSS();
@@ -974,7 +977,8 @@ export class StackPanel {
       // decide; a second writer would fight it.
       this.embedded ? null : this.scaleControl(),
       el("button", { class: "mmrp-btn mmrp-sm mmrp-popanchor", title: "Token limit", "aria-label": "More settings",
-        onclick: (e) => { e.stopPropagation(); this.settingsMenu(e.currentTarget); } }, "⋯"));
+        onclick: (e) => { e.stopPropagation(); this.settingsMenu(e.currentTarget); } }, "⋯"),
+      this.settings ? this.settings() : null);
   }
 
   emptySlot(i) {

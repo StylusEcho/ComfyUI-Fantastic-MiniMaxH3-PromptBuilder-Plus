@@ -16,7 +16,7 @@ jobs:
     # before the version-bump push, since registry versions are immutable.
     env:
       COMFY_NODE_CHANGELOG: |
-        Folds in the original pack's 1.8.2: RefMod Create can crop each picture and clip to its subject and blur the background (Batch Masking with SAM 3.1, and a Crop and mask window with dots and a brush), RefMod names must be unique, and a renamed RefMod keeps its new name in labels. Fixes the trim editor failing to open on any clip longer than 15 seconds. Adds an optional two-column layout for Reference mode in the Prompt Builder. Needs the original pack 1.8.2 or newer alongside for RefMods and masked editing.
+        Interface rework: the node's settings are text size only, and that size now reaches the prompt bar and the RefMods view; the RefMods view gets the same settings and toolbar as the media view. The Prompt Builder header starts with Media Loader, RefMods, Library, Draft, and its two-column Reference form moved into settings. One grip above the audio boxes sizes both. Subject masking is offered in Reference mode only. The Used view shows the pictures actually sent, T2VA's fields on the node no longer open Quick edit, and Quick edit's Prompt Builder button is centred. Fixes the node's panel squishing after a workflow tab switch with the side panel open.
     steps:
       - name: Check out code
         uses: actions/checkout@v4

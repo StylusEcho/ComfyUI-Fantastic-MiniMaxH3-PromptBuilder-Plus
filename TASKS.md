@@ -1643,3 +1643,80 @@ when hiding, makes it a mouse-over caption for the respective section.
       window, side panel open/closed, three tab round trips; no console
       errors. Scripts kept in the scratchpad rig (`realui/t/side.cjs`,
       `regress.cjs`, `tabs.cjs`). Lint clean.
+
+100. 🟩 remove the Node Size slider from the node's ⚙
+    - `LoaderPanel.scaleControl()` (medialoader.js): on the node the menu is
+      Text size and the clean-up reminder; Apply/Reset no longer touch the
+      node's size (the node is sized by dragging its edge). The full-size
+      window's ⚙ keeps **Window size**, which still sizes that window.
+    - Verified in real ComfyUI: node ⚙ labels "Text size | Clean-up
+      reminder"; full window "Window size | Text size | Clean-up reminder".
+
+101. 🟩 text size should affect the prompt bar at the bottom
+    - The bar (and T2VA's inline fields) read `--mmh3-fs`, which on the
+      document is the Prompt Builder window's text size. `.mmh3p-nodestack`
+      now maps `--mmh3-fs` onto the node ⚙'s `--mml-fs`, so everything in
+      the node follows one setting, live, on every node.
+    - Verified: Text 150% → the bar's mode button at 16.5px (11 × 1.5).
+
+102. 🟩 consistent interface and text sizes when switching to the RefMods view
+    - Text: the same mapping as 101 (the one-off `applyTabText` copy, read
+      only at create/configure, is gone).
+    - The RefMods view gets the node's ⚙ (StackPanel `settings` option, built
+      by the media panel's `scaleControl`; copies tracked so any one closes).
+    - Toolbar: scoped CSS gives the embedded RefMods toolbar the media
+      toolbar's control height (22px × text), 8px gap and 11px small buttons.
+    - Verified: toolbar y/height, button heights and fonts, ◈ box and ⚙ box
+      identical in both views at 100% and 150% (before: 20/21/24px buttons,
+      ◈ 2px lower); the RefMods ⚙ changes the shared text size.
+
+103. 🟩 move the Prompt Builder's Columns toggle into its settings
+    - ⚙ → *Two-column Reference form* (`refColumns` pref); the header's
+      ⫼ Columns button and its CSS removed.
+    - Verified: checkbox present; on, the columns draw and the window widens
+      1240 → 1568 px.
+
+104. 🟩 Media Loader first on the Prompt Builder's toolbar
+105. 🟩 Draft after the Library button
+    - Header order now: ❐ Media Loader, ◈ RefMods, ☰ Library, Draft ▶,
+      Clear, 📖 Guide, modes, ⚙, ✕ (verified from the DOM).
+
+106. 🟩 one resize handle above overall_soundscape / non_diegetic_music
+    - `audioGrip()` (promptbuilder.js): a grip above the pair; drag up for
+      taller, down for shorter, double-click for the default. Both boxes take
+      the same height, stored at 100% text in its own key
+      (`mmh3.audioBoxH`, so stale prefs copies can't overwrite it) and scaled
+      by the text size. The boxes' own corner grips are off.
+    - In the full builder (Reference, columns or not, and the other modes),
+      Quick edit and T2VA's fields on the node.
+    - Verified: Quick edit drag −60px → both boxes +60, `resize: none`; the
+      height carries into the full editor; columns drag +50 on both.
+
+107. 🟩 media loader: mask functions only in Reference mode
+    - `LoaderPanel.maskable()`: ◐ Mask all, the ◐ badge, the right-click
+      menu and the editor's Masking row only in REF; `openPictureEditor`
+      takes `opts.masking` (the Prompt Builder passes its own mode). Masks
+      already set are kept and return with Reference mode.
+    - Verified: REF has all four; I2VA has none (no Auto mask in the editor).
+      Stub rig: Auto mask scenarios and subject test still pass.
+
+108. 🟩 Quick edit: Prompt Builder button in the middle of the toolbar
+    - The head is a 1fr/auto/1fr grid: title, 📜 Prompt Builder, ⚙ + ✕.
+      The old push-right rules removed.
+    - Verified: button centre 0 px off the head's centre.
+
+109. 🟩 the Used view in I2VA, FL2VA and L2VA only shows images that are enabled
+    - It showed the first N pictures whether on or not, while nodes.py sends
+      the first N that are on. `usedPictures()` now picks those, and the
+      window button's hidden count includes switched-off pictures.
+    - Verified: first of three pictures off → FL2VA shows the other two,
+      I2VA shows the second.
+
+110. 🟩 Used T2VA: clicking a field should not open Quick edit
+    - The bar's click opens Quick edit only while it is the collapsed
+      summary; expanded into the fields it also drops the pointer cursor and
+      the "Quick-edit" tooltip.
+    - Verified: clicking the inline field opens no Quick edit.
+    - Whole round: real-UI script `realui/t/ui_round.cjs` (28 checks pass),
+      plus `regress`, `side`, `tabs`, stub `subj`, `auto`, `cssom`, `load`,
+      `long2`; lint clean; no console errors.

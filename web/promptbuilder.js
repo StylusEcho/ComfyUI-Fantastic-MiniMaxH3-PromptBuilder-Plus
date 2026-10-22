@@ -819,7 +819,7 @@ const PREF_DEFAULTS = {
   // Window and text scale, 100%-300%. A 4K monitor makes the default window
   // small; these are per user, so they follow you into every workflow.
   windowScale: 1.0, textScale: 1.0,
-  // Reference mode's form in two columns (the ⫼ Columns header button),
+  // Reference mode's form in two columns (⚙ → Two-column Reference form),
   // with the window widened to fit. Off by default: one column is the
   // layout everything else in the editor was sized against.
   refColumns: false,
@@ -899,7 +899,7 @@ function loadPrefs() {
   }
 }
 
-// The width ⫼ Columns adds to the editor: roughly one more form column.
+// The width the two-column Reference form adds to the editor: roughly one more form column.
 const REFCOL_EXTRA = 520;
 
 function savePrefs(prefs) {
@@ -1936,32 +1936,26 @@ ${RAISE_CSS}
    sit on the mode selector — otherwise the gap opens between the two and Guide
    reads as part of the left-hand group instead. */
 .mmh3p-guidebtn{margin-left:auto;}
-/* Pushes an item, and everything after it, to the right of a flex header. */
-.mmh3p-pushright{margin-left:auto;}
 /* Settings and close are ONE control group at the right-hand end of every
    window that has a header — the editor, the library and the quick editor
    all share this rule, and the media loader mirrors it in its own sheet.
-   The settings wrapper claims the header's slack... */
+   The settings wrapper claims the header's slack, and the close button
+   after it stands down: two auto margins would split the free space
+   between them instead of pooling it. */
 .mmh3p-head .mmh3p-prefwrap{margin-left:auto;}
-/* ...but ONLY if it is the first thing in the header to do so. Two auto
-   margins split the free space between them instead of pooling it, so every
-   later claimer has to stand down: the quick editor's header carries a
-   .mmh3p-pushright Prompt Builder button, and while the settings wrapper
-   also claimed the slack the two ended up 278px apart with the space
-   halved between them — settings and close correctly paired, but marooned
-   from the button they belong beside. */
-.mmh3p-head .mmh3p-pushright ~ .mmh3p-prefwrap{margin-left:0;}
-/* Same rule for the close button, which is last and so never claims. */
-.mmh3p-head .mmh3p-pushright ~ .mmh3p-x,
 .mmh3p-head .mmh3p-prefwrap ~ .mmh3p-x{margin-left:0;}
 /* ...and where settings sits directly before it, the gap between those two
    closes so they read as one group. This MUST stay after the rules above:
-   it ties with them on specificity, so source order is what decides it —
-   the quick editor's header has a .mmh3p-pushright button as well, and
-   while this rule sat earlier that tie silently reopened the gap there
-   while the editor and library looked correct. Derived from the gap rather
-   than repeating 14px, so changing the gap can't reopen it either. */
+   it ties with them on specificity, so source order is what decides it.
+   Derived from the gap rather than repeating 14px, so changing the gap
+   can't reopen it either. */
 .mmh3p-head .mmh3p-prefwrap+.mmh3p-x{margin-left:calc(-1 * var(--mmh3-headgap));}
+/* Quick edit: the title at the left, 📜 Prompt Builder in the middle of the
+   bar, settings and close at the right. Equal outer columns are what keep
+   the button centred on the bar rather than in whatever the title leaves. */
+.mmh3p-head.mmh3p-quickhead{display:grid;grid-template-columns:1fr auto 1fr;}
+.mmh3p-quickends{display:flex;align-items:center;justify-content:flex-end;
+  gap:var(--mmh3-headgap);min-width:0;}
 .mmh3p-modes button{background:none;border:0;color:#9aa3b2;padding:5px 12px;border-radius:5px;
   cursor:pointer;font-size:calc(12px * var(--mmh3-fs, 1));}
 .mmh3p-modes button.on{background:#2f3947;color:#fff;}
@@ -2126,7 +2120,7 @@ ${RAISE_CSS}
    below their real rendered size, or the flex-shrink algorithm silently
    overflows them past this section's box and onto whatever follows it. */
 .mmh3p-sec.mmh3p-grow>label,.mmh3p-sec.mmh3p-grow>.hint{flex-shrink:0;}
-/* ⫼ Columns (Reference mode). The form stops scrolling and hands it to the
+/* Two-column Reference form. The form stops scrolling and hands it to the
    two columns, so a long retention list never pushes the description away;
    the chip bar and any strip above stay full width. Each column is its own
    mmh3p-fields container, so the audio pair's own query reads the column it
@@ -2140,7 +2134,6 @@ ${RAISE_CSS}
 .mmh3p-refcol>*{flex:0 0 auto;}
 .mmh3p-refcol>.mmh3p-sec.mmh3p-grow{flex:1 1 auto;}
 .mmh3p-refcol>.mmh3p-audiopair:last-child>.mmh3p-sec,.mmh3p-refcol>.mmh3p-sec:last-child{margin-bottom:0;}
-.mmh3p-btn.mmh3p-colsbtn.on{background:#2b3a52;border-color:#4a6a9a;color:#e6eefc;}
 /* Queried against the form (the columns' container), so the fold-back is
    styled on the column wrapper, which then does the scrolling itself. */
 @container mmh3p-fields (max-width: 760px){
@@ -2388,8 +2381,18 @@ ${RAISE_CSS}
 .mmh3p-cardtool:hover{color:#c9cfda;}
 .mmh3p-cardtool.on{color:#e0a94c;}
 .mmh3p-rmtool:hover{color:#e05a5a;}
-/* The two audio sections sit side by side at the foot of the form. */
+/* The two audio sections sit side by side at the foot of the form. Their
+   height is set by the one grip above them (audioGrip), not by a corner grip
+   on each box. */
 .mmh3p-audiopair{display:flex;gap:14px;align-items:flex-start;}
+/* The chip field's own resize:vertical is more specific, hence the match. */
+.mmh3p-audiopair>.mmh3p-sec textarea,
+.mmh3p-audiopair .mmh3p-chipwrap textarea.mmh3p-chiptext{resize:none;}
+.mmh3p-audiograb{flex:0 0 auto;height:12px;margin:-6px 0 4px;cursor:row-resize;
+  display:flex;align-items:center;justify-content:center;touch-action:none;user-select:none;}
+.mmh3p-audiograb::before{content:"";width:44px;height:4px;border-radius:2px;
+  background:#363d4a;border-top:1px solid #4a5263;}
+.mmh3p-audiograb:hover::before,.mmh3p-audiograb.on::before{background:#59637a;width:72px;}
 .mmh3p-audiopair>.mmh3p-sec{flex:1 1 0;min-width:0;margin-bottom:16px;}
 /* Stacks when the column holding it is narrow. This asked the *viewport*
    before (@media max-width:900px), which is a different question entirely:
@@ -2661,6 +2664,12 @@ ${RAISE_CSS}
 /* overflow stays visible: the panel's dropdowns escape its own box when it
    is collapsed, and a second clip here would put them straight back. The
    halves clip their own content already. */
+/* One text size for everything inside the node: the media panel reads
+   --mml-fs (the node ⚙'s Text size, set on the document), while the prompt
+   bar and the RefMods grid read --mmh3-fs, which on the document is the
+   Prompt Builder window's own. Mapped here, so the bar and both views of
+   the panel follow the node's setting, live and on every node. */
+.mmh3p-nodestack{--mmh3-fs:var(--mml-fs, 1);}
 .mmh3p-nodestack{display:flex;flex-direction:column;width:100%;
   box-sizing:border-box;height:100%;min-height:0;}
 /* Normally the panel takes the room and the bar is a fixed strip under it. */
@@ -2686,6 +2695,15 @@ ${RAISE_CSS}
    does. */
 .mmh3p-nodestack>.mmrp-panel{flex:1 1 auto;height:auto;min-height:0;
   border-radius:8px 8px 0 0;}
+/* Its toolbar is sized exactly like the media panel's (.mmlp-top), so ◈
+   swaps the panel without the bar, the ◈ or the ⚙ jumping: one control
+   height that scales with the text, the same gap, and the small buttons at
+   the media panel's 11px rather than 10px. */
+.mmh3p-nodestack>.mmrp-panel .mmrp-toolbar{gap:8px;}
+.mmh3p-nodestack>.mmrp-panel .mmrp-toolbar button{height:calc(22px * var(--mmh3-fs, 1));
+  box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;}
+.mmh3p-nodestack>.mmrp-panel .mmrp-toolbar .mmrp-btn.mmrp-sm{padding:3px 9px;
+  font-size:calc(11px * var(--mmh3-fs, 1));}
 /* Both panels set display:flex, which outranks the browser's own rule for
    the hidden attribute — without this the "hidden" tab would still draw. */
 .mmh3p-nodestack>[hidden]{display:none !important;}
@@ -4090,11 +4108,17 @@ class Editor {
           el("div", { class: "mmh3p-title" }, "Fantastic H3 Prompt Builder",
             this.titleTag = el("span", { class: "mmh3p-titletag" }, ""),
             el("small", {}, "guide-conformant output")),
-          this.modeToggle = el("button",
-            { class: "mmh3p-btn mmh3p-modetoggle",
-              title: "Switch to the draft scratchpad \u2014 the node keeps "
-                + "the Live prompt",
-              onclick: () => this.toggleDraftMode() }, "Draft \u25b6"),
+          // Opens over the top rather than handing over. The editor used to
+          // close itself first, which meant a trip through the
+          // unsaved-changes strip just to glance at the media \u2014 and in draft
+          // mode there is a second reference set to edit, which a handover
+          // could not express at all. Escape belongs to whichever overlay is
+          // on top, and reference tags refresh on close since adding media
+          // renumbers them. First in the row: the media is what the prompt
+          // is written against, and RefMods and the library follow it.
+          el("button", { class: "mmh3p-btn",
+            title: "Open the media loader without leaving the editor",
+            onclick: () => this.openMedia() }, "\u2750 Media Loader"),
           el("button", { class: "mmh3p-btn",
             title: "Open the RefMod Stack this prompt's references come from",
             onclick: () => this.openRefMods() }, "\u25c8 RefMods"),
@@ -4104,27 +4128,17 @@ class Editor {
               if (raiseIfOpen(this._mmh3Lib?.overlay)) return;
               new Library(this);
             } }, "\u2630 Library"),
+          this.modeToggle = el("button",
+            { class: "mmh3p-btn mmh3p-modetoggle",
+              title: "Switch to the draft scratchpad \u2014 the node keeps "
+                + "the Live prompt",
+              onclick: () => this.toggleDraftMode() }, "Draft \u25b6"),
           el("button", { class: "mmh3p-btn mmh3p-danger",
             title: "Clear every field and start over",
             onclick: () => { this.clearPending = !this.clearPending; this.render(); } },
             "Clear"),
           guideBtn,
           this.modeBar,
-          this.colsBtn = el("button", { class: "mmh3p-btn mmh3p-colsbtn",
-            title: "Reference mode: show the form in two columns \u2014 definitions and " +
-                   "retention on the left, the description and audio on the right. " +
-                   "Widens the window to fit.",
-            onclick: () => this.toggleRefColumns() }, "\u2afc Columns"),
-          // Opens over the top rather than handing over. The editor used to
-          // close itself first, which meant a trip through the
-          // unsaved-changes strip just to glance at the media \u2014 and in draft
-          // mode there is a second reference set to edit, which a handover
-          // could not express at all. Escape belongs to whichever overlay is
-          // on top, and reference tags refresh on close since adding media
-          // renumbers them.
-          el("button", { class: "mmh3p-btn",
-            title: "Open the media loader without leaving the editor",
-            onclick: () => this.openMedia() }, "\u2750 Media Loader"),
           // Settings sits immediately left of the close button, matching the
           // prompt library's header. It used to sit mid-row between Clear and
           // the guide, which put the one control that isn't about THIS prompt
@@ -4364,6 +4378,8 @@ class Editor {
           if (key === "classicLayout") this.applySidebarPref();
           if (key === "tallWindow") this.applyScale();
           if (key === "hideHints") this.applyHints();
+          // render() notices the change and widens or narrows the window.
+          if (key === "refColumns") this.render();
           syncPrefDeps();
         } });
       const hintEl = el("span", { class: "mmh3p-prefhint" }, hint);
@@ -4448,6 +4464,9 @@ class Editor {
       item("classicLayout", "Classic top-strip layout",
            "Off (default) keeps reference media in a column down the left " +
            "edge. On puts it back in a strip across the top."),
+      item("refColumns", "Two-column Reference form",
+           "Reference mode: definitions and retention on the left, the " +
+           "description and audio on the right. Widens the window to fit."),
       item("tallWindow", "Full-height window",
            "Fills the screen top to bottom, less a small margin. Window " +
            "size then only sets the width."),
@@ -4549,12 +4568,6 @@ class Editor {
   /** Reference mode drawn as two columns (the preference, in REF only). */
   refColumns() {
     return this.state.mode === "REF" && !!this.prefs.refColumns;
-  }
-
-  toggleRefColumns() {
-    this.prefs.refColumns = !this.prefs.refColumns;
-    savePrefs(this.prefs);
-    this.render();
   }
 
   /** Show or hide the checks list, remembering the choice. */
@@ -6398,12 +6411,13 @@ class Editor {
         // button uses, so the two can't disagree.
         class: "mmh3p-cardtool" + (s.item.trim || hasCrop(s.item) || s.item.rotate
           || s.item.mirror || s.item.resize ? " on" : ""),
-        title: still ? "Crop, rotate, mirror or mask this picture"
+        title: still ? (this.state.mode === "REF" ? "Crop, rotate, mirror or mask this picture"
+                                                 : "Crop, rotate or mirror this picture")
                      : "Trim this clip, or crop the frame",
         onclick: (e) => {
           e.stopPropagation();
           this.closePeek();
-          const modal = openPictureEditor(s.panel, s.item);
+          const modal = openPictureEditor(s.panel, s.item, { masking: this.state.mode === "REF" });
           // Every exit runs through close(), so wrapping the instance's copy
           // catches Apply, Cancel and Escape alike.
           const shut = modal.close.bind(modal);
@@ -7473,8 +7487,6 @@ class Editor {
     const colScroll = [...this.formEl.querySelectorAll(".mmh3p-refcols, .mmh3p-refcol")].map((c) => c.scrollTop);
     const cols = this.refColumns();
     this.formEl.classList.toggle("refcols", cols);
-    this.colsBtn.hidden = this.state.mode !== "REF";
-    this.colsBtn.classList.toggle("on", cols);
     // Only when it changes: applyScale() also rewrites the height and the
     // document's text size, which every keystroke's render needn't touch.
     if (cols !== this._colsWide) { this._colsWide = cols; this.applyScale(); }
@@ -7589,7 +7601,7 @@ class Editor {
       "1\u20134 sentences: ambience, physical action sounds, non-verbal human sounds.");
     const musicTa = this.ta(s, "music", 3,
       "1\u20133 sentences: instrumentation, tempo, rhythm, dynamics. No abstract mood words.");
-    f.append(el("div", { class: "mmh3p-audiopair" },
+    f.append(audioGrip([soundTa, musicTa]), el("div", { class: "mmh3p-audiopair" },
       el("div", { class: "mmh3p-sec" },
         this.secLabel("overall_soundscape", null, this.naButton(s, "soundscape")),
         soundTa),
@@ -7636,7 +7648,7 @@ class Editor {
     this._paintSubjChips = () => subjChipWrap.replaceChildren(...subjChips());
     this._paintSubjChips();
     f.append(this.toolBar([subjChipWrap]));
-    // ⫼ Columns: definitions and retention on the left, the description and
+    // Two columns (⚙): definitions and retention on the left, the description and
     // audio on the right, each column scrolling on its own. The chip bar
     // above stays full width, since it inserts into whichever field has
     // focus. Off, both sides are the form itself, as before.
@@ -7970,7 +7982,7 @@ class Editor {
     const refMusicTa = this.ta(r, "music", 3,
       "Audience-only score. If reused: \"<Audio 2> is directly reused as the complete " +
       "audience-only score.\"");
-    right.append(el("div", { class: "mmh3p-audiopair" },
+    right.append(audioGrip([refSoundTa, refMusicTa]), el("div", { class: "mmh3p-audiopair" },
       el("div", { class: "mmh3p-sec" },
         this.secLabel("overall_soundscape", null, this.naButton(r, "soundscape")),
         refSoundTa),
@@ -8550,7 +8562,7 @@ export function promptFields(node) {
   // Named so a caller can open straight into one of them — the node bar's
   // 🔊/🎵 marks do exactly that.
   const fieldFor = { soundscape: soundTa, music: musicTa };
-  root.append(pair);
+  root.append(audioGrip([soundTa, musicTa]), pair);
   linkHeights(soundTa, musicTa);
 
   const save = () => {
@@ -8680,17 +8692,18 @@ export function openQuickEdit(node, focusKey = null) {
     onmousedown: (e) => { if (e.target === overlay) close(); },
   },
     el("div", { class: "mmh3p-quickmodal" },
-      el("div", { class: "mmh3p-head" },
+      el("div", { class: "mmh3p-head mmh3p-quickhead" },
         el("div", { class: "mmh3p-title" }, "Quick edit",
           el("small", {}, mode === "REF" ? "Full-reference" : mode)),
-        el("button", { class: "mmh3p-btn mmh3p-pushright",
+        el("button", { class: "mmh3p-btn",
           title: "Open the full Prompt Builder, keeping what you have typed",
           // Save first: the full editor reads the node's widgets, so without
           // this everything typed here since opening was dropped on the way.
           onclick: () => { fields.save(); close(); openEditor(node); } },
           "📜 Prompt Builder"),
-        quickPrefsButton(() => applyQuickScale()),
-        el("button", { class: "mmh3p-x", onclick: close }, "✕")),
+        el("div", { class: "mmh3p-quickends" },
+          quickPrefsButton(() => applyQuickScale()),
+          el("button", { class: "mmh3p-x", onclick: close }, "✕"))),
       el("div", { class: "mmh3p-quickbody" }, fields.root),
       el("div", { class: "mmh3p-foot" },
         el("span", { class: "stats" },
@@ -8983,6 +8996,61 @@ function linkHeights(a, b) {
   });
   pair(a, b).observe(a);
   pair(b, a).observe(b);
+}
+
+/** One grip above the audio pair, in place of a corner grip on each box.
+ *  Dragging it up makes overall_soundscape and non_diegetic_music taller
+ *  together (in a filled layout the field above gives up the room, so it
+ *  reads as a splitter); down makes them shorter; a double-click puts them
+ *  back to three rows. The height is remembered at 100% text and scaled by
+ *  the text size, so a larger font keeps the same number of lines. It has
+ *  its own key rather than a field in the editor prefs: those are saved
+ *  whole from long-lived copies (the editor's, Quick edit's ⚙), any of which
+ *  would write a stale height back. The caller puts the returned grip
+ *  directly above the pair. */
+const AUDIO_H_KEY = "mmh3.audioBoxH";
+function audioGrip(boxes) {
+  const tas = boxes.map((b) => b?.querySelector?.("textarea") || b).filter(Boolean);
+  const fs = () => parseFloat(getComputedStyle(tas[0]).getPropertyValue("--mmh3-fs")) || 1;
+  const set = (css) => tas.forEach((t) => { t.style.height = css; });
+  const save = (v) => {
+    try { if (v) localStorage.setItem(AUDIO_H_KEY, String(v)); else localStorage.removeItem(AUDIO_H_KEY); }
+    catch (e) { /* this session only */ }
+  };
+  let stored = 0;
+  try { stored = Math.round(Number(localStorage.getItem(AUDIO_H_KEY)) || 0); } catch (e) { /* default */ }
+  if (stored > 0) set(`calc(${stored}px * var(--mmh3-fs, 1))`);
+  const grip = el("div", { class: "mmh3p-audiograb", role: "separator",
+    "aria-orientation": "horizontal",
+    title: "Drag to resize overall_soundscape and non_diegetic_music together; " +
+      "double-click for the default height",
+    ondblclick: () => { set(""); save(0); },
+    onpointerdown: (e) => {
+      if (e.button !== 0 || !tas.length) return;
+      e.preventDefault();
+      grip.setPointerCapture?.(e.pointerId);
+      grip.classList.add("on");
+      const y0 = e.clientY, h0 = tas[0].getBoundingClientRect().height;
+      const min = Math.round(48 * fs()), max = Math.round(innerHeight * 0.7);
+      let h = h0;
+      const move = (ev) => {
+        h = Math.min(max, Math.max(min, Math.round(h0 - (ev.clientY - y0))));
+        set(`${h}px`);
+      };
+      const up = () => {
+        grip.removeEventListener("pointermove", move);
+        grip.removeEventListener("pointerup", up);
+        grip.removeEventListener("pointercancel", up);
+        grip.classList.remove("on");
+        const v = Math.round(h / fs());
+        set(`calc(${v}px * var(--mmh3-fs, 1))`);
+        save(v);
+      };
+      grip.addEventListener("pointermove", move);
+      grip.addEventListener("pointerup", up);
+      grip.addEventListener("pointercancel", up);
+    } });
+  return grip;
 }
 
 let _modeMenu = null;
