@@ -2569,11 +2569,13 @@ ${RAISE_CSS}
 .mmh3p-summary.mmh3p-joinabove{border-top-left-radius:0;border-top-right-radius:0;
   border-bottom-left-radius:8px;border-bottom-right-radius:8px;
   background:#191c22;border-color:#2a2f3a;}
-/* Two lines of the prompt, clamped. pre-line keeps the prompt's own breaks, so
-   a short opening line spends line two on the next one instead of padding. */
+/* The prompt, clamped to the node ⚙'s "Prompt bar rows" (--mmh3-barrows, set
+   on the document by medialoader.js; two by default). pre-line keeps the
+   prompt's own breaks, so a short opening line spends the next row on the
+   next one instead of padding. */
 .mmh3p-sumtext{flex:1 1 auto;min-width:0;white-space:pre-line;overflow-wrap:anywhere;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
-  max-height:calc(2 * 1.5em);}
+  display:-webkit-box;-webkit-line-clamp:var(--mmh3-barrows, 2);-webkit-box-orient:vertical;
+  overflow:hidden;max-height:calc(var(--mmh3-barrows, 2) * 1.5em);}
 .mmh3p-sumtext.empty{font-style:italic;color:#6b7484;}
 /* Matches .mmh3p-modebtn at the bar's other end, so the two read as a pair. */
 .mmh3p-sumbtn{flex:0 0 auto;align-self:center;display:inline-flex;align-items:center;
@@ -9147,12 +9149,13 @@ export function updateSummary(node) {
   // Left: two lines of the prompt itself. textContent, not innerHTML \u2014 the
   // prompt is user text and must never be parsed as markup. CSS clamps it.
   const preview = el("div", { class: "mmh3p-sumtext" + (text ? "" : " empty") });
-  // 300 chars is well past what two clamped lines can show at this width, so
-  // the node isn't carrying a whole prompt it will never display. Painted with
+  // 1500 chars is well past what the most rows the bar can be set to (eight)
+  // show at a wide node, so the node isn't carrying a whole prompt it will
+  // never display. Painted with
   // the editor's own chain, so a tag reads the same colour in both places.
   if (text) {
     preview.innerHTML =
-      paintTags(text.slice(0, 300)) + (text.length > 300 ? "\u2026" : "");
+      paintTags(text.slice(0, 1500)) + (text.length > 1500 ? "\u2026" : "");
   } else {
     preview.textContent = "click to open the quick editor";
   }

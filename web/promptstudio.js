@@ -24,7 +24,7 @@ import { StackPanel, readStack, openStackModal, refreshStackLabels } from "./ref
 console.log("[MiniMaxH3 PromptStudio] module loaded");
 
 const STUDIO_NAME = "MiniMaxH3PromptStudio";
-const SUMMARY_H = 52;   // two clamped preview lines + padding
+const SUMMARY_H = 52;   // two clamped preview lines + padding (the default rows)
 // The bar expanded into the three prompt fields. Sized to reclaim roughly
 // what the media panel's old "T2VA sends the prompt only" notice used to
 // cost, now that the panel collapses to just its toolbar in this state —
@@ -276,7 +276,11 @@ app.registerExtension({
           // bar actually is, and setting `height` here is what used to go
           // stale. This only stops the collapsed bar shrinking below the two
           // preview lines it is meant to show.
-          style: { cursor: "pointer", minHeight: `${SUMMARY_H}px` },
+          // The floor follows the ⚙'s "Prompt bar rows" (--mmh3-barrows) and
+          // the text size: rows × the 1.5 line height, plus the bar's padding
+          // and border. At two rows and 100% that is the old 52px.
+          style: { cursor: "pointer",
+            minHeight: `calc(var(--mmh3-barrows, 2) * 1.5em + ${SUMMARY_H - 33}px)` },
           // Not while the bar holds the fields themselves (T2VA's Used
           // layout): there a click is for typing, and it bubbled up here and
           // opened Quick edit over the field you had just clicked into.

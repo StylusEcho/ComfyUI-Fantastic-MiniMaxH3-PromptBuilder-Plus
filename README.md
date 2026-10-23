@@ -57,6 +57,9 @@ Interface changes, all Plus only. No breakage of saved workflows.
 
 - **The node's ⚙ is text size only.** Node size is gone: drag the node's
   edge instead. The full-size media window keeps its Window size.
+- **Prompt bar rows.** The node's ⚙ sets how many lines of the prompt the
+  bar along the bottom shows, 1–8 (2 by default). A taller bar takes its room
+  from the media panel; drag the node taller to give it back.
 - **One text size for the whole node.** The ⚙'s Text size now reaches the
   prompt bar along the bottom (and the fields it opens into in T2VA), and
   the RefMods view follows it too. Before, the bar and the RefMods view

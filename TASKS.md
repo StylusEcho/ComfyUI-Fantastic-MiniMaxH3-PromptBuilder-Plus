@@ -1720,3 +1720,16 @@ when hiding, makes it a mouse-over caption for the respective section.
     - Whole round: real-UI script `realui/t/ui_round.cjs` (28 checks pass),
       plus `regress`, `side`, `tabs`, stub `subj`, `auto`, `cssom`, `load`,
       `long2`; lint clean; no console errors.
+
+111. 🟩 a setting for how many rows the prompt bar shows
+    - Node ⚙ → **Prompt bar rows** (1–8, default 2), shown wherever the node's
+      ⚙ is (media and RefMods views; not the full-size window, which has no
+      bar). Stored per user (`mmh3.barRows`) and applied at once through
+      `--mmh3-barrows` on the document, so every node follows it; the bar's
+      clamp, max height and floor height all read it (the floor is still 52px
+      at two rows and 100% text). The preview now carries up to 1500 chars,
+      enough for eight rows on a wide node.
+    - Verified in real ComfyUI (`realui/t/barrows.cjs`): 2 rows by default
+      (bar 52px), 1/5/8 rows show exactly that many lines with the stack still
+      inside the node, 99 clamps to 8, 4 survives a reload, and the RefMods
+      view's ⚙ has it too. `ui_round.cjs` still 28/28; lint clean.
