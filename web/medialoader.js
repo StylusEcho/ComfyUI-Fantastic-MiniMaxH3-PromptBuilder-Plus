@@ -1005,7 +1005,12 @@ ${RAISE_CSS}
 .mmlp-subjnum{width:calc(5ch + 18px);}
 .mmlp-subjbadge{flex:0 0 auto;cursor:pointer;color:#e86a8a;font-size:calc(12px * var(--mml-fs, 1));line-height:1;
   user-select:none;text-shadow:0 0 6px rgba(232,106,138,.45);}
-.mmlp-subjall{margin-left:8px;background:none;border:1px solid #3a4252;border-radius:4px;color:#c9cfda;cursor:pointer;
+/* Taller than the heading's own text (16px line + border against ~12px), so
+   it would stretch the heading by 2px in Reference mode, the only mode that
+   shows it, and every picture slot below came out 2px shorter than in the
+   other modes. The negative block margin lets it overhang instead; it scales
+   with the text, so the heading stays the same height at any text size. */
+.mmlp-subjall{margin-left:8px;margin-block:calc(-3px * var(--mml-fs, 1));background:none;border:1px solid #3a4252;border-radius:4px;color:#c9cfda;cursor:pointer;
   padding:0 6px;font-size:calc(10px * var(--mml-fs, 1));line-height:1.6;font-family:system-ui,sans-serif;
   text-transform:none;letter-spacing:0;}
 .mmlp-subjall:hover{border-color:#e86a8a;color:#f3b3c4;}

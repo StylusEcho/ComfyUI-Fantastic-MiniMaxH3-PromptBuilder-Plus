@@ -1733,3 +1733,33 @@ when hiding, makes it a mouse-over caption for the respective section.
       (bar 52px), 1/5/8 rows show exactly that many lines with the stack still
       inside the node, 99 clamps to 8, 4 survives a reload, and the RefMods
       view's ⚙ has it too. `ui_round.cjs` still 28/28; lint clean.
+
+112. 🟩 the interface size changes vertically by 1–2px in Reference mode
+    - Measured in real ComfyUI: the node, bar and panel are identical in
+      every mode, but in REF every picture slot was 93px against 95px. The
+      ◐ Mask all button (REF only since item 107) is 18px in a 12px heading,
+      so the heading grew 2px. It now overhangs with a negative block margin
+      that scales with the text size. Slots and headings are now identical in
+      all five modes at 100%, 150% and 200% text.
+    - Same kind of jump in the Prompt Builder: FL2VA/L2VA's footer stats
+      ("… • length N (Ns)") wrapped and made the footer 49px against 47px.
+      Now one line, ellipsised, with the full text as its tooltip; the
+      window's rows are identical in all modes.
+
+113. 🟩 Quick edit: a resize grip in the bottom-right corner, kept to the picture preview's aspect
+    - `.mmh3p-quickgrip`. Dragging sets the window's height, and its width
+      follows: with keyframes, the width that lets them stand the full
+      height beside the fields (the same sum `growForPics` uses), so the
+      preview's shape always holds; without pictures (T2VA, Reference) the
+      window keeps its own aspect. The pointer reads as height on either
+      axis, doubled since the window is centred, so the corner stays under
+      it. Clamped to 320px tall and 96vw × 92vh; at the width cap the height
+      comes down instead of the shape breaking.
+    - Remembered (`mmh3.quickHeight`); double-click, or changing Window
+      size in the ⚙, returns to the ⚙ size.
+    - Verified (`realui/t/quickgrip.cjs`, 11 checks): the preview fills the
+      height (16:9, ±3px) at open, after drags down, left, far up (stops at
+      320) and far out (stops at the screen), and in FL2VA with two pictures;
+      the corner follows the pointer to the pixel; the size survives a
+      reopen; T2VA keeps its ratio; double-click resets. `ui_round` 28/28,
+      `barrows` 8/8; lint clean.

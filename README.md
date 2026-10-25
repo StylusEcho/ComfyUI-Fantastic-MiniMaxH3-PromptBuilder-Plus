@@ -86,7 +86,16 @@ Interface changes, all Plus only. No breakage of saved workflows.
   the window button's count includes the ones switched off.
 - **T2VA's fields on the node no longer open Quick edit** when you click
   into them.
-- **Quick edit:** 📜 Prompt Builder sits in the middle of the toolbar.
+- **Quick edit:** 📜 Prompt Builder sits in the middle of the toolbar, and a
+  grip in the bottom-right corner resizes the window. The window keeps the
+  picture preview's shape as it changes size, so the keyframes always stand
+  its full height (without pictures, it keeps its own proportions). The size
+  is remembered; double-click the grip, or change Window size in its ⚙, to go
+  back.
+- **No more 1–2px jumps between modes.** In Reference mode the ◐ Mask all
+  button made the pictures heading 2px taller, so every picture slot was 2px
+  shorter than in the other modes. And in the Prompt Builder, FL2VA and
+  L2VA's footer wrapped onto a second line and grew 2px.
 
 ## What's new in 3.3.0
 

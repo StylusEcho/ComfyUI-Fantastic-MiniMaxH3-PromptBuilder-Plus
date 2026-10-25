@@ -2558,7 +2558,11 @@ ${RAISE_CSS}
 .mmh3p-issues .info{color:#8a93a3;margin:3px 0;}
 .mmh3p-issues .ok{color:#7ec87e;}
 .mmh3p-foot{display:flex;gap:8px;align-items:center;padding:10px 14px;border-top:1px solid #2a2f3a;}
-.mmh3p-foot .stats{font-size:calc(11px * var(--mmh3-fs, 1));color:#6b7484;margin-right:auto;}
+.mmh3p-foot .stats{font-size:calc(11px * var(--mmh3-fs, 1));color:#6b7484;margin-right:auto;
+  /* One line: FL2VA/L2VA add "• length N (Ns)", which wrapped in the narrow
+     preview column and made the footer, and the window's layout, 2px taller
+     in those modes only. The whole line is the tooltip. */
+  min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .mmh3p-summary{width:100%;box-sizing:border-box;background:#181b21;border:1px solid #2b303b;
   border-radius:6px;padding:6px 9px;font-size:calc(11px * var(--mmh3-fs, 1));line-height:1.5;color:#9aa3b2;
   overflow:hidden;cursor:default;display:flex;align-items:center;gap:9px;}
@@ -2585,11 +2589,17 @@ ${RAISE_CSS}
 .mmh3p-summark{flex:0 0 auto;align-self:center;font-size:calc(12px * var(--mmh3-fs, 1));line-height:1;
   opacity:.85;user-select:none;cursor:pointer;}
 .mmh3p-summark:hover{opacity:1;}
+/* Quick edit's corner grip (bottom right): three diagonal ticks. */
+.mmh3p-quickgrip{position:absolute;right:1px;bottom:1px;width:16px;height:16px;z-index:2;
+  cursor:nwse-resize;touch-action:none;
+  background:linear-gradient(135deg,transparent 0 45%,#4a5263 45% 52%,transparent 52% 62%,
+    #4a5263 62% 69%,transparent 69% 79%,#4a5263 79% 86%,transparent 86%);}
+.mmh3p-quickgrip:hover{filter:brightness(1.6);}
 /* Quick edit: smaller than the full builder, same chrome. */
 /* 25% off both axes (was 900x780 capped at 92vw/88vh). The viewport caps come
    down with the pixel sizes, or on a small screen the window would still fill
    almost the whole viewport and the reduction would only show on large ones. */
-.mmh3p-quickmodal{box-sizing:border-box;width:min(900px,88vw);height:min(585px,66vh);
+.mmh3p-quickmodal{position:relative;box-sizing:border-box;width:min(900px,88vw);height:min(585px,66vh);
   display:flex;flex-direction:column;background:#191c22;color:#d7dbe2;
   border:1px solid #303642;border-radius:10px;overflow:hidden;
   box-shadow:0 24px 64px rgba(0,0,0,.55);}
@@ -8100,6 +8110,7 @@ class Editor {
       }
     }
     this.statsEl.textContent = stats;
+    this.statsEl.title = stats;
   }
 }
 
@@ -8646,6 +8657,8 @@ function quickPrefsButton(onApply) {
   };
 
   const set = (w, t) => {
+    // The window's ⚙ size takes over again from a size dragged at its corner.
+    const sized = w !== prefs.quickScale;
     prefs.quickScale = w; prefs.textScale = t;
     pending.quickScale = w; pending.textScale = t;
     for (const [k, v] of [["quickScale", w], ["textScale", t]]) {
@@ -8653,7 +8666,7 @@ function quickPrefsButton(onApply) {
       outs[k].value = String(Math.round(v * 100));
     }
     savePrefs(prefs);
-    onApply();
+    onApply({ sized });
     applyBtn.classList.remove("primary");
   };
   const applyBtn = el("button", { class: "mmh3p-btn",
@@ -8704,7 +8717,10 @@ export function openQuickEdit(node, focusKey = null) {
           onclick: () => { fields.save(); close(); openEditor(node); } },
           "📜 Prompt Builder"),
         el("div", { class: "mmh3p-quickends" },
-          quickPrefsButton(() => applyQuickScale()),
+          quickPrefsButton(({ sized } = {}) => {
+            if (sized) saveQuickHeight(0);
+            applyQuickScale();
+          }),
           el("button", { class: "mmh3p-x", onclick: close }, "✕"))),
       el("div", { class: "mmh3p-quickbody" }, fields.root),
       el("div", { class: "mmh3p-foot" },
@@ -8736,7 +8752,10 @@ export function openQuickEdit(node, focusKey = null) {
       document.documentElement.style.setProperty(
         "--mmh3-fs", String(clampScale(p.textScale, TEXT_SCALE_MAX)));
     } catch (e) { /* the stylesheet's own default of 1 still applies */ }
-    growForPics(box, p);
+    // A size dragged at the corner wins over the ⚙ size until that changes.
+    const dragged = loadQuickHeight();
+    if (dragged > 0) sizeQuickTo(dragged, quickMetrics(), 900 / 585);
+    else growForPics(box, p);
     fields.relayoutPics?.();
   };
 
@@ -8778,6 +8797,76 @@ export function openQuickEdit(node, focusKey = null) {
     const want = Math.round(need + PANE_GAP + PANE_FIELDS_MIN + chrome);
     box.style.width = `min(${Math.max(base, want)}px, 96vw)`;
   };
+
+  /* The corner grip. The window is resized by height and its width follows,
+     so it always keeps the picture preview's shape: with keyframes, the
+     width is the one that lets the pictures stand the window's full height
+     beside the fields' floor (growForPics' sum, exactly); without pictures
+     (T2VA, Reference) it keeps the window's own aspect. The height is
+     remembered; a double-click goes back to the ⚙ size. */
+  const quickMetrics = () => {
+    const box = overlay.querySelector(".mmh3p-quickmodal");
+    const body = overlay.querySelector(".mmh3p-quickbody");
+    let pad = { top: 0, bottom: 0, left: 0, right: 0 };
+    try {
+      const cs = getComputedStyle(body);
+      pad = { top: parseFloat(cs.paddingTop) || 0, bottom: parseFloat(cs.paddingBottom) || 0,
+              left: parseFloat(cs.paddingLeft) || 0, right: parseFloat(cs.paddingRight) || 0 };
+    } catch (e) { /* measured as zero padding */ }
+    const r = box.getBoundingClientRect();
+    return { box, w: r.width, h: r.height,
+      chromeV: r.height - ((body.clientHeight || 0) - pad.top - pad.bottom),
+      chromeW: r.width - (body.clientWidth || 0) + pad.left + pad.right };
+  };
+  const quickWidthFor = (h, m, aspect) => {
+    const need = fields.widthToFillHeight?.(h - m.chromeV) || 0;
+    return need > 0 ? need + PANE_GAP + PANE_FIELDS_MIN + m.chromeW : h * aspect;
+  };
+  const sizeQuickTo = (h, m, aspect) => {
+    const maxW = innerWidth * 0.96, maxH = innerHeight * 0.92;
+    h = Math.min(maxH, Math.max(QUICK_MIN_H, h));
+    let w = quickWidthFor(h, m, aspect);
+    if (w > maxW) {
+      // Too wide for the screen: come down in height until it fits, so the
+      // shape still holds rather than the width being clipped.
+      const k = (w - quickWidthFor(h - 100, m, aspect)) / 100;
+      if (k > 0) h = Math.max(QUICK_MIN_H, h - (w - maxW) / k);
+      w = Math.min(maxW, quickWidthFor(h, m, aspect));
+    }
+    m.box.style.height = `${Math.round(h)}px`;
+    m.box.style.width = `${Math.round(w)}px`;
+    return Math.round(h);
+  };
+  const grip = el("div", { class: "mmh3p-quickgrip",
+    title: "Drag to resize \u2014 the window keeps the picture preview's shape. " +
+      "Double-click for the \u2699 size.",
+    ondblclick: () => { saveQuickHeight(0); applyQuickScale(); },
+    onpointerdown: (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault(); e.stopPropagation();
+      grip.setPointerCapture?.(e.pointerId);
+      const m = quickMetrics(), aspect = m.w / m.h, h0 = m.h;
+      // Width gained per pixel of height, to read a sideways drag as height.
+      const k = Math.max(0.1, (quickWidthFor(h0 + 100, m, aspect) - quickWidthFor(h0, m, aspect)) / 100);
+      const x0 = e.clientX, y0 = e.clientY;
+      let h = h0;
+      // The window is centred, so its corner moves half as far as its size
+      // changes: twice the pointer's travel keeps the corner under it.
+      const move = (ev) => {
+        const byY = 2 * (ev.clientY - y0), byX = 2 * (ev.clientX - x0) / k;
+        h = sizeQuickTo(h0 + (Math.abs(byY) >= Math.abs(byX) ? byY : byX), m, aspect);
+      };
+      const up = () => {
+        grip.removeEventListener("pointermove", move);
+        grip.removeEventListener("pointerup", up);
+        grip.removeEventListener("pointercancel", up);
+        saveQuickHeight(h);
+      };
+      grip.addEventListener("pointermove", move);
+      grip.addEventListener("pointerup", up);
+      grip.addEventListener("pointercancel", up);
+    } });
+  overlay.querySelector(".mmh3p-quickmodal")?.append(grip);
 
   applyQuickScale();
 
@@ -8883,6 +8972,18 @@ function shownAspect(item) {
    than the pictures being fitted into a fixed column, so nothing is cropped
    and no letterbox bars are left over. */
 const PANE_GAP = 8;          // between two pictures
+// Quick edit's corner grip: the dragged window height (0 = the ⚙ size), and
+// the least it may be dragged to.
+const QUICK_H_KEY = "mmh3.quickHeight";
+const QUICK_MIN_H = 320;
+function loadQuickHeight() {
+  try { return Math.max(0, Math.round(Number(localStorage.getItem(QUICK_H_KEY)) || 0)); }
+  catch (e) { return 0; }
+}
+function saveQuickHeight(h) {
+  try { if (h > 0) localStorage.setItem(QUICK_H_KEY, String(h)); else localStorage.removeItem(QUICK_H_KEY); }
+  catch (e) { /* this session only */ }
+}
 // Below this the audio pair stacks and the description field starts to feel
 // cramped, so the previews give way rather than the writing surface.
 const PANE_FIELDS_MIN = 420;
