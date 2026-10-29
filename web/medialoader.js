@@ -815,13 +815,7 @@ ${RAISE_CSS}
 .mmlp-tag.vid.edit{color:#e86a8a;}
 .mmlp-editbadge{cursor:pointer;color:#e86a8a;font-size:calc(14px * var(--mml-fs, 1));line-height:1;flex-shrink:0;
   user-select:none;text-shadow:0 0 6px rgba(232,106,138,.5);}
-.mmlp-ctxmenu{position:fixed;z-index:10060;min-width:180px;background:#1b1f27;border:1px solid #303642;
-  border-radius:7px;box-shadow:0 12px 32px rgba(0,0,0,.5);padding:4px;font-family:system-ui,sans-serif;}
-.mmlp-ctxitem{padding:6px 10px;border-radius:5px;cursor:pointer;color:#dde2ea;font-size:calc(12px * var(--mml-fs, 1));}
-.mmlp-ctxitem:hover{background:#262c37;}
-.mmlp-ctxsep{height:1px;margin:4px 6px;background:#2e3440;}
-.mmlp-ctxitem.mmlp-ctxdanger{color:#e0848a;}
-.mmlp-ctxitem.armed,.mmlp-btn.armed{background:#5a2328 !important;color:#ffd5d8 !important;}
+.mmlp-btn.armed{background:#5a2328 !important;color:#ffd5d8 !important;}
 .mmlp-msgact{margin-left:8px;background:none;border:1px solid #4a5568;border-radius:4px;color:#9fe9f2;
   cursor:pointer;padding:0 6px;font-size:calc(10px * var(--mml-fs, 1));}
 .mmlp-maskmissing{position:absolute;right:1px;top:1px;color:#ffcf5a;font-size:calc(11px * var(--mml-fs, 1));
@@ -5313,30 +5307,7 @@ export function openPictureEditor(panel, item, opts = {}) {
   return modal;
 }
 
-/** Right-click menu on a loader picture. */
-function pictureMenu(panel, item, e) {
-  e.preventDefault(); e.stopPropagation();
-  document.querySelectorAll(".mmlp-ctxmenu").forEach((m) => m.remove());
-  const entry = (label, title, fn) => el("div", { class: "mmlp-ctxitem", title,
-    onclick: () => { menu.remove(); fn(); } }, label);
-  const sub = item.subject;
-  const has = !!sub && ("found" in sub || sub.strokes?.length);
-  const clear = has ? armTwice(el("div", { class: "mmlp-ctxitem mmlp-ctxdanger",
-    title: "Remove the subject mask and its settings; the picture is sent whole (click twice)" }, "Clear the mask"),
-  "Click again to clear the mask", () => { menu.remove(); clearSubjectOn(panel, item); }) : null;
-  const menu = el("div", { class: "mmlp-ctxmenu", style: { left: `${e.clientX}px`, top: `${e.clientY}px` } },
-    entry(has ? "◐ Crop and edit the mask…" : "◐ Crop and mask…",
-      "Mask the subject (Auto mask, dots, brush) to blur its background or crop to it in Reference mode",
-      () => openPictureEditor(panel, item)),
-    clear ? el("div", { class: "mmlp-ctxsep" }) : null, clear);
-  document.body.append(menu);
-  const r = menu.getBoundingClientRect();
-  if (r.right > innerWidth) menu.style.left = `${innerWidth - r.width - 6}px`;
-  if (r.bottom > innerHeight) menu.style.top = `${innerHeight - r.height - 6}px`;
-  const off = (ev) => { if (!menu.contains(ev.target)) { menu.remove(); window.removeEventListener("pointerdown", off, true); } };
-  setTimeout(() => window.addEventListener("pointerdown", off, true), 0);
-}
-
+/** Clear a picture's subject mask (the slot menu's Clear the mask), with Undo. */
 function clearSubjectOn(panel, item) {
   const it = panel.live?.(item) || item, saved = it.subject;
   delete it.subject;
@@ -5393,37 +5364,6 @@ function maskAllPopover(panel, anchor) {
   pop.style.left = `${Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8))}px`;
   pop.style.top = `${Math.min(r.bottom + 6, innerHeight - pop.offsetHeight - 8)}px`;
   const off = (ev) => { if (!pop.contains(ev.target) && ev.target !== anchor) { pop.remove(); window.removeEventListener("pointerdown", off, true); } };
-  setTimeout(() => window.addEventListener("pointerdown", off, true), 0);
-}
-
-/** Right-click menu on a loader video. */
-function videoMenu(panel, item, e) {
-  e.preventDefault(); e.stopPropagation();
-  document.querySelectorAll(".mmlp-ctxmenu").forEach((m) => m.remove());
-  const entry = (label, title, fn) => el("div", { class: "mmlp-ctxitem", title,
-    onclick: () => { menu.remove(); fn(); } }, label);
-  const armed = (label, armedLabel, title, fn) => {
-    const it = el("div", { class: "mmlp-ctxitem mmlp-ctxdanger", title }, label);
-    return armTwice(it, armedLabel, () => { menu.remove(); fn(); });
-  };
-  const menu = el("div", { class: "mmlp-ctxmenu", style: { left: `${e.clientX}px`, top: `${e.clientY}px` } },
-    entry("✂ Trim & crop…", "Open the editor", () => new TrimModal(panel, item)),
-    entry(item.mask ? "◐ Edit the mask…" : "◐ Mask for editing…",
-      "Mark part of this clip to replace, change or remove; only that area is regenerated",
-      () => new TrimModal(panel, item, { mask: true })),
-    item.mask && item.mask_info?.sprite
-      ? entry(overlayOn() ? "Hide the mask overlay" : "Show the mask overlay",
-          "Draw saved masks over clips here and in the editor. It's a preview, not the exact mask.",
-          () => setOverlay(!overlayOn()))
-      : null,
-    item.mask ? el("div", { class: "mmlp-ctxsep" }) : null,
-    item.mask ? armed("Clear the mask", "Click again to clear the mask",
-      "Remove the mask; the clip goes back to being a reference (click twice)", () => clearMaskOn(panel, item)) : null);
-  document.body.append(menu);
-  const r = menu.getBoundingClientRect();
-  if (r.right > innerWidth) menu.style.left = `${innerWidth - r.width - 6}px`;
-  if (r.bottom > innerHeight) menu.style.top = `${innerHeight - r.height - 6}px`;
-  const off = (ev) => { if (!menu.contains(ev.target)) { menu.remove(); window.removeEventListener("pointerdown", off, true); } };
   setTimeout(() => window.addEventListener("pointerdown", off, true), 0);
 }
 
@@ -6776,9 +6716,7 @@ export class LoaderPanel {
       const tag = (tags.get(it) || "").slice(1, -1);
       return (this.reorderable(el("div",
         { class: "mmlp-slot filled pic" + (isOn(it) ? "" : " off")
-            + (note ? " unusable" : ""),
-          // Masking is Reference-only, so outside it there is no menu.
-          oncontextmenu: this.maskable() ? (e) => pictureMenu(this, it, e) : null },
+            + (note ? " unusable" : "") },
         (() => {
           // Badge and img are SIBLINGS in the slot: .mmlp-pic is absolutely
           // positioned against the slot, so wrapping it breaks its sizing.
@@ -7065,12 +7003,38 @@ export class LoaderPanel {
       .map((i) => ({ item: i, tag: tags.get(i) || "" }));
   }
 
+  /** The editing entries that lead a slot's menu: a picture's subject mask
+   *  (Reference mode only, see maskable()) and a clip's trim and edit mask.
+   *  They used to be menus of their own on the same right-click, so two
+   *  menus opened stacked and closing one left the other over the grid. Both
+   *  Clears have Undo, so one click is enough here. */
+  editRows(item) {
+    const rows = [];
+    if (item?.kind === "picture" && this.maskable()) {
+      const sub = item.subject;
+      const has = !!sub && ("found" in sub || sub.strokes?.length);
+      rows.push([has ? "◐ Crop and edit the mask…" : "◐ Crop and mask…",
+        () => openPictureEditor(this, item)]);
+      if (has) rows.push(["Clear the mask", () => clearSubjectOn(this, item)]);
+    } else if (item?.kind === "video") {
+      rows.push(["✂ Trim & crop…", () => new TrimModal(this, item)]);
+      rows.push([item.mask ? "◐ Edit the mask…" : "◐ Mask for editing…",
+        () => new TrimModal(this, item, { mask: true })]);
+      if (item.mask && item.mask_info?.sprite) {
+        rows.push([overlayOn() ? "Hide the mask overlay" : "Show the mask overlay",
+          () => setOverlay(!overlayOn())]);
+      }
+      if (item.mask) rows.push(["Clear the mask", () => clearMaskOn(this, item)]);
+    }
+    return rows;
+  }
+
   /** Right-click menu for a slot. `item` is null on an empty slot. */
   slotMenu(e, item) {
     e.preventDefault();
     e.stopPropagation();
     closeSlotMenu();
-    const rows = [];
+    const rows = this.editRows(item);
     if (item) {
       rows.push(["Copy", () => this.copyItem(item)]);
       rows.push(["Duplicate", () => { this.copyItem(item); this.pasteItem(); }]);
@@ -7098,7 +7062,7 @@ export class LoaderPanel {
 
     const menu = el("div", { class: "mmlp-slotmenu" },
       ...rows.map(([label, run]) => el("div", {
-        class: "mmlp-slotitem" + (/^Remove$/.test(label) ? " danger" : ""),
+        class: "mmlp-slotitem" + (/^(Remove|Clear the mask)$/.test(label) ? " danger" : ""),
         onmousedown: (ev) => ev.stopPropagation(),
         onclick: (ev) => { ev.stopPropagation(); closeSlotMenu(); run(); },
       }, label)));
@@ -7109,10 +7073,11 @@ export class LoaderPanel {
     const h = menu.offsetHeight || 0;
     menu.style.left = `${Math.max(4, Math.min(e.clientX, window.innerWidth - w - 4))}px`;
     menu.style.top = `${Math.max(4, Math.min(e.clientY, window.innerHeight - h - 4))}px`;
-    setTimeout(() => {
-      window.addEventListener("mousedown", slotMenuOutside, true);
-      window.addEventListener("keydown", slotMenuEsc, true);
-    }, 0);
+    // Escape straight away; only the outside-press listener waits a tick, so
+    // the press that opened the menu can't close it. Deferring both let an
+    // Escape on a busy page arrive before the listener did.
+    window.addEventListener("keydown", slotMenuEsc, true);
+    setTimeout(() => window.addEventListener("mousedown", slotMenuOutside, true), 0);
   }
 
   /** Pull an image straight off the OS clipboard (a screenshot, say). */
@@ -7548,8 +7513,7 @@ export class LoaderPanel {
           onclick: () => this.remove(it) }, "\u2715"));
       const vcell = el("div", { class: "mmlp-slot filled vid" + (isOn(it) || editing ? "" : " off")
           + (note ? " unusable" : ""),
-        title: note || "Right-click to mask part of this clip for editing",
-        oncontextmenu: (e) => videoMenu(this, it, e) },
+        title: note || "Right-click to mask part of this clip for editing" },
         row);
       vidCells.push(this.reorderable(vcell, it));
     });

@@ -2618,7 +2618,13 @@ ${RAISE_CSS}
    than fitting them into a fixed column, so nothing is cropped and no
    letterbox bars are left over. The values here are the pre-measurement
    fallback, replaced on the first layout pass. */
-.mmh3p-quickpics{flex:0 0 auto;min-width:0;align-self:center;
+/* Top-aligned and sticky rather than centred: the pictures are sized to the
+   visible height, but when the fields run taller (a small window, a large
+   text size) the column they sit beside does too, and centring in that put
+   them low and cut off. Pinned to the top, they stay whole while the fields
+   scroll. When the fields fit, the column is the visible height and the two
+   alignments are the same. */
+.mmh3p-quickpics{flex:0 0 auto;min-width:0;align-self:flex-start;position:sticky;top:0;
   display:flex;flex-direction:column;gap:8px;
   /* Two pictures of different shapes give the pane the width of the wider
      one; centring keeps the narrower under it rather than hard left. */
@@ -2660,6 +2666,23 @@ ${RAISE_CSS}
    bug — no hint lives here yet, but the label shouldn't be squeezable. */
 .mmh3p-quick .mmh3p-sec.mmh3p-grow>label,
 .mmh3p-quick .mmh3p-sec.mmh3p-grow>.hint{flex-shrink:0;}
+/* The audio pair ends the fields: no section margin under it, so its boxes'
+   bottoms line up with the keyframe preview's (the full editor's form does
+   the same for its last pair). */
+.mmh3p-quick>.mmh3p-audiopair:last-child>.mmh3p-sec{margin-bottom:0;}
+/* In the Quick edit window the description gives up its room first. The
+   textarea sits in a chip wrapper, so the grow rule above never reached it
+   and it stayed at its 12 rows (237px): below ~403px the fields scrolled,
+   and the audio boxes ended below the picture instead of level with it.
+   With the wrapper flexing down to 100px (scaled with the text), the
+   fields fit the window's 280px floor at any text size, so the audio
+   boxes always end where the preview does. Not on the node's T2VA bar,
+   which keeps its fixed rows. */
+.mmh3p-quickmodal .mmh3p-quick .mmh3p-sec.mmh3p-grow{min-height:0;}
+.mmh3p-quickmodal .mmh3p-quick .mmh3p-sec.mmh3p-grow>.mmh3p-chipwrap{flex:1 1 0;
+  min-height:calc(100px * var(--mmh3-fs, 1));display:flex;flex-direction:column;}
+.mmh3p-quickmodal .mmh3p-quick .mmh3p-sec.mmh3p-grow>.mmh3p-chipwrap>textarea{
+  flex:1 1 auto;min-height:0;}
 .mmh3p-quick textarea{width:100%;box-sizing:border-box;background:#12151b;
   color:#dde2ea;border:1px solid #2e3440;border-radius:6px;padding:7px 9px;
   font-size:calc(13px * var(--mmh3-fs, 1));font-family:inherit;resize:vertical;line-height:1.5;}
@@ -8814,9 +8837,13 @@ export function openQuickEdit(node, focusKey = null) {
               left: parseFloat(cs.paddingLeft) || 0, right: parseFloat(cs.paddingRight) || 0 };
     } catch (e) { /* measured as zero padding */ }
     const r = box.getBoundingClientRect();
-    return { box, w: r.width, h: r.height,
-      chromeV: r.height - ((body.clientHeight || 0) - pad.top - pad.bottom),
-      chromeW: r.width - (body.clientWidth || 0) + pad.left + pad.right };
+    const chromeV = r.height - ((body.clientHeight || 0) - pad.top - pad.bottom);
+    let fs = 1;
+    try { fs = parseFloat(getComputedStyle(box).getPropertyValue("--mmh3-fs")) || 1; } catch (e) { /* 100% */ }
+    return { box, w: r.width, h: r.height, chromeV,
+      chromeW: r.width - (body.clientWidth || 0) + pad.left + pad.right,
+      // Never more than the screen allows, so the floor is always reachable.
+      minH: Math.min(innerHeight * 0.92, chromeV + QUICK_FIELDS_MIN_H * fs) };
   };
   const quickWidthFor = (h, m, aspect) => {
     const need = fields.widthToFillHeight?.(h - m.chromeV) || 0;
@@ -8824,13 +8851,13 @@ export function openQuickEdit(node, focusKey = null) {
   };
   const sizeQuickTo = (h, m, aspect) => {
     const maxW = innerWidth * 0.96, maxH = innerHeight * 0.92;
-    h = Math.min(maxH, Math.max(QUICK_MIN_H, h));
+    h = Math.min(maxH, Math.max(m.minH, h));
     let w = quickWidthFor(h, m, aspect);
     if (w > maxW) {
       // Too wide for the screen: come down in height until it fits, so the
       // shape still holds rather than the width being clipped.
       const k = (w - quickWidthFor(h - 100, m, aspect)) / 100;
-      if (k > 0) h = Math.max(QUICK_MIN_H, h - (w - maxW) / k);
+      if (k > 0) h = Math.max(m.minH, h - (w - maxW) / k);
       w = Math.min(maxW, quickWidthFor(h, m, aspect));
     }
     m.box.style.height = `${Math.round(h)}px`;
@@ -8973,9 +9000,15 @@ function shownAspect(item) {
    and no letterbox bars are left over. */
 const PANE_GAP = 8;          // between two pictures
 // Quick edit's corner grip: the dragged window height (0 = the ⚙ size), and
-// the least it may be dragged to.
+// the least room its fields may be dragged down to, at 100% text. With the
+// window's own header and footer that is ~408px at 100% text, 568px at 150%
+// and 728px at 200% (it scales with the text, as the fields do): the
+// description keeps a few usable lines with the audio row coming into view,
+// and the body scrolls for the rest. The fields' full natural height
+// (419-896px, by mode and text size) would be too much: it is often taller
+// than the ⚙ size itself, which scrolls by design.
 const QUICK_H_KEY = "mmh3.quickHeight";
-const QUICK_MIN_H = 320;
+const QUICK_FIELDS_MIN_H = 280;
 function loadQuickHeight() {
   try { return Math.max(0, Math.round(Number(localStorage.getItem(QUICK_H_KEY)) || 0)); }
   catch (e) { return 0; }

@@ -89,13 +89,22 @@ Interface changes, all Plus only. No breakage of saved workflows.
 - **Quick edit:** 📜 Prompt Builder sits in the middle of the toolbar, and a
   grip in the bottom-right corner resizes the window. The window keeps the
   picture preview's shape as it changes size, so the keyframes always stand
-  its full height (without pictures, it keeps its own proportions). The size
-  is remembered; double-click the grip, or change Window size in its ⚙, to go
-  back.
+  its full height (without pictures, it keeps its own proportions). It goes
+  no smaller than about 408px tall at 100% text (more at larger text sizes).
+  The description box gives up its room first, so the fields always fit
+  without scrolling and the audio boxes end level with the picture. The size
+  is remembered; double-click the grip, or change Window size in its ⚙, to
+  go back.
 - **No more 1–2px jumps between modes.** In Reference mode the ◐ Mask all
   button made the pictures heading 2px taller, so every picture slot was 2px
   shorter than in the other modes. And in the Prompt Builder, FL2VA and
   L2VA's footer wrapped onto a second line and grew 2px.
+- **One right-click menu on a picture or clip.** The mask entries (a
+  picture's ◐ Crop and mask… and Clear the mask in Reference mode; a clip's
+  ✂ Trim & crop…, ◐ Mask for editing…, overlay and Clear the mask) now lead
+  the slot's own menu. They were a second menu opened by the same
+  right-click, so two menus stacked up, and closing one left the other over
+  the grid. Clear the mask is one click now, with Undo.
 
 ## What's new in 3.3.0
 
@@ -121,7 +130,7 @@ on disk is never changed.
   one queue job, with the settings every picture follows until it has its
   own. Pictures you brushed by hand keep their mask.
 - A masked picture shows **◐** on its tile (hover for what's applied).
-  Right-click → **Clear the mask** (twice, with Undo) sends it whole again.
+  Right-click → **Clear the mask** (with Undo) sends it whole again.
 - Auto mask runs on the original pack's **Object Mask** (1.8.2 or newer)
   with the SAM 3.1 checkpoint (`sam3.1_multiplex_fp16.safetensors` in
   `models/checkpoints`); the brush works without either. **Auto model** in
@@ -1693,7 +1702,8 @@ and pushed every field sideways.
 ### Copying media between slots
 
 Right-click any slot for **Copy**, **Duplicate**, **Paste**, **Switch on/off**
-and **Remove**. Copy puts the reference on a clipboard shared by every loader
+and **Remove**, led by a picture's or clip's editing entries (crop, trim and
+masks; a picture's only in Reference mode). Copy puts the reference on a clipboard shared by every loader
 on the page, so you can paste it into a different node — useful for sending one
 picture through two graphs with different crops.
 

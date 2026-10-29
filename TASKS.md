@@ -1763,3 +1763,39 @@ when hiding, makes it a mouse-over caption for the respective section.
       the corner follows the pointer to the pixel; the size survives a
       reopen; T2VA keeps its ratio; double-click resets. `ui_round` 28/28,
       `barrows` 8/8; lint clean.
+
+114. 🟩 a reasonable minimum height for resizing the Quick edit window
+    - Measured first: the fields' own natural height is 419–896px (by mode
+      and text size), often taller than the ⚙ size, so "everything fits"
+      was too big a floor. The floor is now the window's header and footer
+      plus 280px for the fields, scaled with the text: ~408px at 100%, 568px
+      at 150%, 728px at 200% (was a flat 320px), capped at 92vh.
+    - The keyframe preview is top-aligned and sticky: centred against a
+      fields column taller than the window, it sat low and was cut off.
+
+115. 🟩 Quick edit: the audio boxes' bottoms line up with the picture preview's
+    - The last audio section's 16px margin is gone (the full editor already
+      drops it for its last pair).
+    - The description box was stuck at its 12 rows (237px): the grow rule
+      targeted the textarea, which sits inside a chip wrapper. In the Quick
+      edit window the wrapper now flexes down to 100px (× text size), so the
+      fields fit at every allowed size and the boxes end level with the
+      picture instead of below it in a scrolled area. The node's T2VA fields
+      keep their fixed rows.
+    - Verified (`quickgrip.cjs`, 19 checks): level within the 1px border at
+      the default size, after drags, in FL2VA, and at the floor at 100%,
+      150% and 200% text, with no scrolling; the picture stays whole.
+
+116. 🟩 found while verifying: right-clicking a picture or clip opened two menus
+    - In Reference mode a picture's right-click opened the mask menu and the
+      slot menu (Copy / Duplicate / Paste / Switch off / Remove) stacked;
+      closing one left the other over the grid. Clips had the same with
+      their trim/mask menu. The editing entries now lead the slot menu
+      (`editRows`), and the separate picture and video menus and their CSS
+      are gone. Both Clears are one click with Undo.
+    - The slot menu's Escape listener is registered at once rather than
+      after a tick, which on a busy page let Escape arrive first.
+    - Verified: one menu with the right entries in REF and I2VA, Escape
+      closes it (`ui_round` 30/30, twice); stub rig: Clear the mask from the
+      menu then Undo restores it, Mask all, Auto mask scenarios and Clean up
+      unchanged; lint clean.
