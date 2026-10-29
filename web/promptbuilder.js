@@ -2655,6 +2655,12 @@ ${RAISE_CSS}
    unit rather than letting one button strand itself on a line of its own. */
 .mmh3p-quickspk{display:inline-flex;gap:5px;flex-wrap:wrap;
   align-items:center;}
+/* A picture file dragged over a tile (drop to replace it), and the upload. */
+.mmh3p-quickpic.hot{border-color:#5aa0e0;box-shadow:0 0 0 2px rgba(90,160,224,.45) inset;}
+.mmh3p-quickpic.hot::after{content:"Drop to replace";position:absolute;inset:0;display:flex;
+  align-items:center;justify-content:center;background:rgba(10,20,34,.55);color:#cfe6ff;
+  font-size:calc(13px * var(--mmh3-fs, 1));pointer-events:none;}
+.mmh3p-quickpic.busy{opacity:.55;}
 .mmh3p-quickpic .mmh3p-tagname{position:absolute;left:6px;bottom:6px;
   padding:2px 7px;border-radius:5px;background:rgba(8,10,14,.78);
   pointer-events:none;}
@@ -8342,7 +8348,10 @@ export function promptFields(node) {
     } catch (e) { return null; }
     if (!pics.length) return null;
 
-    const entries = pics.map((sl) => {
+    /** Draw one slot's picture into its tile. Separate from the tile so a
+     *  replacement dropped on it can be drawn into the same tile. */
+    const fill = (entry, sl) => {
+      entry.sl = sl;
       const img = el("img", { class: "mmh3p-quickimg", src: sl.preview?.url });
       let view = img;
       if (hasCrop(sl.item)) {
@@ -8355,9 +8364,9 @@ export function promptFields(node) {
         view.classList.add("mmh3p-quickcrop");
         view.style.setProperty("--ar", String(shownAspect(sl.item) || 1));
       }
-      const tile = el("div", { class: "mmh3p-quickpic" }, view,
+      entry.tile.replaceChildren(view,
         el("span", { class: `mmh3p-tagname ${sl.cls}` }, sl.tag));
-      const entry = { tile, ar: shownAspect(sl.item) };
+      entry.ar = shownAspect(sl.item);
       // Older saves never recorded their dimensions. The picture itself knows
       // them once it loads, so take them from there and lay out again — the
       // crop fractions still apply on top.
@@ -8369,8 +8378,58 @@ export function promptFields(node) {
             || (w / h);
           if (view !== img) view.style.setProperty("--ar", String(entry.ar));
           relayoutPics();
+          entry.tile.dispatchEvent(new CustomEvent("mmh3p-picschanged", { bubbles: true }));
         }, { once: true });
       }
+    };
+
+    /** Drop a picture file on a tile to replace that picture. The panel that
+     *  owns the slot does the swap (replaceWithFile, as dropping on its own
+     *  tile does), so the slot keeps its place and tag and the node saves;
+     *  the tile is then redrawn from the fresh slot, and the window told so
+     *  it can re-fit a picture of a different shape. */
+    const dropTarget = (entry, i) => {
+      const tile = entry.tile;
+      const files = (e) => e.dataTransfer?.types?.includes("Files");
+      tile.addEventListener("dragover", (e) => {
+        if (!files(e) || !entry.sl?.panel) return;
+        e.preventDefault(); e.stopPropagation();
+        e.dataTransfer.dropEffect = "copy";
+        tile.classList.add("hot");
+      });
+      tile.addEventListener("dragleave", () => tile.classList.remove("hot"));
+      tile.addEventListener("drop", async (e) => {
+        if (!files(e)) return;
+        e.preventDefault(); e.stopPropagation();
+        tile.classList.remove("hot");
+        const sl = entry.sl, file = e.dataTransfer.files?.[0];
+        if (!file || !sl?.panel) return;
+        if (!/^image\//.test(file.type) && !/\.(png|jpe?g|webp|gif|bmp|tiff?|avif)$/i.test(file.name)) {
+          toast(`${file.name} isn't a picture — drop an image to replace ${sl.tag}`, 6000);
+          return;
+        }
+        tile.classList.add("busy");
+        try {
+          await sl.panel.replaceWithFile(sl.item, [file]);
+        } finally { tile.classList.remove("busy"); }
+        let fresh = null;
+        try { fresh = getRefSlots(node).filter((s) => s.kind === "Picture").slice(0, cap)[i]; } catch (err) { /* keep the old one */ }
+        if (!fresh || fresh.item === sl.item) {
+          toast(`Couldn't replace ${sl.tag} — see the node's media panel`, 6000);
+          return;
+        }
+        fill(entry, fresh);
+        relayoutPics();
+        tile.dispatchEvent(new CustomEvent("mmh3p-picschanged", { bubbles: true }));
+        toast(`${fresh.tag} is now ${fresh.item.name}`);
+      });
+    };
+
+    const entries = pics.map((sl, i) => {
+      const entry = { tile: el("div", { class: "mmh3p-quickpic",
+        title: sl.panel ? "Drop a picture here to replace this one" : "" }) };
+      fill(entry, sl);
+      dropTarget(entry, i);
       return entry;
     });
 
@@ -8896,6 +8955,9 @@ export function openQuickEdit(node, focusKey = null) {
   overlay.querySelector(".mmh3p-quickmodal")?.append(grip);
 
   applyQuickScale();
+  // A picture dropped on the preview may be a different shape: re-fit the
+  // window to it (keeping a dragged height) the same way opening does.
+  fields.root.addEventListener("mmh3p-picschanged", () => applyQuickScale());
 
   // The keyframe pane sizes itself to the pictures, which needs the window's
   // real measurements — so it runs once mounted, and again whenever the

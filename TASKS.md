@@ -1799,3 +1799,26 @@ when hiding, makes it a mouse-over caption for the respective section.
       closes it (`ui_round` 30/30, twice); stub rig: Clear the mask from the
       menu then Undo restores it, Mask all, Auto mask scenarios and Clean up
       unchanged; lint clean.
+
+117. 🟩 drag and drop onto the Quick edit picture preview to replace the shown picture
+    - Each preview tile is a drop target when its slot belongs to a media
+      panel: the panel's own `replaceWithFile` does the swap (as dropping on
+      the node's tile does), so the picture keeps its slot and tag, the
+      per-item edits go with the old file, and the node saves. The tile is
+      redrawn from the fresh slot and the window re-fits (a dragged height
+      is kept). A blue "Drop to replace" highlight while dragging; the tile
+      dims during the upload; a toast names the new picture; a non-picture
+      is refused with a toast and nothing changes.
+    - Verified (`realui/t/dropcrop.cjs`): 16:9 replaced by a square → the
+      tile becomes 457×457 at the full 457px height, node media saved, text
+      file refused.
+
+118. 🟩 the enlarged picture view: a button to go into crop mode
+    - `lightbox()` takes the tile's panel and adds **▣ Crop…** (pictures;
+      the picture editor, so masking too in Reference mode) or **✂ Trim &
+      crop…** (clips) beside Close, for the item on show (after ←/→ too).
+      The viewer closes first. Close and the backdrop now also remove the
+      viewer's key listener (only Escape did).
+    - Verified: the button is there; after → it opens the editor on the
+      second picture with the viewer gone; Close closes. `ui_round` 30/30,
+      `quickgrip` 19/19, `barrows` 8/8; lint clean.

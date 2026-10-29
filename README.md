@@ -94,7 +94,12 @@ Interface changes, all Plus only. No breakage of saved workflows.
   The description box gives up its room first, so the fields always fit
   without scrolling and the audio boxes end level with the picture. The size
   is remembered; double-click the grip, or change Window size in its ⚙, to
-  go back.
+  go back. **Drop a picture file on the preview** to replace that picture:
+  it keeps its place and tag, is saved to the node, and the window re-fits
+  to the new picture's shape.
+- **▣ Crop… in the enlarged view.** Clicking a picture in the media panel
+  opens it full size; a **▣ Crop…** button beside Close now goes straight
+  to the picture editor for the one on show (**✂ Trim & crop…** on a clip).
 - **No more 1–2px jumps between modes.** In Reference mode the ◐ Mask all
   button made the pictures heading 2px taller, so every picture slot was 2px
   shorter than in the other modes. And in the Prompt Builder, FL2VA and

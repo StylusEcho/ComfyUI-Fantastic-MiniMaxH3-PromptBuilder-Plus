@@ -5433,11 +5433,13 @@ export function clipPreview(it, { onmeta, onclick } = {}) {
 
 /** Full-size viewer. `siblings` is the other viewable references, so ← and →
  *  step between them without closing and reopening; passing none simply leaves
- *  the arrows inert. */
-function lightbox(item, tag, siblings = []) {
+ *  the arrows inert. `panel` (the panel the tile belongs to) adds a button
+ *  that goes straight to cropping the one on show. */
+function lightbox(item, tag, siblings = [], panel = null) {
   const list = siblings.length ? siblings : [{ item, tag }];
   let i = Math.max(0, list.findIndex((e) => e.item === item));
   const box = el("div", { class: "mmlp-lightbox" });
+  const close = () => { overlay.remove(); window.removeEventListener("keydown", keys); };
 
   const draw = () => {
     const { item: it, tag: tg } = list[i];
@@ -5466,8 +5468,17 @@ function lightbox(item, tag, siblings = []) {
         // Size and ratio ride with Close on the right, clear of the name,
         // which is the part that varies in length.
         dims,
-        el("button", { class: "mmlp-btn",
-          onclick: () => overlay.remove() }, "Close")));
+        // Straight into the editor for the one on show: a picture's crop
+        // (rotate, mirror, and its mask in Reference mode), a clip's trim and
+        // crop. The viewer closes first so the editor isn't stacked under it.
+        panel?.items?.includes(it) ? el("button", { class: "mmlp-btn",
+          title: it.kind === "video" ? "Trim or crop this clip" : "Crop, rotate or mirror this picture",
+          onclick: () => {
+            close();
+            if (it.kind === "video") new TrimModal(panel, it);
+            else openPictureEditor(panel, it);
+          } }, it.kind === "video" ? "✂ Trim & crop…" : "▣ Crop…") : null,
+        el("button", { class: "mmlp-btn", onclick: close }, "Close")));
   };
 
   const step = (by) => {
@@ -5478,9 +5489,9 @@ function lightbox(item, tag, siblings = []) {
   draw();
 
   const overlay = el("div", { class: "mmlp-light",
-    onclick: (e) => { if (e.target === overlay) overlay.remove(); } }, box);
+    onclick: (e) => { if (e.target === overlay) close(); } }, box);
   const keys = (e) => {
-    if (e.key === "Escape") { overlay.remove(); window.removeEventListener("keydown", keys); return; }
+    if (e.key === "Escape") { close(); return; }
     // Leave the arrows alone while a video's own controls have focus, or
     // seeking with the keyboard would jump to the next clip instead.
     if (e.target instanceof HTMLMediaElement) return;
@@ -6785,7 +6796,7 @@ export class LoaderPanel {
                 }
               }
             },
-            onclick: () => lightbox(it, tags.get(it) || "", this.viewable(tags)) });
+            onclick: () => lightbox(it, tags.get(it) || "", this.viewable(tags), this) });
           return [img, marquee, badge];
         })(),
         el("div", { class: "mmlp-picbar" },
@@ -7465,7 +7476,7 @@ export class LoaderPanel {
             }
           }
         },
-        onclick: () => lightbox(it, tags.get(it) || "", this.viewable(tags)) });
+        onclick: () => lightbox(it, tags.get(it) || "", this.viewable(tags), this) });
       if (overlay) {
         video.title += " Right-click the clip to hide it.";
         this.overlays.push(overlay);
