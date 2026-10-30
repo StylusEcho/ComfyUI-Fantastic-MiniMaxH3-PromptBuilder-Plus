@@ -1381,7 +1381,8 @@ function refmodSlots(node, opts = {}) {
   // Taking the RefMod path for that would drop its plain media chips (media
   // is only listed here when a Text Encode receives it), so a chain of
   // nothing but empty Studios isn't using RefMods — fall back to the media.
-  if (!partial && chain.every(holdsOwnStack) && !chain.some((st) => picksOf(st).length))
+  // Switched-off picks count as none: nothing of theirs is sent.
+  if (!partial && chain.every(holdsOwnStack) && !chain.some((st) => picksOf(st).some((p) => p && p.on !== false)))
     return null;
   const sourceLabel = opts.picks ? (opts.picksLabel || "Draft RefMods") : "RefMod Stack";
   const media = opts.media ? slotsFromItems(opts.media, opts.mediaLabel || "Media Loader") : mediaSlots(node);
@@ -8351,7 +8352,11 @@ export function promptFields(node) {
     if (!cap) return null;
     let pics;
     try {
-      pics = getRefSlots(node).filter((sl) => sl.kind === "Picture").slice(0, cap);
+      // The node's own media, not getRefSlots(): with RefMods picked (even
+      // all switched off) that takes the RefMod route, which lists media only
+      // when a RefMod Text Encode receives it — and keyframe modes don't feed
+      // one, so the pictures went missing.
+      pics = (mediaSlots(node) || []).filter((sl) => sl.kind === "Picture").slice(0, cap);
     } catch (e) { return null; }
     if (!pics.length) return null;
 
@@ -8420,7 +8425,7 @@ export function promptFields(node) {
           await sl.panel.replaceWithFile(sl.item, [file]);
         } finally { tile.classList.remove("busy"); }
         let fresh = null;
-        try { fresh = getRefSlots(node).filter((s) => s.kind === "Picture").slice(0, cap)[i]; } catch (err) { /* keep the old one */ }
+        try { fresh = (mediaSlots(node) || []).filter((s) => s.kind === "Picture").slice(0, cap)[i]; } catch (err) { /* keep the old one */ }
         if (!fresh || fresh.item === sl.item) {
           toast(`Couldn't replace ${sl.tag} — see the node's media panel`, 6000);
           return;
@@ -8810,7 +8815,7 @@ export function openQuickEdit(node, focusKey = null) {
           "📜 Prompt Builder"),
         el("div", { class: "mmh3p-quickends" },
           quickPrefsButton(({ sized } = {}) => {
-            if (sized) saveQuickHeight(0);
+            if (sized) { saveQuickHeight(0); saveQuickFieldsWidth(0); }
             applyQuickScale();
           }),
           el("button", { class: "mmh3p-x", onclick: close }, "✕"))),
@@ -8844,10 +8849,14 @@ export function openQuickEdit(node, focusKey = null) {
       document.documentElement.style.setProperty(
         "--mmh3-fs", String(clampScale(p.textScale, TEXT_SCALE_MAX)));
     } catch (e) { /* the stylesheet's own default of 1 still applies */ }
-    // A size dragged at the corner wins over the ⚙ size until that changes.
-    const dragged = loadQuickHeight();
-    if (dragged > 0) sizeQuickTo(dragged, quickMetrics(), 900 / 585);
-    else growForPics(box, p);
+    // A size dragged at the corner wins over the ⚙ size until that changes:
+    // the height and the prompt pane's width, each on its own.
+    growForPics(box, p);
+    const dragH = loadQuickHeight(), dragW = loadQuickFieldsWidth();
+    if (dragH > 0 || dragW > 0) {
+      const m = quickMetrics();
+      sizeQuickTo(dragH || m.h, dragW || fieldsWidthOf(m), m);
+    }
     fields.relayoutPics?.();
   };
 
@@ -8890,12 +8899,10 @@ export function openQuickEdit(node, focusKey = null) {
     box.style.width = `min(${Math.max(base, want)}px, 96vw)`;
   };
 
-  /* The corner grip. The window is resized by height and its width follows,
-     so it always keeps the picture preview's shape: with keyframes, the
-     width is the one that lets the pictures stand the window's full height
-     beside the fields' floor (growForPics' sum, exactly); without pictures
-     (T2VA, Reference) it keeps the window's own aspect. The height is
-     remembered; a double-click goes back to the ⚙ size. */
+  /* The corner grip. Up and down is the window's height (the pictures
+     stand its full height, so the preview pane's width follows it); left and
+     right is the prompt pane's width. The window's width is the two panes
+     together. Both are remembered; a double-click goes back to the ⚙ size. */
   const quickMetrics = () => {
     const box = overlay.querySelector(".mmh3p-quickmodal");
     const body = overlay.querySelector(".mmh3p-quickbody");
@@ -8912,51 +8919,53 @@ export function openQuickEdit(node, focusKey = null) {
     return { box, w: r.width, h: r.height, chromeV,
       chromeW: r.width - (body.clientWidth || 0) + pad.left + pad.right,
       // Never more than the screen allows, so the floor is always reachable.
-      minH: Math.min(innerHeight * 0.92, chromeV + QUICK_FIELDS_MIN_H * fs) };
+      minH: Math.min(innerHeight * 0.92, chromeV + QUICK_FIELDS_MIN_H * fs),
+      minW: Math.min(innerWidth * 0.5, PANE_FIELDS_MIN * fs) };
   };
-  const quickWidthFor = (h, m, aspect) => {
+  // The preview pane's width at window height h: the pictures standing the
+  // full height (0 without pictures, in T2VA and Reference).
+  const picsWidthFor = (h, m) => {
     const need = fields.widthToFillHeight?.(h - m.chromeV) || 0;
-    return need > 0 ? need + PANE_GAP + PANE_FIELDS_MIN + m.chromeW : h * aspect;
+    return need > 0 ? need + PANE_GAP : 0;
   };
-  const sizeQuickTo = (h, m, aspect) => {
+  const fieldsWidthOf = (m) => Math.max(m.minW, m.w - m.chromeW - picsWidthFor(m.h, m));
+  const sizeQuickTo = (h, fw, m) => {
     const maxW = innerWidth * 0.96, maxH = innerHeight * 0.92;
     h = Math.min(maxH, Math.max(m.minH, h));
-    let w = quickWidthFor(h, m, aspect);
-    if (w > maxW) {
-      // Too wide for the screen: come down in height until it fits, so the
-      // shape still holds rather than the width being clipped.
-      const k = (w - quickWidthFor(h - 100, m, aspect)) / 100;
-      if (k > 0) h = Math.max(m.minH, h - (w - maxW) / k);
-      w = Math.min(maxW, quickWidthFor(h, m, aspect));
+    // The screen's width goes to the prompt pane last: a tall window with wide
+    // pictures comes down in height before the prompt pane is squeezed.
+    if (picsWidthFor(h, m) + m.minW + m.chromeW > maxW) {
+      const k = (picsWidthFor(h, m) - picsWidthFor(h - 100, m)) / 100;
+      if (k > 0) h = Math.max(m.minH, h - (picsWidthFor(h, m) + m.minW + m.chromeW - maxW) / k);
     }
+    const pics = picsWidthFor(h, m);
+    fw = Math.max(m.minW, Math.min(fw, maxW - m.chromeW - pics));
     m.box.style.height = `${Math.round(h)}px`;
-    m.box.style.width = `${Math.round(w)}px`;
-    return Math.round(h);
+    m.box.style.width = `${Math.round(pics + fw + m.chromeW)}px`;
+    return { h: Math.round(h), fw: Math.round(fw) };
   };
   const grip = el("div", { class: "mmh3p-quickgrip",
-    title: "Drag to resize \u2014 the window keeps the picture preview's shape. " +
+    title: "Drag up or down for the window's height, left or right for the prompt's width. " +
       "Double-click for the \u2699 size.",
-    ondblclick: () => { saveQuickHeight(0); applyQuickScale(); },
+    ondblclick: () => { saveQuickHeight(0); saveQuickFieldsWidth(0); applyQuickScale(); },
     onpointerdown: (e) => {
       if (e.button !== 0) return;
       e.preventDefault(); e.stopPropagation();
       grip.setPointerCapture?.(e.pointerId);
-      const m = quickMetrics(), aspect = m.w / m.h, h0 = m.h;
-      // Width gained per pixel of height, to read a sideways drag as height.
-      const k = Math.max(0.1, (quickWidthFor(h0 + 100, m, aspect) - quickWidthFor(h0, m, aspect)) / 100);
+      const m = quickMetrics(), h0 = m.h, fw0 = fieldsWidthOf(m);
       const x0 = e.clientX, y0 = e.clientY;
-      let h = h0;
+      let got = { h: h0, fw: fw0 };
       // The window is centred, so its corner moves half as far as its size
       // changes: twice the pointer's travel keeps the corner under it.
       const move = (ev) => {
-        const byY = 2 * (ev.clientY - y0), byX = 2 * (ev.clientX - x0) / k;
-        h = sizeQuickTo(h0 + (Math.abs(byY) >= Math.abs(byX) ? byY : byX), m, aspect);
+        got = sizeQuickTo(h0 + 2 * (ev.clientY - y0), fw0 + 2 * (ev.clientX - x0), m);
       };
       const up = () => {
         grip.removeEventListener("pointermove", move);
         grip.removeEventListener("pointerup", up);
         grip.removeEventListener("pointercancel", up);
-        saveQuickHeight(h);
+        saveQuickHeight(got.h);
+        saveQuickFieldsWidth(got.fw);
       };
       grip.addEventListener("pointermove", move);
       grip.addEventListener("pointerup", up);
@@ -9087,6 +9096,16 @@ function loadQuickHeight() {
 }
 function saveQuickHeight(h) {
   try { if (h > 0) localStorage.setItem(QUICK_H_KEY, String(h)); else localStorage.removeItem(QUICK_H_KEY); }
+  catch (e) { /* this session only */ }
+}
+// ...and the dragged width of its prompt pane (0 = what the ⚙ size gives).
+const QUICK_FW_KEY = "mmh3.quickFieldsWidth";
+function loadQuickFieldsWidth() {
+  try { return Math.max(0, Math.round(Number(localStorage.getItem(QUICK_FW_KEY)) || 0)); }
+  catch (e) { return 0; }
+}
+function saveQuickFieldsWidth(w) {
+  try { if (w > 0) localStorage.setItem(QUICK_FW_KEY, String(w)); else localStorage.removeItem(QUICK_FW_KEY); }
   catch (e) { /* this session only */ }
 }
 // Below this the audio pair stacks and the description field starts to feel

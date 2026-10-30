@@ -203,9 +203,8 @@ const CSS = `
 .mmh3p-gen-fit{flex:0 1 auto;padding-right:0;}
 .mmh3p-gen-lab{display:flex;align-items:center;gap:3px;height:100%;flex:0 0 auto;white-space:nowrap;}
 .mmh3p-gen-num{width:calc(48px * var(--mmh3-fs, 1));text-align:right;}
-/* Two digits, no spinner (the arrows alone took a third digit's room). */
-.mmh3p-gen-steps{width:calc(2ch + 10px);text-align:center;padding:0 2px;appearance:textfield;-moz-appearance:textfield;}
-.mmh3p-gen-steps::-webkit-inner-spin-button,.mmh3p-gen-steps::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
+/* Two digits beside the up/down arrows. */
+.mmh3p-gen-steps{width:calc(2ch + 26px);padding:0 2px 0 4px;}
 .mmh3p-gen-seed{width:calc(70px * var(--mmh3-fs, 1));}
 .mmh3p-gen-seed.special{color:#e0a94c;text-align:center;}
 .mmh3p-gen-target{width:calc(54px * var(--mmh3-fs, 1));}
@@ -479,7 +478,7 @@ export class GenBar {
     const frames = snapLength(dur);
     const secs = frames / 24;
     const inSecs = st.length_unit === "seconds";
-    this.frames.textContent = inSecs ? `${+secs.toFixed(2)}s` : `${frames}f`;
+    this.frames.textContent = inSecs ? "seconds" : "frames";
     this.frames.title = `The bundle's length: ${inSecs ? `${+secs.toFixed(4)} seconds` : `${frames} frames`} `
       + `(${frames} frames on H3's 17k+5 grid at 24 fps = ${secs.toFixed(2)} s).\n`
       + `Click to send it in ${inSecs ? "frames" : "seconds"} instead.`;

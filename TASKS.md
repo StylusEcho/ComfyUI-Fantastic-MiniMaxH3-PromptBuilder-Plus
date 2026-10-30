@@ -2098,3 +2098,43 @@ when hiding, makes it a mouse-over caption for the respective section.
       Earlier suites unchanged: ui_round 30, quickgrip 19, barrows 15,
       dropcrop 10, vdrop 16, merge183 7, regress, side, tabs, arrowleak. Lint
       and py_compile clean.
+
+126. 🟩 steps arrows back; Quick edit grip by axis; no frame count; preview with RefMods
+    - Asked for:
+      - The steps box's up/down arrows back.
+      - Quick edit: left/right resizes the prompt pane, up/down the window
+        height.
+      - No frame count on the bar.
+      - I2VA / FL2VA / L2VA showed no preview in Quick edit when RefMods
+        were picked, even all switched off.
+    - **The preview (the user found the trigger):**
+      - `promptFields()`' keyframes came from `getRefSlots()`. With picks on
+        the node, that takes the RefMod route (`refmodSlots`), which lists
+        media only when a RefMod Text Encode receives it, and a keyframe
+        mode feeds none.
+      - The keyframes now come from `mediaSlots(node)` (the node's own
+        media), and a dropped replacement is looked up the same way.
+      - `refmodSlots` also treats switched-off picks as none, so the editor
+        rail's chips follow too.
+      - Reproduced first: the six new checks fail on the previous code.
+    - **Grip:**
+      - `sizeQuickTo(h, fieldsWidth)`: the window is the picture pane (the
+        width that lets the pictures stand height h; 0 in T2VA / Reference)
+        plus the prompt pane plus chrome.
+      - The prompt pane is clamped to its 420px × text floor and to the
+        screen; height comes down before the prompt pane is squeezed.
+      - The prompt pane's width is stored in `mmh3.quickFieldsWidth` beside
+        the height. The double-click and the ⚙ size reset both.
+    - **Bar:** steps is `2ch + 26px` with its arrows; the length button
+      reads "frames" / "seconds" (figures in its tooltip).
+    - **Verified:**
+      - `realui/t/quickgrip.cjs`, 27 checks, including: down 50 → 100
+        taller with the prompt pane unchanged; right 30 → prompt pane 60
+        wider with height and picture unchanged; left to the floor; T2VA
+        height-only and width-only; the double-click clears both;
+        RefMods picked, off and on, in I2VA / FL2VA / L2VA → preview
+        present.
+      - gen 48 (steps has its arrows and room for two digits, not three; no
+        frame count).
+      - ui_round 30, barrows 15, dropcrop 10, vdrop 16, merge183 7, regress,
+        side. Lint clean.

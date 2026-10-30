@@ -102,10 +102,20 @@ installed for their **Bundle Out**. All Plus only.
   are scaled to cover width × height and centre-cropped, in linear light, as
   Unified Resize does. Reference pictures aren't touched.
 - **Length is the Prompt Builder's duration**, the same setting: change it
-  in either place. The button after it shows what the bundle's `length`
+  in either place. The button after it says what the bundle's `length`
   carries and switches it between:
-  - **frames**, snapped to H3's 17k+5 grid at 24 fps (5 s → 124f);
-  - **seconds**, that snapped length in seconds (124 frames → 5.17s).
+  - **frames**, snapped to H3's 17k+5 grid at 24 fps (5 s → 124 frames);
+  - **seconds**, that snapped length in seconds (124 frames → 5.1667).
+
+  Hover the button for the exact figures.
+- **Quick edit's grip resizes each way on its own.** Dragging up or down
+  changes the window's height; the picture preview still stands the full
+  height, so its pane widens or narrows with it. Dragging left or right
+  changes the prompt pane's width. Both are remembered, and a double-click
+  resets them.
+- **Fix: the Quick edit preview missing in I2VA, FL2VA and L2VA** when the
+  node had RefMods picked, even all switched off. It takes the keyframes
+  from the node's own media now.
 - **One output.** Everything the node made before, plus the new settings,
   goes out on a single `bundle`. Unpack it with **Bundle Out (PlagueKind)**:
   - **Add Bundle Out (unpack the bundle)** on the node's right-click menu
@@ -183,9 +193,9 @@ Interface changes, all Plus only. No breakage of saved workflows.
 - **T2VA's fields on the node no longer open Quick edit** when you click
   into them.
 - **Quick edit:** 📜 Prompt Builder sits in the middle of the toolbar, and a
-  grip in the bottom-right corner resizes the window. The window keeps the
-  picture preview's shape as it changes size, so the keyframes always stand
-  its full height (without pictures, it keeps its own proportions). It goes
+  grip in the bottom-right corner resizes the window, keeping the keyframes
+  at its full height. (Since 3.6.0, up and down set the height and left and
+  right the prompt pane's width.) It goes
   no smaller than about 408px tall at 100% text (more at larger text sizes).
   The description box gives up its room first, so the fields always fit
   without scrolling and the audio boxes end level with the picture. The size
