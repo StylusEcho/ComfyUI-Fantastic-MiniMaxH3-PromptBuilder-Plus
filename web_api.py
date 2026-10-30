@@ -1,8 +1,13 @@
 """HTTP routes backing the Media Loader's drag-drop and file picker."""
 
+import asyncio
+import hashlib
+import hmac
 import json
 import os
+import shutil
 import re
+import secrets
 import time
 
 from . import media_io
@@ -20,6 +25,16 @@ except Exception:  # pragma: no cover
     folder_paths = None
 
 SUBFOLDER = "minimax_h3"
+
+# One random token per server process. Every state-changing route demands it
+# in a request header; the frontend fetches it from a same-origin GET. A page
+# on another origin can send a POST but cannot read that GET's response, so it
+# can never learn the header value. That is the synchronizer-token pattern —
+# the mitigation the registry's review names outright ("no server-minted
+# CSRF token") — and unlike the Sec-Fetch-Site check it does not fall open
+# for requests that arrive without browser headers.
+_TOKEN = secrets.token_urlsafe(32)
+TOKEN_HEADER = "X-MiniMaxH3-Token"
 
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".mpg", ".mpeg"}
@@ -50,8 +65,9 @@ def _target_dir():
     return path
 
 
-def _preset_dir():
-    """Presets live with the user's data so they survive extension updates."""
+def _storage_base():
+    """The user-data root every store hangs off: user dir, else output dir,
+    else the pack dir (dev fallback — wiped on update, better than nothing)."""
     base = None
     if folder_paths is not None:
         for getter in ("get_user_directory", "get_output_directory"):
@@ -62,6 +78,12 @@ def _preset_dir():
                     break
                 except Exception:
                     continue
+    return base
+
+
+def _preset_dir():
+    """Presets live with the user's data so they survive extension updates."""
+    base = _storage_base()
     if not base:
         base = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(base, "minimax_h3_presets")
@@ -69,17 +91,18 @@ def _preset_dir():
     return path
 
 
+def _refmod_preset_dir():
+    """Saved RefMod stacks (picks with their weights), beside the media presets."""
+    base = _storage_base()
+    if not base:
+        base = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base, "minimax_h3_refmod_presets")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
 def _prompt_dir():
-    base = None
-    if folder_paths is not None:
-        for getter in ("get_user_directory", "get_output_directory"):
-            fn = getattr(folder_paths, getter, None)
-            if callable(fn):
-                try:
-                    base = fn()
-                    break
-                except Exception:
-                    continue
+    base = _storage_base()
     if not base:
         base = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(base, "minimax_h3_prompts")
@@ -140,11 +163,153 @@ def _slug(text):
     return out[:80] or None
 
 
+def _host_port(value):
+    """('host', port or None) from a Host header or an Origin's authority.
+
+    Parsed by hand rather than with a URL library: a browser only ever sends
+    `host[:port]` or `[ipv6]:port`, and anything else is refused rather
+    than guessed at. Userinfo never appears in either header."""
+    v = (value or "").strip().lower()
+    if not v or "@" in v:
+        return "", None
+    if v.startswith("["):                       # [ipv6] or [ipv6]:port
+        end = v.find("]")
+        if end < 0:
+            return "", None
+        host, rest = v[1:end], v[end + 1:]
+    else:
+        host, sep, port = v.partition(":")
+        rest = (":" + port) if sep else ""
+    if not host:
+        return "", None
+    if not rest:
+        return host, None
+    if not rest.startswith(":") or not rest[1:].isdigit():
+        return "", None
+    return host, int(rest[1:])
+
+
+def _same_authority(origin, host_header):
+    """Does an Origin header name the host this request arrived at?
+
+    `Origin: null` (an opaque or sandboxed origin) never matches. A default
+    port left implicit on one side still matches the same port stated on
+    the other, so `http://host` and `Host: host:80` agree."""
+    origin = (origin or "").strip()
+    if not origin or origin.lower() == "null":
+        return False
+    scheme, sep, rest = origin.partition("://")
+    if not sep:
+        return False
+    o_host, o_port = _host_port(rest.split("/", 1)[0])
+    h_host, h_port = _host_port(host_header)
+    if not o_host or not h_host or o_host != h_host:
+        return False
+    default = 443 if scheme.strip().lower() == "https" else 80
+    return (o_port or default) == (h_port or default)
+
+
+def _contained(path, directory):
+    """True when `path` resolves to a file strictly inside `directory`.
+
+    _slug() already strips separators, so these paths cannot escape today —
+    but that guarantee lives two functions away from the os.remove that
+    depends on it. Asserting it again where the path is minted (and once more
+    beside each destructive call) keeps the property local and survivable
+    through refactors.
+    """
+    real = os.path.realpath(path)
+    root = os.path.realpath(directory)
+    return real.startswith(root + os.sep)
+
+
 def _prompt_path(entry_id):
     slug = _slug(entry_id)
     if not slug:
         return None, None
-    return slug, os.path.join(_prompt_dir(), slug + ".json")
+    directory = _prompt_dir()
+    path = os.path.join(directory, slug + ".json")
+    if not _contained(path, directory):
+        return None, None
+    return slug, path
+
+
+def _draft_dir():
+    """Scratch drafts live beside the user libraries but in their own
+    directory, so no listing route can ever surface them: the library and
+    preset routes simply never look here. One JSON file holds every draft,
+    keyed by a node-minted id — thousands of tiny files was the failure mode
+    this avoids."""
+    base = _storage_base()
+    if not base:
+        base = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base, "minimax_h3_drafts")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _drafts_file():
+    return os.path.join(_draft_dir(), "drafts.json")
+
+
+DRAFT_CAP = 25          # LRU by updated stamp; abandoned drafts fall off
+
+# Fields that describe the reference set itself. Anything outside this list —
+# uid (per-session identity), learned dimensions, cached probe data — must not
+# make two otherwise-identical sets look different.
+def _canonical_items(items):
+    """The comparable shape of a media set, order preserved because
+    reference numbering is positional.
+
+    Compares EFFECTIVE values, not literal ones. A field that is absent and
+    a field that holds its default describe the same reference set, and the
+    two turn up on opposite sides constantly: presets/load backfills
+    audio_mode and probe data into items whose stored form never had them,
+    so a freshly loaded preset would otherwise never match the file it came
+    from — every load reported itself as edited."""
+    out = []
+    for it in items if isinstance(items, list) else []:
+        if not isinstance(it, dict):
+            continue
+        row = {"kind": it.get("kind"), "file": it.get("file"),
+               "name": it.get("name") or it.get("file")}
+        # Absent means on; only "enabled": false switches an item off.
+        row["enabled"] = it.get("enabled") is not False
+        # nodes.py reads a missing audio_mode as "paired"; so must this.
+        if it.get("kind") == "video":
+            row["audio_mode"] = it.get("audio_mode") or "paired"
+        # Empty edits are the same as no edits.
+        for k in ("trim", "crop", "size"):
+            v = it.get(k)
+            if v:
+                row[k] = v
+        for k in ("rotate", "mirror"):
+            v = it.get(k)
+            if v:
+                row[k] = v
+        # A picture's subject mask and its settings change what's sent.
+        sub = it.get("subject")
+        if isinstance(sub, dict) and (sub.get("mask") or sub.get("strokes")):
+            row["subject"] = {k: sub.get(k) for k in ("mask", "strokes", "blur", "grow", "edge", "crop", "margin")}
+        out.append(row)
+    return out
+
+
+def _set_digest(items):
+    blob = json.dumps(_canonical_items(items), sort_keys=True,
+                      separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def _read_drafts():
+    try:
+        with open(_drafts_file(), "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, dict) and isinstance(data.get("drafts"), dict):
+            return data
+    except Exception:
+        pass
+    return {"contract": 1, "drafts": {}}
 
 
 def _write_json(path, record):
@@ -164,6 +329,16 @@ def _read_prompt(path):
         return data if isinstance(data, dict) else None
     except Exception:
         return None
+
+
+# The library's row-height slider goes up to 6 lines; measured against its
+# actual column width and font (11px monospace, ~785px wide), 6 lines holds
+# roughly 680 characters of ordinary prose. 150 was sized for the old
+# single-line ellipsis and left the slider showing nothing past ~2 lines,
+# since there was never more text to reveal. This is comfortably past 6
+# lines' worth with margin for narrower windows and denser text; the CSS
+# line-clamp still does the honest visual truncation for anything longer.
+PREVIEW_CHARS = 2000
 
 
 def _user_text(data):
@@ -234,7 +409,57 @@ def _preset_path(name):
     safe = re.sub(r"[^A-Za-z0-9 ._-]+", "_", str(name or "")).strip(" ._-")
     if not safe:
         return None, None
-    return safe[:80], os.path.join(_preset_dir(), safe[:80] + ".json")
+    directory = _preset_dir()
+    path = os.path.join(directory, safe[:80] + ".json")
+    if not _contained(path, directory):
+        return None, None
+    return safe[:80], path
+
+
+def _refmod_preset_path(name):
+    safe = re.sub(r"[^A-Za-z0-9 ._-]+", "_", str(name or "")).strip(" ._-")
+    if not safe:
+        return None, None
+    directory = _refmod_preset_dir()
+    path = os.path.join(directory, safe[:80] + ".json")
+    if not _contained(path, directory):
+        return None, None
+    return safe[:80], path
+
+
+def _clean_picks(picks):
+    """The parts of a RefMod stack a preset keeps: what the Prompt Builder
+    and the stack node read. Previews and ids are re-derived on load."""
+    out = []
+    for p in picks if isinstance(picks, list) else []:
+        if not isinstance(p, dict):
+            continue
+        item = {"name": str(p.get("name") or "")[:300], "label": str(p.get("label") or "")[:200],
+                "on": p.get("on") is not False}
+        for key in ("visual", "audio"):
+            ch = p.get(key)
+            if not isinstance(ch, dict) or not ch.get("file"):
+                continue
+            keep = {"file": str(ch["file"])[:300], "kind": str(ch.get("kind") or "")[:16],
+                    "mode": "sc" if ch.get("mode") == "sc" else "weight"}
+            for k in ("w", "s", "c", "tokens", "seconds"):
+                if ch.get(k) is not None:
+                    try:
+                        keep[k] = float(ch[k])
+                    except (TypeError, ValueError):
+                        pass
+            item[key] = keep
+        if "visual" in item or "audio" in item:
+            out.append(item)
+    return out
+
+
+def _picks_digest(picks):
+    """What the model would receive: files and strengths in send order."""
+    from . import refmods
+    canon = [refmods.pick_channels(p) for p in _clean_picks(picks) if p.get("on") is not False]
+    blob = json.dumps(canon, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 
 def _unique(directory, name):
@@ -249,7 +474,120 @@ if PromptServer is not None and web is not None:
 
     routes = PromptServer.instance.routes
 
+    def _cross_origin(request):
+        """Is this request provably from another web origin?
+
+        ComfyUI core's origin_only_middleware rejects Sec-Fetch-Site:
+        cross-site, but its Host/Origin comparison is deliberately limited to
+        loopback hosts — on a `--listen` LAN install only the Sec-Fetch-Site
+        half applies, and every route here mutates state, so each carries its
+        own guard rather than inheriting one from core.
+
+        Modern browsers always send Sec-Fetch-Site; when it is present it is
+        authoritative, and only `same-origin` (this pack's own frontend) and
+        `none` (the user typing the URL) pass. `same-site` is refused too: it
+        is still another origin — another port on the same host, another
+        service on the same LAN address, a sibling subdomain — and under
+        `--enable-cors-header` such a page could otherwise read the token.
+        That matches the fallback for older browsers that omit the header,
+        where Origin must name this exact host and port. Requests with
+        neither header (curl, scripts, the queue itself) are not
+        browser-mediated and pass.
+        """
+        sfs = (request.headers.get("Sec-Fetch-Site") or "").strip().lower()
+        if sfs:
+            return sfs not in ("same-origin", "none")
+        origin = (request.headers.get("Origin") or "").strip()
+        if not origin:
+            return False
+        return not _same_authority(origin, request.headers.get("Host"))
+
+    # A refused request only ever reached the browser, so a user reporting
+    # "missing or stale session token" left nothing in the ComfyUI log to go
+    # on. Each refusal now prints one line naming the route and which check
+    # failed — never the token — at most once a minute per route and reason,
+    # so a page retrying in a loop can't flood the console.
+    _REFUSAL_WINDOW = 60.0
+    _refusals = {}
+
+    def _log_refusal(request, kind, reason):
+        key = (request.method, request.path, kind)
+        now = time.monotonic()
+        last, quiet = _refusals.get(key, (None, 0))
+        if last is not None and now - last < _REFUSAL_WINDOW:
+            _refusals[key] = (last, quiet + 1)
+            return
+        _refusals[key] = (now, 0)
+        more = f" ({quiet} more like it in the last minute)" if quiet else ""
+        print(f"[MiniMaxH3] refused {request.method} {request.path}: {reason}{more}", flush=True)
+
+    def _guard(json_only=True):
+        """Route decorator: refuse cross-origin or token-less requests before
+        the handler runs.
+
+        Three checks, cheapest first. The Sec-Fetch-Site/Origin test rejects
+        anything a browser marks as another origin. The token check rejects
+        anything that did not first read /minimax_h3_plus/token from this origin
+        — which is every other origin's page, and every request that simply
+        omits browser headers. `json_only` additionally requires
+        Content-Type: application/json, which makes the request non-"simple"
+        under CORS so a cross-origin page cannot send it without a preflight
+        these routes never approve.
+        """
+        def wrap(handler):
+            async def inner(request):
+                if _cross_origin(request):
+                    _log_refusal(request, "cross-origin", "cross-origin request (Sec-Fetch-Site "
+                                 f"{request.headers.get('Sec-Fetch-Site') or 'absent'}, Origin "
+                                 f"{(request.headers.get('Origin') or 'absent')[:80]}, Host "
+                                 f"{(request.headers.get('Host') or 'absent')[:80]})")
+                    return web.json_response(
+                        {"error": "cross-origin request refused"}, status=403)
+                sent = request.headers.get(TOKEN_HEADER) or ""
+                if not hmac.compare_digest(sent, _TOKEN):
+                    _log_refusal(request, "token-absent" if not sent else "token-mismatch", (
+                        f"session token: the {TOKEN_HEADER} header never arrived — a proxy, "
+                        "tunnel or another custom node may be removing it" if not sent else
+                        f"session token: {TOKEN_HEADER} does not match this server's — expected once "
+                        "from a page left open across a restart (it fetches a fresh token and retries); "
+                        "if it repeats, requests are reaching a different ComfyUI process"))
+                    return web.json_response(
+                        {"error": "missing or stale session token",
+                         "token_required": True}, status=403)
+                if json_only:
+                    ctype = (request.headers.get("Content-Type") or "") \
+                        .split(";")[0].strip().lower()
+                    if ctype != "application/json":
+                        _log_refusal(request, "content-type", f"content type: expected application/json, got "
+                                              f"{ctype[:60] or 'none'}")
+                        return web.json_response(
+                            {"error": "expected Content-Type: application/json"},
+                            status=415)
+                return await handler(request)
+            inner.__name__ = handler.__name__
+            inner.__doc__ = handler.__doc__
+            return inner
+        return wrap
+
+    @routes.get("/minimax_h3_plus/token")
+    async def token(request):
+        """Hand the session token to same-origin callers only.
+
+        The cross-origin check matters here even though this is a GET: with
+        `--enable-cors-header` a permissive CORS policy would otherwise let
+        another origin read this response and defeat the token.
+        """
+        if _cross_origin(request):
+            _log_refusal(request, "cross-origin", "cross-origin token request (Sec-Fetch-Site "
+                         f"{request.headers.get('Sec-Fetch-Site') or 'absent'}, Origin "
+                         f"{(request.headers.get('Origin') or 'absent')[:80]})")
+            return web.json_response(
+                {"error": "cross-origin request refused"}, status=403)
+        return web.json_response({"token": _TOKEN},
+                                 headers={"Cache-Control": "no-store"})
+
     @routes.post("/minimax_h3_plus/upload")
+    @_guard(json_only=False)
     async def upload(request):
         """Accept one file, store it under input/minimax_h3, return its metadata."""
         try:
@@ -301,7 +639,71 @@ if PromptServer is not None and web is not None:
             "height": info.get("height"),
         })
 
+    @routes.post("/minimax_h3_plus/video_studio_meta")
+    @_guard(json_only=False)
+    async def video_studio_meta(request):
+        """The Prompt Studio settings a generated video carries (video_meta).
+
+        Either a video uploaded as multipart "file" — streamed to a temp file,
+        read and deleted, so a video only looked at leaves nothing behind — or
+        JSON {"file": "name [output]"} for one ComfyUI already has (a drag from
+        its assets or queue panel), resolved inside input/output/temp only.
+        """
+        from . import video_meta
+
+        tmp = None
+        try:
+            if (request.content_type or "").startswith("multipart/"):
+                reader = await request.multipart()
+                field = await reader.next()
+                while field is not None and field.name != "file":
+                    field = await reader.next()
+                if field is None:
+                    return web.json_response({"error": "no file field in request"}, status=400)
+                if kind_for(field.filename or "") != "video":
+                    return web.json_response({"error": "not a video file"}, status=400)
+                base = folder_paths.get_temp_directory() if folder_paths else "."
+                os.makedirs(base, exist_ok=True)
+                tmp = os.path.join(base, f"mmh3_meta_{secrets.token_hex(8)}{os.path.splitext(field.filename)[1].lower()}")
+                size, cap = 0, 4 << 30
+                with open(tmp, "wb") as fh:
+                    while True:
+                        chunk = await field.read_chunk()
+                        if not chunk:
+                            break
+                        size += len(chunk)
+                        if size > cap:
+                            return web.json_response({"error": "video too large to read (over 4 GB)"}, status=413)
+                        fh.write(chunk)
+                path = tmp
+            else:
+                try:
+                    body = await request.json()
+                except Exception:
+                    return web.json_response({"error": "expected JSON or multipart"}, status=400)
+                annotated = str(body.get("file") or "")
+                if kind_for(annotated.split(" [")[0]) != "video":
+                    return web.json_response({"error": "not a video file"}, status=400)
+                try:
+                    path = media_io.resolve(annotated)
+                except ValueError as exc:
+                    return web.json_response({"error": str(exc)}, status=400)
+                if not os.path.isfile(path):
+                    return web.json_response({"error": "that video isn't there any more"}, status=404)
+            try:
+                meta = await asyncio.to_thread(video_meta.container_metadata, path)
+            except Exception as exc:
+                return web.json_response({"error": f"couldn't read that video: {exc}"}, status=400)
+            return web.json_response(video_meta.studios_in(meta))
+        finally:
+            if tmp and os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+
     @routes.post("/minimax_h3_plus/extract_audio")
+    @_guard()
     async def extract_audio_route(request):
         """Write the trimmed audio of an existing item out as its own WAV.
 
@@ -388,6 +790,7 @@ if PromptServer is not None and web is not None:
         })
 
     @routes.post("/minimax_h3_plus/bake")
+    @_guard()
     async def bake(request):
         """Write a resized copy of a picture and hand back the new file.
 
@@ -475,18 +878,317 @@ if PromptServer is not None and web is not None:
         caps["version"] = _pack_version()
         return web.json_response(caps)
 
+    # -- RefMod library -----------------------------------------------------
+    # Read-only, so no session token: the same posture as the pack's other
+    # GETs. Both routes resolve names through refmods.resolve_file, which
+    # refuses anything that does not land inside a registered RefMod root.
+
+    @routes.get("/minimax_h3_plus/refmods")
+    async def refmod_library(request):
+        """Every RefMod on disk, paired and costed, for the stack's browser."""
+        try:
+            from . import refmods
+            data = dict(refmods.scan_library())
+            data["pack_installed"] = refmods.origin_module() is not None
+            return web.json_response(data, headers={"Cache-Control": "no-store"})
+        except Exception as exc:
+            return web.json_response({"error": f"scan failed: {exc}"}, status=500)
+
+    @routes.get("/minimax_h3_plus/refmods/preview")
+    async def refmod_preview(request):
+        """The image saved beside a RefMod, for its thumbnail."""
+        from . import refmods
+        path = refmods.resolve_file(request.query.get("name", ""),
+                                    refmods.PREVIEW_EXT)
+        if not path:
+            return web.json_response({"error": "no preview"}, status=404)
+        return web.FileResponse(path, headers={"Cache-Control": "max-age=60"})
+
+    @routes.post("/minimax_h3_plus/refmods/rename")
+    @_guard()
+    async def refmod_rename(request):
+        """Move an item (its files, pair suffixes kept) to a new name/folder."""
+        from . import refmods
+        try:
+            body = await request.json()
+            moved = refmods.rename_item(body.get("files"), body.get("preview"),
+                                        body.get("new_name", ""))
+            return web.json_response({"moved": moved})
+        except (ValueError, FileNotFoundError, FileExistsError) as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+        except Exception as exc:
+            return web.json_response({"error": f"rename failed: {exc}"}, status=500)
+
+    @routes.post("/minimax_h3_plus/refmods/meta")
+    @_guard()
+    async def refmod_meta(request):
+        """Rewrite description / concept_type in each file's header."""
+        from . import refmods
+        try:
+            body = await request.json()
+            fields = {}
+            if "description" in body:
+                fields["description"] = str(body.get("description") or "")[:2000]
+            if "concept_type" in body:
+                fields["concept_type"] = str(body.get("concept_type") or "generic")[:40]
+            if "subject_name" in body:
+                fields["subject_name"] = refmods.clean_subject_name(body.get("subject_name"))
+            for key in ("appearance", "voice_description", "retained_attributes"):
+                if key in body:
+                    fields[key] = refmods.clean_description(body.get(key), key.replace("_", " "))
+            refmods.rewrite_meta(body.get("files"), **fields)
+            return web.json_response({"ok": True})
+        except (ValueError, FileNotFoundError) as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+        except Exception as exc:
+            return web.json_response({"error": f"update failed: {exc}"}, status=500)
+
+    @routes.post("/minimax_h3_plus/refmods/delete")
+    @_guard()
+    async def refmod_delete(request):
+        from . import refmods
+        try:
+            body = await request.json()
+            removed = refmods.delete_item(body.get("files"), body.get("preview"))
+            return web.json_response({"removed": removed})
+        except (ValueError, FileNotFoundError) as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+        except Exception as exc:
+            return web.json_response({"error": f"delete failed: {exc}"}, status=500)
+
+    # Masks and their overlay sprites pile up as people re-mask. These list
+    # and delete them; the page decides which are unused and asks before
+    # deleting. Only this pack's own masks folder: saved edit/reference
+    # latents are written by the original pack's Text Encode, into its own
+    # folder, and its own Clean up looks after them.
+    def _edit_file_dirs():
+        from .object_mask import SUBFOLDER as MASKS
+        base = folder_paths.get_input_directory()
+        return {"mask": os.path.realpath(os.path.join(base, MASKS))}
+
+    def _adopt_layer_results(layers, masks):
+        """Copy Auto Mask results the original pack's Object Mask saved in its
+        own masks folder into this pack's, and point the layers at the copies.
+        The original pack's Clean up only knows its own nodes, so left there
+        they could be deleted while Prompt Studio still uses them. Names are
+        kept (they are already unique); an existing copy is reused."""
+        from .object_mask import SUBFOLDER as MASKS, UPSTREAM_SUBFOLDER
+        theirs = os.path.realpath(os.path.join(folder_paths.get_input_directory(), UPSTREAM_SUBFOLDER))
+
+        def adopt(annotated):
+            if not annotated:
+                return annotated
+            src = os.path.realpath(media_io.resolve(str(annotated)))
+            if os.path.dirname(src) != theirs:
+                return annotated
+            name = os.path.basename(src)
+            dst = os.path.join(masks, name)
+            if not os.path.isfile(dst):
+                os.makedirs(masks, exist_ok=True)
+                shutil.copy2(src, dst)
+            return f"{MASKS}/{name} [input]"
+
+        for layer in layers:
+            if not isinstance(layer, dict) or not layer.get("result"):
+                continue
+            layer["result"] = adopt(layer["result"])
+            sprite = (layer.get("result_info") or {}).get("sprite")
+            if isinstance(sprite, dict) and sprite.get("file"):
+                sprite["file"] = adopt(sprite["file"])
+        return layers
+
+    def _saved_masks():
+        """Mask files named in saved media presets and Prompt Builder drafts,
+        which Clean up must keep even when no loader in the graph uses them."""
+        from .object_mask import SUBFOLDER as MASKS
+        pattern = re.compile(re.escape(MASKS) + r"/([A-Za-z0-9_.-]+\.(?:safetensors|png))")
+        folder = _preset_dir()
+        paths = [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith(".json")] + [_drafts_file()]
+        names = set()
+        for path in paths:
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    names.update(pattern.findall(fh.read()))
+            except OSError:
+                continue
+        return names
+
+    @routes.post("/minimax_h3_plus/adopt_masks")
+    @_guard()
+    async def adopt_masks(request):
+        """Copy subject masks the original pack's Object Mask saved for Auto
+        mask on a loader picture into this pack's masks folder, and say where
+        each went. That pack keeps them in its cache, which its own Clean up
+        treats as disposable; a picture's mask has to outlive that. Only
+        `subject_` files directly in that cache folder are copied; names are
+        kept (they are already unique) and an existing copy is reused."""
+        from .object_mask import SUBFOLDER as MASKS, UPSTREAM_CACHE
+        try:
+            body = await request.json()
+            files = body.get("files")
+            if not isinstance(files, list) or len(files) > 64:
+                return web.json_response({"error": "expected up to 64 files"}, status=400)
+            base = folder_paths.get_input_directory()
+            theirs = os.path.realpath(os.path.join(base, UPSTREAM_CACHE))
+            masks = _edit_file_dirs()["mask"]
+            moved = {}
+            for annotated in files:
+                annotated = str(annotated or "")
+                src = os.path.realpath(media_io.resolve(annotated))
+                name = os.path.basename(src)
+                if (os.path.dirname(src) != theirs or not name.startswith("subject_")
+                        or not name.endswith((".safetensors", ".png")) or not os.path.isfile(src)):
+                    return web.json_response({"error": f"{name} isn't a subject mask from Auto mask"}, status=400)
+                dst = os.path.join(masks, name)
+                if not os.path.isfile(dst):
+                    os.makedirs(masks, exist_ok=True)
+                    await asyncio.to_thread(shutil.copy2, src, dst)
+                moved[annotated] = f"{MASKS}/{name} [input]"
+            return web.json_response({"files": moved})
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+        except Exception as exc:
+            return web.json_response({"error": f"keeping the masks failed: {exc}"}, status=500)
+
+    @routes.post("/minimax_h3_plus/mask_compose")
+    @_guard()
+    async def mask_compose(request):
+        """Draw the mask editor's layers into the clip's mask; returns it."""
+        from . import object_mask
+        try:
+            body = await request.json()
+            layers = body.get("layers")
+            if not isinstance(layers, list) or not layers or len(layers) > 64:
+                return web.json_response({"error": "expected 1 to 64 layers"}, status=400)
+            masks = _edit_file_dirs()["mask"]
+            # Auto Mask results come from the original pack's Object Mask, in
+            # its masks folder; anything else must already be in this pack's.
+            theirs = os.path.realpath(os.path.join(folder_paths.get_input_directory(),
+                                                   object_mask.UPSTREAM_SUBFOLDER))
+            for layer in layers:
+                result = layer.get("result") if isinstance(layer, dict) else None
+                if result and os.path.dirname(os.path.realpath(media_io.resolve(str(result)))) not in (masks, theirs):
+                    return web.json_response({"error": "a layer names something that isn't a mask file"}, status=400)
+            layers = await asyncio.to_thread(_adopt_layer_results, layers, masks)
+            info = await asyncio.to_thread(object_mask.compose_layers, str(body.get("clip") or ""), layers,
+                                           float(body.get("start") or 0), float(body.get("end") or 0))
+            return web.json_response({"mask": info, "layers": layers})
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+        except Exception as exc:
+            return web.json_response({"error": f"combining the layers failed: {exc}"}, status=500)
+
+    @routes.get("/minimax_h3_plus/edit_files")
+    async def edit_files(request):
+        out = []
+        saved = _saved_masks()
+        for kind, folder in _edit_file_dirs().items():
+            if not os.path.isdir(folder):
+                continue
+            for name in sorted(os.listdir(folder)):
+                path = os.path.join(folder, name)
+                if os.path.isfile(path) and name.endswith((".safetensors", ".png")):
+                    st = os.stat(path)
+                    out.append({"kind": kind, "name": name, "size": st.st_size, "mtime": int(st.st_mtime),
+                                "saved": kind == "mask" and name in saved})
+        return web.json_response({"files": out})
+
+    @routes.post("/minimax_h3_plus/edit_files/delete")
+    @_guard()
+    async def edit_files_delete(request):
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "expected JSON"}, status=400)
+        dirs = _edit_file_dirs()
+        saved = _saved_masks()
+        removed = []
+        for entry in body.get("files") or []:
+            folder = dirs.get((entry or {}).get("kind"))
+            name = os.path.basename(str((entry or {}).get("name") or ""))
+            if not folder or not name.endswith((".safetensors", ".png")) or name in saved:
+                continue
+            path = os.path.realpath(os.path.join(folder, name))
+            if os.path.dirname(path) != folder or not os.path.isfile(path):
+                continue
+            os.remove(path)
+            removed.append(name)
+        return web.json_response({"removed": removed})
+
+    @routes.post("/minimax_h3_plus/refmods/set_preview")
+    @_guard(json_only=False)
+    async def refmod_set_preview(request):
+        """Multipart: `stem` (relative name) + `file` (an image) -> <stem>.png."""
+        from . import refmods
+        try:
+            reader = await request.multipart()
+            stem, data = "", None
+            field = await reader.next()
+            while field is not None:
+                if field.name == "stem":
+                    stem = (await field.text()).strip()
+                elif field.name == "file":
+                    chunks = []
+                    total = 0
+                    while True:
+                        chunk = await field.read_chunk()
+                        if not chunk:
+                            break
+                        total += len(chunk)
+                        if total > 32 << 20:
+                            return web.json_response({"error": "image too large"}, status=413)
+                        chunks.append(chunk)
+                    data = b"".join(chunks)
+                field = await reader.next()
+            if not data:
+                return web.json_response({"error": "no image"}, status=400)
+            saved = refmods.set_preview(stem, data)
+            return web.json_response({"preview": saved})
+        except (ValueError, FileNotFoundError) as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+        except Exception as exc:
+            return web.json_response({"error": f"preview failed: {exc}"}, status=500)
+
     @routes.get("/minimax_h3_plus/presets")
     async def list_presets(request):
-        names = []
+        """Presets with their categories.
+
+        Categories are a VIEW over one flat namespace, never folders: a
+        prompt links to a preset by name and the filename is the name, so
+        two presets sharing a name in different categories would collide on
+        disk and make the link ambiguous. Same rule the prompt library
+        follows."""
+        entries, categories = [], set()
+        base = _preset_dir()
         try:
-            for fn in os.listdir(_preset_dir()):
-                if fn.endswith(".json"):
-                    names.append(fn[:-5])
+            names = [f[:-5] for f in os.listdir(base) if f.endswith(".json")]
         except Exception:
-            pass
-        return web.json_response({"presets": sorted(names, key=str.lower)})
+            names = []
+        for n in sorted(names, key=str.lower):
+            data = _read_prompt(os.path.join(base, n + ".json")) or {}
+            cat = (data.get("category") or "").strip()
+            if cat:
+                categories.add(cat)
+            items = [i for i in (data.get("items") or []) if isinstance(i, dict)]
+            entries.append({
+                "name": n,
+                "category": cat,
+                "count": len(items),
+                "counts": {k: sum(1 for i in items
+                                  if i.get("kind") == k
+                                  and i.get("enabled") is not False)
+                           for k in ("picture", "video", "audio")},
+            })
+        return web.json_response({
+            "presets": entries,
+            # Kept so an older client (or a stale browser cache) still gets
+            # a usable list rather than an empty picker.
+            "names": [e["name"] for e in entries],
+            "categories": sorted(categories, key=str.lower),
+        })
 
     @routes.post("/minimax_h3_plus/presets/save")
+    @_guard()
     async def save_preset(request):
         try:
             body = await request.json()
@@ -498,13 +1200,106 @@ if PromptServer is not None and web is not None:
         items = body.get("items")
         if not isinstance(items, list):
             return web.json_response({"error": "items must be a list"}, status=400)
+        previous = _read_prompt(path) or {}
+        # Absent category means "leave it alone" — re-saving a set from the
+        # loader shouldn't silently strip the category someone filed it under.
+        category = body.get("category")
+        if category is None:
+            category = previous.get("category") or ""
+        record = {"version": 1, "items": items,
+                  "category": str(category).strip()}
         try:
-            _write_json(path, {"version": 1, "items": items})
+            _write_json(path, record)
         except Exception as exc:
             return web.json_response({"error": f"save failed: {exc}"}, status=500)
-        return web.json_response({"name": name, "count": len(items)})
+        return web.json_response({"name": name, "count": len(items),
+                                  "category": record["category"]})
+
+    @routes.post("/minimax_h3_plus/presets/meta")
+    @_guard()
+    async def preset_meta(request):
+        """Set one preset's category without touching its items.
+
+        Without this the only way to file an existing preset is to load it
+        and save it again, which is a lot of ceremony for a label — and it
+        rewrites the items, so it can't be done safely from a picker."""
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "expected JSON body"}, status=400)
+        name, path = _preset_path(body.get("name"))
+        if not path or not os.path.exists(path):
+            return web.json_response({"error": "preset not found"}, status=404)
+        data = _read_prompt(path)
+        if not data:
+            return web.json_response({"error": "preset unreadable"}, status=500)
+        data["category"] = str(body.get("category") or "").strip()
+        try:
+            _write_json(path, data)
+        except Exception as exc:
+            return web.json_response({"error": f"save failed: {exc}"}, status=500)
+        return web.json_response({"name": name, "category": data["category"]})
+
+    @routes.post("/minimax_h3_plus/presets/category")
+    @_guard()
+    async def preset_category(request):
+        """Rename a category across every preset, or clear it (to = "")."""
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "expected JSON body"}, status=400)
+        src_cat = (body.get("from") or "").strip()
+        dst_cat = (body.get("to") or "").strip()
+        if not src_cat:
+            return web.json_response({"error": "missing category"}, status=400)
+        base = _preset_dir()
+        changed = 0
+        try:
+            names = [f[:-5] for f in os.listdir(base) if f.endswith(".json")]
+        except Exception:
+            names = []
+        for n in names:
+            p = os.path.join(base, n + ".json")
+            data = _read_prompt(p)
+            if not data or (data.get("category") or "").strip() != src_cat:
+                continue
+            data["category"] = dst_cat
+            try:
+                _write_json(p, data)
+                changed += 1
+            except Exception:
+                pass
+        return web.json_response({"changed": changed})
+
+    @routes.post("/minimax_h3_plus/presets/match")
+    @_guard()
+    async def match_preset(request):
+        """Which saved preset, if any, IS this media set?
+
+        Asked server-side on purpose: the client would otherwise need its own
+        digest implementation that has to agree with this one forever, and
+        that kind of cross-language parity is where silent drift lives."""
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "expected JSON body"}, status=400)
+        items = body.get("items")
+        if not isinstance(items, list):
+            return web.json_response({"error": "items must be a list"}, status=400)
+        want = _set_digest(items)
+        base = _preset_dir()
+        try:
+            names = [f[:-5] for f in os.listdir(base) if f.endswith(".json")]
+        except Exception:
+            names = []
+        for n in sorted(names, key=str.lower):
+            data = _read_prompt(os.path.join(base, n + ".json")) or {}
+            if _set_digest(data.get("items")) == want:
+                return web.json_response({"name": n, "digest": want})
+        return web.json_response({"name": None, "digest": want})
 
     @routes.post("/minimax_h3_plus/presets/load")
+    @_guard()
     async def load_preset(request):
         try:
             body = await request.json()
@@ -527,9 +1322,15 @@ if PromptServer is not None and web is not None:
         kept, missing = [], []
         for item in items:
             target = item.get("file") if isinstance(item, dict) else None
-            if target and os.path.exists(media_io.resolve(target)):
+            if not target:
+                continue
+            try:
+                present = os.path.exists(media_io.resolve(target))
+            except Exception:
+                present = False     # resolve() now rejects out-of-bounds paths
+            if present:
                 kept.append(item)
-            elif target:
+            else:
                 missing.append(item.get("name") or target)
         # Presets saved before dimensions/duration were stored carry items
         # with no width/height — the panel then shows thumbnails with no
@@ -556,9 +1357,13 @@ if PromptServer is not None and web is not None:
             if kind == "video" and item.get("has_audio") \
                     and not item.get("audio_mode"):
                 item["audio_mode"] = "paired"
-        return web.json_response({"name": name, "items": kept, "missing": missing})
+        return web.json_response({"name": name, "items": kept,
+                                 "missing": missing,
+                                 "category": (data.get("category") or "").strip(),
+                                 "digest": _set_digest(items)})
 
     @routes.post("/minimax_h3_plus/presets/delete")
+    @_guard()
     async def delete_preset(request):
         try:
             body = await request.json()
@@ -567,11 +1372,276 @@ if PromptServer is not None and web is not None:
         name, path = _preset_path(body.get("name"))
         if not path or not os.path.exists(path):
             return web.json_response({"error": "preset not found"}, status=404)
+        # The guarantee _preset_path gives is re-asserted here, beside the
+        # destructive call it protects, so no refactor can separate them.
+        if not _contained(path, _preset_dir()):
+            return web.json_response({"error": "refused"}, status=400)
         try:
             os.remove(path)
         except Exception as exc:
             return web.json_response({"error": f"delete failed: {exc}"}, status=500)
         return web.json_response({"deleted": name})
+
+    # -- RefMod presets ---------------------------------------------------
+    # A saved stack: picks with weights and switches. Same shape of routes
+    # as the media presets, one flat namespace, categories as a view.
+
+    def _refmod_names():
+        base = _refmod_preset_dir()
+        try:
+            return sorted((f[:-5] for f in os.listdir(base) if f.endswith(".json")), key=str.lower)
+        except Exception:
+            return []
+
+    @routes.get("/minimax_h3_plus/refmod_presets")
+    async def list_refmod_presets(request):
+        entries, categories = [], set()
+        base = _refmod_preset_dir()
+        for n in _refmod_names():
+            data = _read_prompt(os.path.join(base, n + ".json")) or {}
+            cat = (data.get("category") or "").strip()
+            if cat:
+                categories.add(cat)
+            picks = [p for p in (data.get("picks") or []) if isinstance(p, dict)]
+            entries.append({"name": n, "category": cat, "count": len(picks),
+                            "on": sum(1 for p in picks if p.get("on") is not False)})
+        return web.json_response({"presets": entries, "categories": sorted(categories, key=str.lower)})
+
+    @routes.post("/minimax_h3_plus/refmod_presets/save")
+    @_guard()
+    async def save_refmod_preset(request):
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "expected JSON body"}, status=400)
+        name, path = _refmod_preset_path(body.get("name"))
+        if not path:
+            return web.json_response({"error": "give the preset a name"}, status=400)
+        if not isinstance(body.get("picks"), list):
+            return web.json_response({"error": "picks must be a list"}, status=400)
+        picks = _clean_picks(body["picks"])
+        previous = _read_prompt(path) or {}
+        category = body.get("category")
+        if category is None:
+            category = previous.get("category") or ""
+        record = {"version": 1, "picks": picks, "category": str(category).strip()}
+        try:
+            _write_json(path, record)
+        except Exception as exc:
+            return web.json_response({"error": f"save failed: {exc}"}, status=500)
+        return web.json_response({"name": name, "count": len(picks), "category": record["category"],
+                                  "digest": _picks_digest(picks)})
+
+    @routes.post("/minimax_h3_plus/refmod_presets/meta")
+    @_guard()
+    async def refmod_preset_meta(request):
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "expected JSON body"}, status=400)
+        name, path = _refmod_preset_path(body.get("name"))
+        if not path or not os.path.exists(path):
+            return web.json_response({"error": "preset not found"}, status=404)
+        data = _read_prompt(path)
+        if not data:
+            return web.json_response({"error": "preset unreadable"}, status=500)
+        data["category"] = str(body.get("category") or "").strip()
+        try:
+            _write_json(path, data)
+        except Exception as exc:
+            return web.json_response({"error": f"save failed: {exc}"}, status=500)
+        return web.json_response({"name": name, "category": data["category"]})
+
+    @routes.post("/minimax_h3_plus/refmod_presets/category")
+    @_guard()
+    async def refmod_preset_category(request):
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "expected JSON body"}, status=400)
+        src_cat = (body.get("from") or "").strip()
+        dst_cat = (body.get("to") or "").strip()
+        if not src_cat:
+            return web.json_response({"error": "missing category"}, status=400)
+        base = _refmod_preset_dir()
+        changed = 0
+        for n in _refmod_names():
+            p = os.path.join(base, n + ".json")
+            data = _read_prompt(p)
+            if not data or (data.get("category") or "").strip() != src_cat:
+                continue
+            data["category"] = dst_cat
+            try:
+                _write_json(p, data)
+                changed += 1
+            except Exception:
+                pass
+        return web.json_response({"changed": changed})
+
+    @routes.post("/minimax_h3_plus/refmod_presets/match")
+    @_guard()
+    async def match_refmod_preset(request):
+        """Which saved preset, if any, IS this stack? Compared on what the
+        model receives, so weights count and switched-off picks don't."""
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "expected JSON body"}, status=400)
+        if not isinstance(body.get("picks"), list):
+            return web.json_response({"error": "picks must be a list"}, status=400)
+        want = _picks_digest(body["picks"])
+        base = _refmod_preset_dir()
+        for n in _refmod_names():
+            data = _read_prompt(os.path.join(base, n + ".json")) or {}
+            if _picks_digest(data.get("picks")) == want:
+                return web.json_response({"name": n, "digest": want})
+        return web.json_response({"name": None, "digest": want})
+
+    @routes.post("/minimax_h3_plus/refmod_presets/load")
+    @_guard()
+    async def load_refmod_preset(request):
+        from . import refmods
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "expected JSON body"}, status=400)
+        name, path = _refmod_preset_path(body.get("name"))
+        if not path or not os.path.exists(path):
+            return web.json_response({"error": "preset not found"}, status=404)
+        data = _read_prompt(path)
+        picks = data.get("picks") if isinstance(data, dict) else None
+        if not isinstance(picks, list):
+            return web.json_response({"error": "preset has no picks"}, status=500)
+        # Previews and token costs come from the library as it stands now;
+        # files that have gone are reported rather than failing at queue time.
+        library = {}
+        try:
+            for it in refmods.scan_library()["items"]:
+                for k in ("visual", "audio"):
+                    if it.get(k):
+                        library[it[k]["file"]] = (it, it[k])
+        except Exception:
+            library = {}
+        kept, missing = [], []
+        for p in _clean_picks(picks):
+            gone = []
+            for k in ("visual", "audio"):
+                ch = p.get(k)
+                if not ch:
+                    continue
+                hit = library.get(ch["file"])
+                if hit:
+                    it, lc = hit
+                    ch["kind"] = lc.get("kind") or ch.get("kind")
+                    ch["tokens"] = lc.get("tokens", 0)
+                    if lc.get("seconds") is not None:
+                        ch["seconds"] = lc["seconds"]
+                    p["preview"] = it.get("preview")
+                elif not refmods.resolve_file(ch["file"], (".safetensors",)):
+                    gone.append(ch["file"])
+            if gone:
+                missing.extend(gone)
+                p["missing"] = gone
+            kept.append(p)
+        return web.json_response({"name": name, "picks": kept, "missing": missing,
+                                 "category": (data.get("category") or "").strip(),
+                                 "digest": _picks_digest(picks)})
+
+    @routes.post("/minimax_h3_plus/refmod_presets/delete")
+    @_guard()
+    async def delete_refmod_preset(request):
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "expected JSON body"}, status=400)
+        name, path = _refmod_preset_path(body.get("name"))
+        if not path or not os.path.exists(path):
+            return web.json_response({"error": "preset not found"}, status=404)
+        if not _contained(path, _refmod_preset_dir()):
+            return web.json_response({"error": "refused"}, status=400)
+        try:
+            os.remove(path)
+        except Exception as exc:
+            return web.json_response({"error": f"delete failed: {exc}"}, status=500)
+        return web.json_response({"deleted": name})
+
+    # -- drafts -----------------------------------------------------------
+    # Scratch space for the editor's Draft mode. One file, a keyed map, an
+    # LRU cap. The client never sends the whole map — each save replaces one
+    # key server-side — so two tabs writing different drafts can't clobber
+    # each other by holding stale copies.
+
+    @routes.post("/minimax_h3_plus/drafts/load")
+    @_guard()
+    async def draft_load(request):
+        body = await request.json()
+        draft_id = str(body.get("id") or "").strip()
+        if not draft_id:
+            return web.json_response({"error": "missing draft id"}, status=400)
+        entry = _read_drafts()["drafts"].get(draft_id)
+        return web.json_response({"exists": entry is not None,
+                                  "draft": entry})
+
+    @routes.post("/minimax_h3_plus/drafts/save")
+    @_guard()
+    async def draft_save(request):
+        body = await request.json()
+        draft_id = str(body.get("id") or "").strip()
+        if not draft_id:
+            return web.json_response({"error": "missing draft id"}, status=400)
+        payload = body.get("draft")
+        data = _read_drafts()
+        if not isinstance(payload, dict):
+            # An empty payload is a clear — the no-empty-drafts rule lives
+            # client-side, but honour the shape here too.
+            data["drafts"].pop(draft_id, None)
+        else:
+            payload["updated"] = time.time()
+            data["drafts"][draft_id] = payload
+            if len(data["drafts"]) > DRAFT_CAP:
+                keep = sorted(data["drafts"].items(),
+                              key=lambda kv: kv[1].get("updated", 0),
+                              reverse=True)[:DRAFT_CAP]
+                data["drafts"] = dict(keep)
+        try:
+            _write_json(_drafts_file(), data)
+        except Exception as exc:
+            return web.json_response({"error": f"save failed: {exc}"},
+                                     status=500)
+        return web.json_response({"saved": bool(isinstance(payload, dict)),
+                                  "count": len(data["drafts"])})
+
+    @routes.get("/minimax_h3_plus/drafts")
+    async def draft_count(request):
+        return web.json_response({"count": len(_read_drafts()["drafts"])})
+
+    @routes.post("/minimax_h3_plus/drafts/clear_all")
+    @_guard()
+    async def draft_clear_all(request):
+        data = _read_drafts()
+        n = len(data["drafts"])
+        data["drafts"] = {}
+        try:
+            _write_json(_drafts_file(), data)
+        except Exception as exc:
+            return web.json_response({"error": f"clear failed: {exc}"},
+                                     status=500)
+        return web.json_response({"cleared": n, "count": 0})
+
+    @routes.post("/minimax_h3_plus/drafts/clear")
+    @_guard()
+    async def draft_clear(request):
+        body = await request.json()
+        draft_id = str(body.get("id") or "").strip()
+        data = _read_drafts()
+        existed = data["drafts"].pop(draft_id, None) is not None
+        try:
+            _write_json(_drafts_file(), data)
+        except Exception as exc:
+            return web.json_response({"error": f"clear failed: {exc}"},
+                                     status=500)
+        return web.json_response({"cleared": existed,
+                                  "count": len(data["drafts"])})
 
     # -- prompt library ---------------------------------------------------
 
@@ -584,6 +1654,7 @@ if PromptServer is not None and web is not None:
         return web.json_response({"phrases": items, "categories": cats})
 
     @routes.post("/minimax_h3_plus/phrases/save")
+    @_guard()
     async def save_phrase(request):
         try:
             body = await request.json()
@@ -615,6 +1686,7 @@ if PromptServer is not None and web is not None:
         return web.json_response({"saved": entry["id"]})
 
     @routes.post("/minimax_h3_plus/phrases/delete")
+    @_guard()
     async def delete_phrase(request):
         try:
             body = await request.json()
@@ -635,6 +1707,43 @@ if PromptServer is not None and web is not None:
     async def list_prompts(request):
         entries, categories = [], set()
         directory = _prompt_dir()
+        # Counts for linked presets, read fresh rather than stored on the
+        # prompt: a preset edited after linking would otherwise show the
+        # composition it had at link time, which is exactly the kind of
+        # quietly-stale number this pack keeps getting bitten by. Each
+        # distinct preset is read once per request.
+        preset_counts = {}
+
+        refmod_counts = {}
+
+        def refmod_count_for(preset_name):
+            if not preset_name:
+                return None
+            if preset_name not in refmod_counts:
+                _n, p = _refmod_preset_path(preset_name)
+                data = _read_prompt(p) if p else None
+                picks = [x for x in ((data or {}).get("picks") or []) if isinstance(x, dict)]
+                refmod_counts[preset_name] = (sum(1 for x in picks if x.get("on") is not False)
+                                              if data else None)
+            return refmod_counts[preset_name]
+
+        def counts_for(preset_name):
+            if preset_name in preset_counts:
+                return preset_counts[preset_name]
+            out = None
+            slug = _slug(preset_name)
+            if not slug:            # a name that slugs to nothing has no file
+                preset_counts[preset_name] = None
+                return None
+            data = _read_prompt(os.path.join(_preset_dir(), slug + ".json"))
+            if data:
+                items = [i for i in (data.get("items") or [])
+                         if isinstance(i, dict) and i.get("enabled") is not False]
+                out = {k: sum(1 for i in items if i.get("kind") == k)
+                       for k in ("picture", "video", "audio")}
+            preset_counts[preset_name] = out
+            return out
+
         try:
             names = [f for f in os.listdir(directory) if f.endswith(".json")]
         except Exception:
@@ -655,11 +1764,19 @@ if PromptServer is not None and web is not None:
                 "mode": data.get("mode") or "",
                 "updated": data.get("updated") or 0,
                 "refs": data.get("refs") or 0,
-                "preview": " ".join(text.split())[:150],
+                "media_preset": data.get("media_preset") or None,
+                "media_counts": (counts_for(data["media_preset"])
+                                 if data.get("media_preset") else None),
+                "refmod_preset": data.get("refmod_preset") or None,
+                "refmod_count": refmod_count_for(data.get("refmod_preset")),
+                # PREVIEW_CHARS, not upstream's flat 150: this fork's library
+                # has a preview-rows slider, and a 150-char server-side cap
+                # defeated it — rows past the second had nothing to show.
+                "preview": " ".join(text.split())[:PREVIEW_CHARS],
                 # The same line without the generated scaffolding, for the
                 # library's "show only what I typed" setting. Empty on
                 # records saved before `state` was stored.
-                "preview_user": _user_text(data)[:150],
+                "preview_user": _user_text(data)[:PREVIEW_CHARS],
                 "audio": _audio_marks(data),
             })
         entries.sort(key=lambda e: (not e["favorite"], -float(e["updated"] or 0),
@@ -670,6 +1787,7 @@ if PromptServer is not None and web is not None:
         })
 
     @routes.post("/minimax_h3_plus/prompts/save")
+    @_guard()
     async def save_prompt(request):
         try:
             body = await request.json()
@@ -698,6 +1816,14 @@ if PromptServer is not None and web is not None:
             "favorite": bool(body.get("favorite", previous.get("favorite"))),
             "mode": body.get("mode") or "",
             "refs": body.get("refs") or 0,
+            # Optional link to a media preset, plus the digest of that preset
+            # as it stood when linked. Reference tags are positional, so a
+            # preset edited afterwards can silently retarget <Picture 3> —
+            # the digest is what lets the load path say so.
+            "media_preset": (body.get("media_preset") or "").strip() or None,
+            "media_digest": (body.get("media_digest") or "").strip() or None,
+            "refmod_preset": (body.get("refmod_preset") or "").strip() or None,
+            "refmod_digest": (body.get("refmod_digest") or "").strip() or None,
             "prompt": body.get("prompt") or "",
             "state": body["state"],
             "created": previous.get("created") or time.time(),
@@ -713,13 +1839,16 @@ if PromptServer is not None and web is not None:
         # name, which read as "the library is losing prompts".
         old = _slug(body.get("rename_from"))
         if body.get("rename") and old and old != entry_id:
-            try:
-                os.remove(os.path.join(_prompt_dir(), old + ".json"))
-            except Exception:
-                pass
+            old_path = os.path.join(_prompt_dir(), old + ".json")
+            if _contained(old_path, _prompt_dir()):
+                try:
+                    os.remove(old_path)
+                except Exception:
+                    pass
         return web.json_response({"id": entry_id, "name": record["name"]})
 
     @routes.post("/minimax_h3_plus/prompts/load")
+    @_guard()
     async def load_prompt(request):
         try:
             body = await request.json()
@@ -732,6 +1861,7 @@ if PromptServer is not None and web is not None:
         return web.json_response({"id": entry_id, **data})
 
     @routes.post("/minimax_h3_plus/prompts/meta")
+    @_guard()
     async def update_prompt_meta(request):
         """Toggle favourite or move to another category without a full save."""
         try:
@@ -755,6 +1885,7 @@ if PromptServer is not None and web is not None:
                                   "category": data["category"]})
 
     @routes.post("/minimax_h3_plus/prompts/category")
+    @_guard()
     async def rename_category(request):
         """Rename a category across every prompt, or clear it entirely."""
         try:
@@ -786,6 +1917,7 @@ if PromptServer is not None and web is not None:
         return web.json_response({"from": source, "to": target, "changed": changed})
 
     @routes.post("/minimax_h3_plus/prompts/delete")
+    @_guard()
     async def delete_prompt(request):
         try:
             body = await request.json()
@@ -794,19 +1926,15 @@ if PromptServer is not None and web is not None:
         entry_id, path = _prompt_path(body.get("id"))
         if not path or not os.path.exists(path):
             return web.json_response({"error": "prompt not found"}, status=404)
+        if not _contained(path, _prompt_dir()):
+            return web.json_response({"error": "refused"}, status=400)
         try:
             os.remove(path)
         except Exception as exc:
             return web.json_response({"error": f"delete failed: {exc}"}, status=500)
         return web.json_response({"deleted": entry_id})
 
-    @routes.post("/minimax_h3_plus/probe")
-    async def probe_route(request):
-        try:
-            body = await request.json()
-        except Exception:
-            return web.json_response({"error": "expected JSON body"}, status=400)
-        target = body.get("file")
-        if not target:
-            return web.json_response({"error": "missing 'file'"}, status=400)
-        return web.json_response(media_io.probe(target))
+    # /minimax_h3_plus/probe was removed in 1.6.2 (security): nothing in the pack called it
+    # (upload and extract_audio return their own probe data, and presets/load
+    # heals metadata server-side), and an uncalled endpoint that feeds an
+    # attacker-supplied path into media probing is pure attack surface.

@@ -234,3 +234,1669 @@ when hiding, makes it a mouse-over caption for the respective section.
       position. The old toggle was just this set to 2 and is gone. The preview
       source is now "Show full prompt", off by default — same behaviour as
       before, stated the other way round.
+
+---
+
+## Follow-up round 2
+
+48. 🟩 when chip size is increased, widen the media pane instead of squeezing
+    the form
+    - `.mmh3p-body.sidebar`'s rail column was a fixed `164px` grid track,
+      chip-scaled or not — the `min-width` I'd put on the rail element in
+      item 44 did nothing, since a fixed-length track doesn't grow for
+      content (that min-width was silently dead). The rail column is now a
+      `--mmh3-railw` custom property driven by `--mmh3-chip`, and
+      `applyScale()` grows the modal by exactly the rail's extra width, so
+      the form and reference-preview columns keep their own size instead of
+      shrinking every time the slider moves. `applySidebarPref()` also
+      recomputes it, since the extra only applies in sidebar mode.
+      Measured in a real Chromium via Playwright once the CSS transition on
+      `grid-template-columns` settles: rail 164px→292px at 2x chip scale,
+      form and side columns unchanged (634px / 440px) at both scales, modal
+      grew by exactly the rail's own growth (128px). Found and fixed a
+      companion bug while measuring this: the rail had no `box-sizing`, so
+      its content-box `width` plus its own padding and border rendered
+      wider than the grid track and forced the track to grow past its
+      declared size — set to `border-box` to match what `--mmh3-railw`
+      actually represents.
+      (The modal is centred by the overlay, so this growth is symmetric
+      about the screen's centre, not literally left-edge-only — matching
+      how the existing window-size slider has always grown the same modal.)
+49. 🟩 prompt library: rows beyond 2 did nothing, and the preview didn't
+    fill the space it had
+    - Root cause was server-side: `web_api.py` truncated every preview to
+      150 characters, a leftover from when this was a single ellipsised
+      line. Measured against the library's actual column width and font
+      (Playwright again): 6 rows holds roughly 680 characters, so a
+      150-character preview never has enough text to reach past ~1-2 lines
+      regardless of the client-side rows setting — the slider had nothing
+      left to reveal. Raised the cap (`PREVIEW_CHARS`) to 2000, comfortably
+      past 6 rows' worth with margin. Verified with a realistic 780-character
+      prompt: rows 1/2/3/4/6 each now show visibly more text than the last,
+      where before only rows 1-2 differed and 3-6 were identical to 2.
+
+---
+
+## Follow-up round 3
+
+50. 🟩 unsaved changes: Save on the media-loader handover closed the editor
+    but never opened the media loader
+    - `requestClose()` deferred to the unsaved-changes strip and the button's
+      own handler raced it: it checked `this.closePending` and only opened
+      the media loader when that was still false, i.e. only on the
+      already-saved path. Once the strip appeared, its own "Save to node"
+      (and "Discard") buttons just called `save()`/`close()` directly, with
+      no idea a media-loader handover was waiting — so closing that way lost
+      the follow-up action entirely.
+      `requestClose()` now takes an optional `then`, run once by `close()`
+      itself however the close is actually resolved — immediately, or via
+      either button on the strip — so the handover fires exactly once
+      regardless of path. "Keep editing" clears it, since abandoning the
+      close attempt has to abandon anything queued to run after it too, or a
+      later, unrelated close would fire a stale handover.
+      Verified with a real end-to-end run: Save-then-handover and
+      Discard-then-handover both now show `.mmlp-overlay` actually mounted,
+      not just the editor closing; Keep-editing-then-close-again shows the
+      strip a second time (still dirty, correctly) and resolving it doesn't
+      open a stray media loader; the not-dirty immediate path (no
+      regression) still opens straight away.
+    - Surfaced two real gaps in the DOM stub while writing that test, fixed
+      alongside it: `addEventListener` only ever kept the *last* listener
+      registered for an event type, silently dropping earlier ones — a
+      chip-tagged textarea genuinely carries two ("input" for the state
+      update, "input" again for chipField's repaint), so any test typing
+      into one was only ever exercising whichever handler was attached
+      second. Now dispatches to every listener, same as a real element.
+      `prepend()` was also missing (used by the unsaved-changes strip).
+
+---
+
+## Follow-up round 4
+
+51. 🟩 quick edit: full-aspect keyframe previews down the left in
+    I2VA / FL2VA / L2VA, per the supplied layout
+    - The preview column was a fixed 132px strip of 80px `object-fit:cover`
+      thumbnails — chips, not views. It is now a proportional column (44% of
+      the window, full body height): one picture fills it in I2VA/L2VA, two
+      split it evenly in FL2VA, first frame above last. Images are
+      `object-fit:contain`, so a 9:16 keyframe letterboxes rather than being
+      centre-cropped.
+    - Cropped pictures needed more than `contain`. `cropFrame()` shows the
+      kept region by scaling the image to the window's width and letting the
+      window's own height do the clipping — so the window has to carry the
+      region's aspect ratio or the crop lands wrong. New `shownAspect()`
+      computes what a picture actually shows after rotation and cropping
+      (mirroring is deliberately ignored: it flips the frame without changing
+      its proportions), passed to the CSS as `--ar`.
+    - Containing a fixed-aspect box turned out to have no naive CSS answer:
+      clamping one axis with `max-width`/`max-height` does not re-derive the
+      other, so a box wider than its tile came out stretched. Measured four
+      candidate rules across three aspects and confirmed each fails somewhere.
+      Container-query units (`min(100cqw, calc(100cqh * var(--ar)))`) express
+      it exactly — verified across 15 tile/aspect combinations, all with exact
+      aspect, fitting inside, and filling one axis.
+    - **Window widened 675 → 900px.** The previews are additive, so the width
+      comes from the window rather than from the fields: measured, the prompt
+      fields keep 505px against 499px before, i.e. unchanged. This does undo
+      the earlier 25% width reduction (item 10), which was made when the
+      preview strip was 132px; the height stays at the reduced 585px. Say if
+      you would rather keep 675 and let the fields take the reduction instead.
+    - Measured in a real Chromium: column 42.3% of window width and 93.5% of
+      body height, FL2VA tiles split evenly (224.5px each), a 9:16 picture
+      drawn undistorted, and a middle-half crop of a 16:9 source rendering at
+      exactly 0.889 (=160/180) inside its tile.
+
+---
+
+## Follow-up round 5
+
+52. 🟩 the node interface glitches and gets stuck at a certain size within
+    the node's frame on certain interactions
+    - Root cause: the on-node media panel is only ever re-fit to the node's
+      actual current size (`fitPanel()`) from `onResize` and `onConfigure` —
+      an explicit drag or a reload. Nothing re-fit it when the panel's own
+      natural/shaped height requirement changed for any other reason: a mode
+      switch (T2VA's toolbar-only collapse and back), or the Used/All toggle
+      shrinking or growing what the panel needs to show. A node resized
+      taller in a picture mode, then switched into and back out of a
+      shape-changing state, was left with the panel stuck at its own
+      default/last-fit height — a gap or an overflow against the node's
+      actual frame — until an unrelated resize or reload happened to nudge
+      it into re-fitting.
+    - `_mmlOnCommit` (`promptstudio.js`), the hook every shape-changing
+      interaction already calls, now also calls `fitPanel()` alongside
+      `refreshBar()`, so any of them re-fits the panel immediately rather
+      than leaving it stuck.
+    - Separately, `Editor.save()` (the full editor's Save button — by far
+      the most common way a mode actually gets changed) never called either
+      hook at all: it only updated the node's collapsed-bar preview text.
+      The node's own small mode-switcher button already called
+      `node._mmlPanel.render()` and `node._mmlOnCommit()` after a mode
+      change; `Editor.save()` was the one path that skipped both, so saving
+      a mode change from the full editor left the on-node interface showing
+      the *previous* mode's layout — collapsed when it should be open, or
+      the reverse — until something unrelated forced a redraw. Now mirrors
+      the small mode-switcher's own refresh sequence.
+    - Verified end-to-end through the real Editor UI, not just the
+      hooks in isolation: resized a node to 1200px in I2VA (panel grows to
+      1140px to fill it), switched to T2VA with "Used" active via the mode
+      bar and Save button (panel correctly collapses, bar correctly
+      expands), then switched back to I2VA and saved again — panel
+      correctly un-collapses and re-fits to the full 1140px, rather than
+      being stuck at its own default floor.
+
+---
+
+## Follow-up round 6
+
+53. 🟩 the quick edit's side pane should conform to the pictures' aspect
+    ratios, crop nothing, and put two pictures side by side when there is
+    horizontal room (vertical when there isn't)
+    - The pane was a fixed 44% column with the pictures fitted into it, so a
+      picture whose shape didn't match its tile sat in letterbox bars. New
+      `keyframePaneLayout()` inverts that: it sizes each tile to its own
+      picture's aspect and the pane to the tiles, so `object-fit:contain` has
+      nothing left to letterbox and nothing is cropped. Pure geometry, no DOM
+      reads — the caller measures and passes the space in, which keeps the
+      measure and write phases apart and the rule itself testable.
+    - Row vs column is decided by which arrangement leaves the pictures
+      **larger**, which is what "is there horizontal room" actually amounts
+      to. My first attempt asked whether a *full-height* row fitted the width
+      budget, and that was wrong: the row was pinned to full height, so two
+      wide pictures stacked even in a 2400px window where side by side was
+      plainly roomier. Caught by testing the geometry directly before wiring
+      it up.
+    - Verified in a real Chromium against real images: every tile matches its
+      picture's natural aspect exactly (16:9, 9:16, 1:1, and a 0.889 crop),
+      two tall pictures go side by side, two wide ones stack at the default
+      window and switch to side by side when given room, and a mixed pair
+      keeps both shapes. Plus a geometry sweep over 9 aspect combinations ×
+      3 window sizes: all keep aspect and stay inside both the width budget
+      and the height.
+    - **Fixed a latent bug this exposed.** `.mmh3p-audiopair` stacked via
+      `@media (max-width:900px)` — a *viewport* query answering a *container*
+      question. The fields column can be narrow inside a wide window (this
+      pane takes a share of it; the full editor's form sits beside a
+      sidebar), and the pair then stayed side by side and overflowed its own
+      column. It is now a container query on a named `mmh3p-fields` container
+      declared by both hosts. The 400px threshold is measured — the label
+      rows start overflowing just under 380px — and `label.act` now wraps
+      rather than overflows, so a larger text scale degrades gracefully
+      instead of spilling out of any fixed px threshold.
+
+---
+
+## Follow-up round 7
+
+54. 🟩 all instances of the Settings button should only have a gear on it
+    - The media loader's read "⚙ Settings"; the rest were already bare gears.
+      All four now match, with the wording kept on the tooltip.
+55. 🟩 add a settings button to the quick editor with window size and image
+    size
+    - A gear in the quick editor's header, matching the editor's and the
+      library's. Window size scales its 900×585 base; image size moves the
+      split between the keyframe pane and the fields beside it. Both persist
+      per user like the pack's other scales.
+    - `clampScale()` gained a `min` parameter. It floored everything at 100%
+      via a shared `SCALE_MIN`, which is right for the window and text scales
+      but wrong here: turning the pane's share *down* to give the fields more
+      room is the useful direction, and it was unreachable — measured, a 50%
+      setting was silently clamped back to 100% and the slider did nothing.
+      Image size runs 40–200%.
+    - Measured: window 100%→150% takes the modal 900×585 → 1350×726; image
+      size 50% → 200% takes the pane 428px → 888px, the top end capped by the
+      fields' own floor rather than squeezing them out. Reset returns both.
+
+56. 🟩 dropping a picture on a filled slot in the Used layout should replace
+    that picture
+    - **The reported behaviour was inverted, and the real fault was worse.**
+      Measured in a real Chromium: the drop did not replace anything, it
+      *appended* — `[p1.png]` became `[p1.png, dropped.png]`. In the shaped
+      layouts that is the bad case, because I2VA/L2VA show one picture and
+      FL2VA two, so the newly dropped picture landed **hidden**, with only
+      the window button's count badge as a hint that anything had arrived.
+      The drop looked like it had done nothing at all.
+    - Dropping onto a filled slot now replaces that slot's media, per the
+      explicit choice: pointing at a slot is an explicit target, so nothing
+      is hidden and no extra picture accumulates. Dropping on an empty slot
+      or on the panel background still appends, unchanged.
+    - The drop handlers are registered in `reorderable()` *before* its
+      `enable` guard, on purpose: a slot that cannot be dragged (the
+      single-picture shaped layouts) is still a perfectly good drop target,
+      and it is precisely the case where appending would put the picture
+      somewhere the layout cannot show it.
+    - Guarded: a video dropped on a picture slot is refused by name rather
+      than silently mismatched (*"clip.mp4 is a video; drop it on a video
+      slot, or on the panel to add it. This slot holds a picture."*), an
+      unsupported extension says so, and a multi-file drop replaces with the
+      first and appends the rest. A `.hot` ring marks the slot under the
+      cursor so the target is visible before the drop lands.
+    - Verified: I2VA `[p1]` → `[dropped1]`, FL2VA `[p1,p2]` → `[dropped2,p2]`,
+      L2VA `[p1]` → `[dropped3]`, with `hiddenCount()` 0 and no badge in all
+      three; empty slot and panel background still append. Full harness
+      sweep (34 scripts) green.
+
+---
+
+## Upstream sync — 1.6.0
+
+57. 🟩 merge the latest upstream changes (`Adudeguyman` 1.6.0: Draft mode,
+    in-editor media loader, seven fixes)
+    - One upstream commit, ~1300 lines, 20 conflicts across `pyproject.toml`,
+      `README.md`, `web/medialoader.js` (5) and `web/promptbuilder.js` (12).
+      `web_api.py` auto-merged. Version → **2.3.0**.
+    - **Draft mode** came in whole: the disk-backed scratchpad, Pull from
+      Live, per-draft reference sets, the teal chrome, and the prefs-menu
+      "clear all drafts" admin row. Five new `drafts/*` routes.
+    - **Re-pointed at this fork's node shape.** Upstream's draft code assumed
+      a separate Media Loader node wired into a `references` input and
+      reached for it in five places (`openMedia`, `openDraftMedia`,
+      `_applyMediaSnapshot`, `_mediaDiverged`, `_snapshotMedia`). Prompt
+      Studio owns its panel outright and has no such input, so every one of
+      those would have bailed early and the feature would have looked
+      installed but dead. They now all route through the fork's existing
+      `mediaSource()`, which resolves either shape. Upstream's own
+      `loaderItems()` was rewritten on top of it rather than kept alongside.
+    - **Namespacing.** Upstream is on `.mml-`/`.mmh3-` and `/minimax_h3/`;
+      this fork is on `.mmlp-`/`.mmh3p-` and `/minimax_h3_plus/`. 28 class
+      references and 8 routes (5 server, 3 client) renamed. The CSS custom
+      properties (`--mml-fs`, `--mmh3-fs`) keep their unprefixed names — they
+      are shared with upstream by design.
+    - **Dropped as dead here**: `addSplitter()`, `flash()`, `addMediaLoader()`
+      and the standalone Media Loader / Prompt Builder node extensions. Those
+      nodes were removed from this fork in an earlier session.
+
+58. 🟩 flag what upstream 1.6.0 makes redundant or conflicts with
+    - **The editor's Media Loader button — resolved in upstream's favour.**
+      This fork's button *handed over*: it closed the editor, routing through
+      the unsaved-changes strip via `requestClose(then)`, and then opened the
+      loader. Upstream's opens the loader *over the top* and leaves the editor
+      up. Upstream's is strictly better and draft mode requires it — a draft
+      has its own reference set, which a handover cannot express — so the
+      handover is gone. `requestClose(then)`'s mechanism stays (nothing calls
+      it with a `then` now) since it is what makes close-and-then safe at all.
+      `rig/closehandover.mjs` tested the removed behaviour and was replaced by
+      `rig/mediaoverlay.mjs`, which asserts the inverse: no strip, editor
+      stays open, panel reads *this* node's own `media_state`.
+    - **Upstream fix "node and text scale never re-read at startup" — half
+      redundant.** Its `applyStoredScale()` is dead code in this fork (it
+      existed only for the standalone loader node's `onConfigure`). But the
+      underlying bug was real here too and unfixed: nothing restored
+      `--mml-fs` on workflow load. Ported the text half into
+      `promptstudio.js`'s `onConfigure`; the node-size half is deliberately
+      not ported, because `fitPanel()` already owns this node's height and
+      a second writer would fight it.
+    - **Upstream fix "`[Shot N]` chip was font-weight 700 → caret drift"** —
+      landed clean, no conflict. This is the same class of bug as the mirror
+      work in earlier rounds; worth knowing the metric-neutral `text-shadow`
+      is now the house pattern.
+    - **Not redundant, no conflict**: the atomic-write, save-under-new-name,
+      category-filter, preset-picker-popover and preset-dimension-backfill
+      fixes all apply here unchanged.
+
+59. 🟩 fix the media panel's "bake" route, broken since the namespace move
+    - Found while auditing routes for the merge, not reported. When this fork
+      moved its endpoints to `/minimax_h3_plus/`, `medialoader.js`'s bake call
+      — flattening a trim or crop into a new file — was missed and still
+      posted to `/minimax_h3/bake`, which no longer exists. It would have
+      404'd every time. One line.
+
+60. 🟩 fix the harness's DOM stub treating `className` and `classList` as two
+    separate stores
+    - Found by a merge test failing on an assertion that was correct.
+      `classList.add/toggle` wrote a `Set`; `className` read a different
+      string. A class added through one was invisible to the other — which
+      includes the stub's own selector engine and most of the harness's
+      `find()` helpers. Tests were asserting against a view of the element no
+      browser would ever produce.
+    - They are now one store, as in a real DOM. Re-ran the full suite against
+      the corrected stub, since this is the first time every class-based
+      assertion in it has been honest: **35 scripts, all green.**
+
+---
+
+## Follow-up round 8
+
+61. 🟩 rename the `picture_1`/`picture_2` outputs to `first_frame`/`last_frame`,
+    matching what each mode actually sends: I2VA and FL2VA on `first_frame`,
+    FL2VA and L2VA on `last_frame` (L2VA's one loaded picture IS the last
+    frame, not the first), nothing on T2VA or Reference mode
+    - **Breaking for saved L2VA workflows only**, and documented as such —
+      see the new note under "Upgrading from 1.x" in the README, and the
+      `pyproject.toml` version comment. Slots are positional in ComfyUI, and
+      L2VA's picture used to travel on the `picture_1` slot regardless of
+      which downstream input you'd wired it to; it now travels on the
+      `last_frame` slot instead, matching what it actually is. I2VA and
+      FL2VA are unaffected — their pictures already came out on the same two
+      slots they do now, only the labels changed, and a label is not part of
+      a saved link. Version → **2.4.0**.
+    - `nodes.py`: `build()` now computes `first_frame`/`last_frame`
+      explicitly per mode rather than blindly padding `keyframes[0:2]` into
+      two same-named outputs. `RETURN_NAMES`, the class docstring, the
+      module docstring and `DESCRIPTION` all updated to match; the console
+      line that names which outputs fired now says `first_frame`/
+      `last_frame` instead of `picture_1`/`picture_2`.
+    - Swept the README for every `picture_1`/`picture_2` reference: the
+      outputs table, the wiring instructions, both FAQ entries, and the
+      "which output goes where" / "does switching mode change what's sent"
+      sections. Left the media panel's own `<Picture N>` reference-tag
+      numbering alone — a different, still-current naming scheme for the
+      panel's reference slots, unrelated to these node outputs.
+    - Verified by exercising `build()` directly (stubbing `media_io.load_image`
+      to skip real image decoding — PIL isn't installed in this environment)
+      across all five modes: T2VA and REF both `None`/`None`; I2VA
+      `first_frame`/`None`; FL2VA `first_frame`/`last_frame`; L2VA
+      `None`/`last_frame`. Matches the spec exactly.
+
+---
+
+## Follow-up round 9
+
+62. 🟩 update with the latest upstream changes (1.6.1 + the 1.6.2 security
+    release)
+    - Two commits, 36 conflicts. Version → **2.5.0**. Details in the merge
+      commit; the notable resolutions were keeping this fork's
+      `/minimax_h3_plus/` prefix while taking upstream's new `@_guard`
+      decorators (16 route conflicts resolved by script), and dropping
+      `/browse`, `/mkdir` and `/probe` as dead here — the first two served
+      the removed Filename Prefix node, and 1.6.2's own reasoning for
+      deleting `/probe` applies to all three.
+    - **Checked the security release doesn't break this fork's client.**
+      1.6.2 makes JSON routes *require* `Content-Type: application/json`;
+      every JSON POST here already sends it, and `upload` correctly stays on
+      `@_guard(json_only=False)` for its FormData body. Added a client-vs-
+      server route cross-check that confirms all 13 client routes resolve —
+      it immediately caught `presets/match`, a new upstream route that had
+      auto-merged onto the wrong prefix.
+    - `requestClose()` took upstream's `{discard}` form, which supersedes the
+      `then` parameter this fork added for the old Media Loader handover.
+      Nothing had set `_closeThen` since that handover was replaced, so the
+      dead mechanism was removed rather than left to rot.
+
+63. 🟩 make tag colour coding consistent across every interface
+    - **Found one real inconsistency by auditing rather than by eye.**
+      Subject was `#7ec87e` in the rail cards, the field chips and the
+      mini-tags, but `#6fbf73` in the generated-prompt preview and in the
+      chips drawn inside the text fields — close enough to read as a
+      rendering artefact, far enough to be visibly wrong side by side.
+      Picture, Video and Audio were already consistent.
+    - Fixed at the root rather than by patching two hex values: the palette
+      is now one exported object (`TAG_COLORS`) emitted as `:root` custom
+      properties by both stylesheets, and all 55 tag colour declarations
+      reference `var(--mmh3-tag-*)`. A future family cannot quietly invent
+      its own green, and an upstream merge that changes a hue shows up as a
+      conflict in one place instead of as one surface disagreeing.
+    - The waveform canvas is drawn, not styled, so it cannot read a CSS
+      variable — it takes `TAG_COLORS.aud` from the same object instead of a
+      literal, which is what stops it being the one drifting surface.
+    - **A second bug surfaced while verifying.** My first pass kept each
+      rule's *original* literal as its `var()` fallback, so subject still
+      fell back to two different greens if the `:root` block ever failed to
+      load. All fallbacks are now canonical.
+    - `rig/tagcolours.mjs` reads the actual injected stylesheets and asserts:
+      every kind has a declared hue, no tag rule sets a colour from a
+      literal, each kind resolves to exactly one variable, no fallback is
+      stale, and the canvas matches. Verified it fails against both drift
+      modes before being restored — the first version of this test passed
+      against the reintroduced bug, which is why it now checks fallbacks too.
+
+64. 🟩 prevent opening the same window twice when moving between the prompt
+    builder and the media loader
+    - **The path that bit.** Upstream 1.6.0 changed the editor's Media Loader
+      button from a handover to an overlay, so the editor stays open
+      underneath. The loader's own "Prompt Builder" button still closed the
+      loader and built a *fresh* editor — stacking a second one on the first.
+      Two editors on one node disagree about state, and whichever you save
+      last silently wins.
+    - One guard, `raiseIfOpen()`, applied at all four entry points: the full
+      editor, the quick editor, the prompt library and the loader modal. An
+      already-open window is raised (re-appended, so DOM order puts it in
+      front) and pulsed rather than duplicated. The pulse matters — without
+      it the button looks broken when the window is already open behind.
+    - A draft's loader is tracked separately from the live one: they are
+      different targets, so both open at once is correct, not a duplicate.
+    - Registry entries are cleared on close, so a reopened window is never
+      blocked by a stale reference. `rig/singlewindow.mjs` covers all of it,
+      including the exact reported path end to end.
+
+65. 🟩 put the settings button to the left of the ✕ in the prompt builder and
+    the prompt library
+    - The library was already correct. The editor's gear sat mid-header
+      between Clear and the guide, which put the one control that isn't about
+      *this prompt* in among the ones that are. Both headers now end
+      `⚙ | ✕`, verified against the rendered header rather than the source.
+
+66. 🟩 update the dialogue speaker buttons as speakers are added
+    - The row is built by `toolBar()` during `render()`, and `insert()`
+      deliberately never re-renders — a full render rebuilds every field and
+      drops the caret mid-sentence. So the derived button list was frozen at
+      whatever the prompt held when the window opened, and `+ (S2)` only
+      appeared after Save to node and reopening: two round trips to learn
+      something the editor already knew.
+    - `refreshDialogue()` swaps just that one row, driven by the `input`
+      event that already bubbles to the form — so it covers the buttons, a
+      rail drop, and typing `(S2)` by hand. It no-ops when the speaker set is
+      unchanged, so an ordinary keystroke doesn't churn the DOM, and the
+      language select is carried across rather than rebuilt so a repaint
+      can't silently reset a chosen language.
+
+67. 🟩 add the prompt builder's Add speaker button to the quick editor,
+    defaulting to English
+    - Built self-contained against the field's own text, the same way the
+      quick editor's existing `+ Shot` button is — there is no shared
+      "last focused field" here to lean on. The number offered is the next
+      one the field hasn't used, and it advances as you add.
+    - A compact language select sits beside it, defaulting to English
+      (`LANGS[0]`). Carried explicitly rather than assumed, because the
+      marker it writes has to name a language and guessing wrong is worse
+      than one more control.
+    - The inserted line never introduces a newline: the model reads a line
+      break as a shot boundary, so only `[Shot N]` may start one. Same rule
+      the full editor follows, and the test asserts it.
+
+68. 🟩 harness: five DOM-stub fidelity gaps, four of them masking real code
+    paths
+    - The merge failed 22 of 35 scripts on one missing feature, and fixing
+      that exposed the rest. Each of these made production code that works
+      in a browser look broken — or worse, look fine — under test.
+    - `value:""` on form controls. A real `<input>` has it from birth;
+      without it a freshly rendered filter box threw on `.value.trim()` and
+      took the whole panel render down with it.
+    - **`isConnected` and parent tracking.** Six production sites read
+      `isConnected` — "is this window still open", "is the caret's field
+      still in the document" — and with no parent link every one silently
+      read `undefined`. Four of those six pre-date this round's work, so
+      whole branches had never been reached by any test. `remove()` also only
+      worked on direct children of body/head; it now works on nested nodes,
+      as a real DOM does.
+    - **Event bubbling.** `insert()` signals its edit with
+      `dispatchEvent(new Event("input", {bubbles:true}))`, and the listener
+      that acts on it sits on the *form*, not the field — so that entire path
+      was invisible to the harness. Added `dispatchEvent`, `replaceWith` and
+      the `Event` constructor.
+    - **`<select>.value`.** Not a stored string: with nothing selected a real
+      select reports its first option's value. A freshly built picker read as
+      empty, so "the language select starts on English because English is
+      listed first" silently got `""`. `<option>` had no `value` property at
+      all.
+    - Two scripts (`run.mjs`, `t2va_combine.mjs`) carried private stubs
+      predating `domstub.mjs` and had drifted from it, breaking on any merge
+      touching a feature the private copy lacked. Both now import the shared
+      one. **38 scripts green.**
+
+---
+
+## Follow-up round 10
+
+69. 🟩 drop the quick editor's language dropdown; keep the prompt builder's
+    progressive speaker buttons
+    - The quick editor now shows the same row the full editor does: one
+      button per speaker already in the text, plus the next unused ID, plus
+      the pair button once there are two to pair. Re-using a speaker is
+      clicking their own button rather than counting.
+    - No dropdown. Lines go out as English (`LANGS[0]`, the full editor's own
+      default); anything else is a word to change in the text.
+    - The row is rebuilt on every edit rather than relabelled, because the
+      button *count* changes as speakers are added — which is the behaviour
+      being matched.
+    - **Caught a bug of my own making, in the browser.** `replaceChildren()`
+      is not `el()`: `el()` drops a null child, `replaceChildren` stringifies
+      it. The pair button's absence rendered as the literal text **"null"**
+      beside the buttons — in the state the row *opens* in, so it was on
+      screen every time until a second speaker appeared. The headless harness
+      only surfaced it as a crash in an unrelated test's DOM walker; the
+      real-browser check is what showed what a user would actually see.
+      Guarded now by an assertion on the row's own text content.
+
+70. 🟩 remove the gap between the settings button and the ✕ in the prompt
+    builder
+    - Cause: `.mmh3p-head .mmh3p-x{margin-left:auto}` had the close button
+      claiming all the header's slack on its own, pinning it to the edge and
+      stranding the gear a full 14px header gap behind it. The settings
+      wrapper claims the slack now and the ✕ cancels the gap, so the two read
+      as one control group. The negative margin is derived from the gap
+      variable rather than repeating `14px`.
+    - **Measured, not assumed — and the first attempt was wrong.** The editor
+      and library came out at 0px but the quick editor stayed at 14px: its
+      header also carries a `.mmh3p-pushright` button, and
+      `.mmh3p-pushright ~ .mmh3p-x{margin-left:0}` ties with the new rule on
+      specificity, so source order decided it. The rules are now one ordered
+      group with the dependency written down. Verified in real Chromium:
+      **0.0px in all four windows**, with the ✕ flush to the header's right
+      padding edge.
+
+71. 🟩 keep the settings button placement consistent across every interface
+    - Three of four windows already ended `⚙ | ✕`. The media loader's window
+      was the odd one out: its gear sat at the far right of the *panel's*
+      toolbar while its header held only the ✕.
+    - The gear now renders in the loader's window header beside its ✕, and is
+      re-framed there — `.mmlp-modalhead button` strips every button in that
+      row back to a bare glyph, which would have left this one unframed while
+      the other three are framed. Measured: gear and ✕ both 23px, same top.
+    - The on-node panel has no header, so its gear stays last in the toolbar
+      — the same rule ("settings sits last, by the close control") applied to
+      the only row that view has.
+
+72. 🟩 in the quick editor, put the Prompt Builder button next to the settings
+    button
+    - **My own regression from item 70.** Giving `.mmh3p-prefwrap` the
+      header's `margin-left:auto` added a *second* slack-claimer to the quick
+      editor's header, which already had one on its `.mmh3p-pushright` Prompt
+      Builder button. Two auto margins split the free space rather than
+      pooling it, so each took 264px and the button ended up 278px from the
+      settings button it belongs beside — settings and close correctly
+      paired, but marooned from it. The editor and library were unaffected
+      (the editor's header is full, so there is no slack to split; the
+      library has only the one claimer), which is why item 70's measurement
+      passed.
+    - Fixed by extending the invariant that rule already relied on for the
+      close button: only the *first* slack-claimer in a header may claim, so
+      `.mmh3p-pushright ~ .mmh3p-prefwrap` stands down. The quick editor now
+      reads `Prompt Builder | 14px | ⚙ | 0 | ✕` — 14px being the header's own
+      gap, the same spacing as every other adjacent pair.
+    - The browser check now asserts the invariant directly rather than only
+      the gear/✕ gap: at most one resolved auto margin per header, and the
+      right-hand group contiguous at no more than the header's gap. Measured
+      across all four windows.
+
+73. 🟩 remove the quick editor's image-size slider (it does nothing); replace
+    it with text size
+    - **Confirmed the report, and found the shape of it.** Measured at the
+      default window: `quickPicScale` 0.4 → pane 225px, 1.0 → 438px, 2.0 →
+      438px. Turning it *down* worked; turning it *up* did nothing, because
+      the fields' own 420px floor already caps the pane at that window size.
+      So half the control was dead — my earlier "50% → 200% takes the pane
+      428px → 888px" measurement was taken at a larger window, where the top
+      half does move, which is why it read as working.
+    - Removed the whole mechanism rather than just the slider: the pref, its
+      two constants, and `keyframePaneLayout`'s `picScale` parameter, which
+      nothing else fed. The pane still takes at most 65% of the width or
+      whatever leaves the fields their floor, whichever binds first.
+    - **Text size fixes a second bug the slider was hiding.** `--mmh3-fs` is
+      one global custom property, and only the *full editor* ever wrote it —
+      so opening the quick editor without opening the full one first left the
+      stored text size unapplied entirely. Measured: with `textScale: 1.6`
+      stored, the quick editor opened with `--mmh3-fs` **unset**.
+    - The new slider therefore writes the shared `textScale` pref rather than
+      a quick-edit twin: two prefs on one global property would fight, and
+      whichever window opened last would win. Window size stays per-window,
+      since the two windows are genuinely different sizes.
+    - Measured after: `--mmh3-fs` applied on open at both 1.0 and 1.6, field
+      labels 11px → 17.6px and textareas 13px → 20.8px (exactly ×1.6), the
+      menu offering "Window size" and "Text size", and the keyframe pane
+      still laying out correctly in I2VA and FL2VA with the fields at their
+      floor and the pane inside its cap.
+    - Two of my own test's assertions were wrong on the first run and are
+      noted in the script: `===` on two arrays is always false, so a correct
+      label list read as a failure; and the "fields keep their floor" check
+      subtracted the pane's width from a *sibling* column rather than reading
+      that column directly. The product was right both times.
+
+74. 🟩 T2VA "Used" left a large empty gap between the media toolbar and the
+    prompt fields — merge the panel and the prompt bar into one element
+    - **Root cause.** The two were separate DOM widgets whose heights had to
+      be reconciled by hand. On collapsing into T2VA's Used layout the panel's
+      *element* correctly shrank to its toolbar (`.mmlp-min`, inline height
+      cleared), but `fitPanel()` returned early for that shape and so never
+      reduced the *widget's* `computedHeight` — the node went on reserving the
+      panel's full height for an element that was no longer drawing it.
+      Reproduced: panel element collapsed to a toolbar while its widget still
+      reserved 428px. That unpainted reservation is the gap in the report.
+    - This was the third height-desync in this file (the bar's inline height,
+      the panel's stale fit, now this), so the fix is the merge rather than a
+      third patch: **one DOM widget** holding the panel and the bar, with the
+      split expressed as a flex rule instead of arithmetic. Whichever half is
+      flexible takes the slack — normally the panel, and in T2VA's Used layout
+      the bar, since the panel goes `flex:0 0 auto` when `.mmlp-min` applies.
+      No arrangement can leave a gap, by construction.
+    - `refreshBar()` no longer sets any height; it swaps content and a class.
+      `fitPanel()` lost its shape special-case entirely and just sizes the one
+      stack. `PANEL_H`/`SUMMARY_H` collapsed into a single `STACK_H` floor.
+      The bar keeps a `min-height` (a floor, not a fixed height — setting
+      `height` is what used to go stale).
+    - Measured in real Chromium across six arrangements: T2VA/Used at 900px
+      gives panel 57px + bar 843px; at 520px, 57 + 463; every other mode gives
+      panel + a 52px bar. **Zero gap and zero slack in all six.** Confirmed
+      the check catches a broken rule by deleting the expand rule: 407.8px of
+      slack, which is the reported bug.
+    - Two harness scripts asserted against the old two-widget shape and were
+      updated to read the stack.
+
+75. 🟩 dropdowns (settings, presets) hidden under the prompt section in the
+    merged node layout
+    - **The clip is the panel's own, and it predates the merge.** Isolated by
+      measurement: relaxing the new stack's `overflow` changed nothing (16px
+      of a 126px menu visible), relaxing `.mmlp-panel.mmlp-min`'s fixed it
+      (124px). The collapsed panel is ~57px tall and carries `overflow:hidden`
+      — right for the media grid it no longer has, wrong for the dropdowns
+      that fall out of its toolbar, which are twice its height.
+    - So the merge did not cause this; it made it *visible*. Before, the space
+      below the collapsed panel was empty reserved node space, so a clipped
+      menu just vanished into a region that already looked broken. With the
+      bar now directly under the toolbar, the bar's own content shows through
+      where the menu should be — which is exactly what the report describes.
+    - Fixed with `.mmlp-panel.mmlp-min{overflow:visible}`, scoped to the
+      collapsed state so the full panel still clips its grid. The stack's
+      `overflow:hidden` is dropped too: it would have become a second clip the
+      moment the first was lifted, and both halves clip their own content.
+      Both menus already carry a z-index, so nothing else was needed.
+    - `rig/../railcheck/dropdowns.mjs` walks each menu's full height and
+      asserts the menu is the top element at every step, across three layouts.
+      Verified it catches the fault: with the clip restored it reports
+      *"4/25 probes on top, first obscured at +23px by mmh3p-summary"* — the
+      prompt section showing through, as reported.
+
+76. 🟩 the quick editor's image preview should always fill the window's height
+    - **Measured the shortfall first.** Against 457px of available height: a
+      tall 9:16 already filled it, a square reached 96%, and a **wide 16:9
+      reached only 54%**. The layout was width-first — the pane was capped so
+      the fields kept their 420px floor, and the picture's height fell out of
+      whatever width was left over.
+    - Filling the height for a 16:9 needs ~813px of the 866px available, which
+      would have left 45px for the fields. Put the trade-off to the user
+      rather than picking; their answer was that **the window should widen**
+      instead of the fields shrinking.
+    - So the rule is height-first now: `growForPics()` asks the pane how wide
+      it would need to be to stand at the window's full height, and widens the
+      window to `need + gap + the fields' floor + chrome`, clamped to 96vw.
+      The window is centred in its overlay, so the extra room opens out on the
+      picture's side and the fields keep their floor untouched. The
+      window-size preference becomes a floor rather than a fixed size.
+    - **Removed the pane's 65% width cap.** With the window growing to suit,
+      that cap was the one thing still holding the picture short of the room
+      it had just been given — a 16:9 landed 6px shy of full height with it in
+      place. The fields' floor is the only width constraint now.
+    - Measured after, across four viewports: at 1600×1000 and 2560×1400 every
+      case fills the height exactly (16:9 goes 246px → 457px, the window 900 →
+      1274). On smaller screens the wide cases are genuinely screen-limited,
+      so `panefill.mjs` asserts *full height OR the window is already at its
+      viewport cap*, and additionally that the window always stays on screen,
+      never causes horizontal scrolling, never drops the fields below their
+      floor, and that **every tile still matches its picture's natural aspect**
+      — the height must not be filled by stretching or cropping. Verified the
+      check catches the regression: with the growth disabled it reports 54%,
+      59% and 65% with the window not at its cap.
+    - Two existing tests asserted the old 65% cap and were updated to the
+      fields'-floor rule they now share with the product.
+
+77. 🟩 colour coding in the quick editor should match everything else
+    - **One token was wrong, and it was wrong in the worst possible way.**
+      The quick editor never passed `subjectInfo` to `chipField()`, so
+      `paintToken()` could not tell a defined `<Subject N>` from an undefined
+      one and fell through to `unknown` — the RED reserved for "this tag names
+      media that isn't loaded". The same `<Subject 1>` was green in the full
+      editor and red in the quick one, i.e. it read as an error.
+      Every other token — picture, video, audio, speaker, shot, and genuinely
+      undefined tags — already matched.
+    - Fixed by sharing the rule rather than copying it: a module-level
+      `subjectLine(state, tag)` is now the single answer to "is this subject
+      defined", used by the quick editor directly and by the full editor's
+      richer `subjectInfo()` (which adds the hover-preview detail only it has
+      room for).
+
+78. 🟩 subject definition fields in the reference prompt builder should get
+    colour coding too
+    - They mounted a bare textarea — the one field in the pack that painted
+      tags as plain text. Doubly odd because the mini-tags rendered directly
+      underneath each row were already colour-coded, so the same line was
+      coloured twice over and plain once.
+    - Now wrapped with the editor's own `chipField()`, so they get the same
+      chips, the same hover previews and the same highlight preference as
+      every other field. `.mmh3p-defrow .mmh3p-chipwrap{flex:1;min-width:0}`
+      restores the flex chain the wrapper interrupts — the same break noted
+      above `.mmh3p-row`'s rule, and the same one that caught item 9.
+    - **Broke the full editor while fixing this, and the test caught it.**
+      Refactoring `subjectInfo()` onto `subjectLine()` removed a `defs`
+      binding that a later line still used, so `renderRef()` threw and the
+      editor painted no chips at all. Restored the binding; without a test
+      asserting the editor's own colours this would have shipped as "the
+      quick editor is fixed".
+    - `rig/tagclass.mjs` asserts the real requirement rather than either
+      symptom: the same token gets the same class on every surface. It reads
+      the full editor's chips as the reference, checks the definition rows,
+      then compares the quick editor token for token. Reproduced both faults
+      before the fix (`<Subject 1>` = `unknown` in the quick editor; no chip
+      wrapper on any definition row) and passes after. Verified in a real
+      browser too: the wrapper takes the row's width and the mirror sits
+      exactly over the textarea (dx/dy = 0), so the chips land on their words.
+
+---
+
+## Upstream sync — 1.6.3 → 1.7.1 (RefMods)
+
+79. 🟩 pull in the latest upstream changes (1.6.3, 1.6.4, 1.7.0, 1.7.1)
+    - 14 commits, ~13,500 insertions, 25 conflicts in `web/promptbuilder.js`
+      alone plus `medialoader.js`, `nodes.py`, `web_api.py`, `pyproject.toml`
+      and `README.md`. Version → **2.6.0**.
+    - **RefMods came in whole**: six Python modules, `web/refmodstack.js`
+      (2,279 lines), the library UI, the Create/Edit/Inspect queue path, and
+      the editor's RefMod-aware rail (chips, groups, badges, per-draft picks).
+      See item 80 — this changes what the pack *is*, and is flagged for a
+      decision rather than assumed.
+    - **Namespaced for coexistence**, the same policy the rest of the fork
+      follows: 10 routes → `/minimax_h3_plus/`, 495 `mmr-` + 30 `mmh3-` + 6
+      `mml-` CSS class references → `mmrp-`/`mmh3p-`/`mmlp-`, and all six node
+      type IDs → `MiniMaxH3Studio…` with display names on "MiniMax H3 …"
+      rather than "Fantastic H3 …". The three `registerExtension` names moved
+      to `MiniMaxH3Plus.*` too — `promptbuilder.js` was still registering as
+      `MiniMaxH3.PromptBuilder`, a pre-existing clash with upstream that this
+      merge made worth fixing. The `--mmh3-*`/`--mml-*` custom properties keep
+      their unprefixed names, shared with upstream by design.
+    - **Re-pointed at this fork's node shape**, as with 1.6.0. Upstream hangs
+      the RefMod library's context-menu entry off its standalone Media Loader
+      and the `+ RefMods` button off its standalone Prompt Builder — neither
+      node exists here, so both would have installed on nothing and the
+      feature would have looked present and been unreachable. The menu entry
+      now hooks Prompt Studio (which owns the `media_state` it reads), and the
+      editor header's existing **◈ RefMods** button is the way in. A new
+      exported `STUDIO_NAME` in `medialoader.js` is the single place that
+      string lives, so `promptbuilder.js`'s `modsChain()` and
+      `refmodstack.js`'s extension can recognise the node without importing
+      the module that registers it.
+    - **Dropped as dead here**: `addMediaLoader()` and the whole
+      `app.registerExtension({name:"MiniMaxH3.PromptBuilder"})` block upstream
+      keeps at the end of `promptbuilder.js`. In this fork that file is a
+      shared module, not a node registration — `promptstudio.js` owns the
+      node — and the block referenced `NODE_NAME` and `addMediaLoader`,
+      neither of which exists here, so it would have thrown on load.
+    - **A merge-helper of mine damaged one hunk and I had to repair it.** The
+      script I use to merge CSS conflicts rule-by-rule guards on brace count
+      and an `.mmh3` substring; a *JavaScript* conflict containing four braced
+      blocks and a class name matched it, and the rule-extractor ran over
+      code. It silently dropped `function redraw(node)`'s header, both braces
+      of a `try`, and the `= {}) {` from `addRefModStack`'s signature — a
+      syntax error that is *why* it was caught, but content loss was possible
+      beyond it. Repaired by regenerating the conflict from the index
+      (`git show :1/:2/:3` + `git merge-file`) and re-resolving that hunk from
+      the real sides, then coverage-checking all 25 hunks line by line against
+      the working file to confirm nothing else was lost.
+    - **`SECURITY.md` and `REFMODS.md` were adapted, not just copied.**
+      SECURITY.md documented upstream's route paths and three sinks this pack
+      does not have (`/browse`, `/mkdir`, the Filename Prefix node's
+      `filename_prefix` widget) — a security document that names routes that
+      don't exist is worse than none. REFMODS.md is written throughout for
+      upstream's two-node layout; its text is re-pointed at Prompt Studio and
+      it opens with a note that the screenshots still show two nodes.
+    - **Verified.** `py_compile` on all 10 Python modules; a stubbed import of
+      the package registers exactly 7 nodes with a display name each; all four
+      JS modules parse as ES modules, load under a DOM stub, and register the
+      three extensions expected; the Prompt Studio node builds its widget
+      stack, opens and closes the full editor (with the RefMods button in its
+      header) and the quick editor; the RefMod Stack node builds its panel;
+      the library menu entry installs on Prompt Studio and *not* on upstream's
+      loader; every one of the 21 pack routes the frontend calls resolves to a
+      declared route (the only unmatched ones are ComfyUI core's `/view`,
+      `/prompt`, `/history/` and `/models/vae`); all 24 POST routes carry
+      `@_guard`; no duplicate route registrations.
+
+80. ❓ RefMods takes this pack from one node to seven — confirm that's wanted
+    - **This needs a decision, and I've merged it in rather than out so the
+      choice is reversible either way.** 2.0.0 deliberately dropped the
+      standalone Prompt Builder, Media Loader, Reference Splitter and Filename
+      Prefix nodes so the pack installed exactly one node, and the README said
+      so in as many words. RefMods cannot be one node — it needs somewhere to
+      hold the picks, something to encode them, and three more to make and
+      inspect the files — so taking 1.7.0 reverses that.
+    - Arguments for keeping it: it's a genuinely new capability, not the
+      return of the nodes 2.0.0 removed; five of the six are only met through
+      the library window; and leaving it out means declining the largest
+      change upstream has made and diverging permanently.
+    - Arguments for dropping it: "one node" is a stated design principle of
+      this fork, and six new entries under conditioning → video_models is not
+      a small change to what a user sees.
+    - If you'd rather not have it, say so and I'll strip it: the six Python
+      modules, `web/refmodstack.js`, the `__init__.py` registration and the
+      RefMod-aware branches threaded through the editor's rail, draft mode and
+      header. Not a one-line revert, but tractable, and better done now than
+      after more work lands on top.
+
+81. 🟦 rebuild the test harness — it was lost with the container
+    - The 39-script headless rig and the five Playwright suites lived in the
+      session scratchpad, never in the repo, and the container was reclaimed
+      and re-cloned before this merge. They're gone.
+    - This merge was verified with a new, much smaller smoke rig (module load,
+      node construction, editor open/close, route and guard cross-checks —
+      see item 79) which covers the classes of fault a merge introduces, but
+      not the behavioural regressions the old suites covered.
+    - **The fix is to commit the harness**, not to rebuild it into another
+      scratchpad. Proposed: `tests/rig/` for the DOM-stub scripts and
+      `tests/browser/` for the Playwright ones, with the stub's fidelity
+      fixes from items 60 and 68 preserved. Say the word and I'll rebuild them
+      into the repo.
+
+82. 🟦 the three example workflows are built on the original pack's nodes
+    - `MMH3PromptBuilder_AIO_Example.json` has been in this state since 2.0.0
+      (it needs `MiniMaxH3PromptBuilder`, `MiniMaxH3MediaLoader` and two
+      `MiniMaxH3ReferenceSplitter`), and 1.7.0's two RefMod examples arrive
+      the same way. All three need the original pack installed alongside this
+      one to load at all. Their RefMod node types have been renamed to match
+      this pack, so those nodes resolve; the builder and loader still don't.
+    - Documented rather than hidden: a new **Example workflows** section in
+      the README says plainly that all three need the other pack.
+    - Rebuilding them on Prompt Studio is real work — the slot mapping is
+      different, since Prompt Studio merges the builder, the loader and the
+      splitter — and it isn't something I can test end to end here. Worth
+      doing as its own task.
+
+---
+
+## Follow-up round 11
+
+83. 🟩 RefMods with both packs installed: recognise the original pack's
+    Stack/Text Encode instead of only this pack's own
+    - **The redundancy was real, asked about, and confirmed by the user.**
+      The README documents installing both packs side by side; for RefMods
+      that meant two node families doing the identical job over the identical
+      `models/refmods` files, unable to appear in the same mods chain,
+      because `modsChain()`/`refmodSource()`/`addRefModStack()` all did exact
+      `n.type === STACK_NAME` / `ENCODE_NAMES.has(n.type)` checks against only
+      this pack's own renamed types.
+    - Fixed by widening recognition rather than merging the node types (which
+      ComfyUI's registration model doesn't allow across packs anyway):
+      `refmodstack.js` now exports `STACK_NAMES` (this pack's own type plus
+      the original pack's unrenamed `MiniMaxH3RefModStack`) alongside the
+      existing `ENCODE_NAMES`, into which the original pack's
+      `MiniMaxH3FantasticRefModTextEncode` was added — `ENCODE_NAMES` already
+      carried a third entry for ComfyUI-MiniMaxH3Mod's own Text Encode type,
+      so this follows a pattern already in the file rather than inventing
+      one. `STACK_NAME` (singular) is kept separate and unchanged for the one
+      place that still needs exactly one concrete type: creating a brand new
+      stack when nothing exists to adopt.
+    - **Testing this exposed two much larger bugs, both fixed in the same
+      pass**, because a synthetic graph shaped like the real node was needed
+      to test the recognition fix at all:
+      - **RefMods could not be wired onto Prompt Studio in any form.** The
+        Python node class has no `mods` input or output — the merge kept this
+        fork's `MiniMaxH3PromptStudio` (whose shape predates RefMods by
+        several releases) at every `nodes.py` conflict without ever adding
+        the socket RefMods needs, unlike upstream's own Prompt Builder, which
+        has always had it. `addRefModStack()` would hit `outIdx < 0` and
+        toast "no mods input" on every real attempt, regardless of the
+        recognition fix above. Fixed: `mods` (`H3_REF_MODS`, optional, not
+        lazy — cheap to read, unlike the checkpoint inputs) added to
+        `INPUT_TYPES`, `RETURN_TYPES`/`RETURN_NAMES` (appended last, so no
+        existing slot moves), and `build()`, which passes it through
+        unchanged exactly as upstream's own node does
+        (`out_mods = mods if mods is not None else []`). Verified directly
+        against the class: `RETURN_NAMES[-1] == "mods"`, an unwired call
+        returns `[]`, a wired call returns the exact same object passed in,
+        and `INPUT_TYPES()["optional"]["mods"]` is present and not lazy.
+      - **Every "what does this builder's prompt output feed" check used a
+        hardcoded output slot 0.** Correct for upstream's own Prompt Builder,
+        whose first output really is `prompt` — wrong for this fork's Prompt
+        Studio, which has put `model` at slot 0 since 2.0.0, well before
+        RefMods existed. `refmodSource()`, `refmodsReachEncode()`,
+        `encodersOf()` and `addRefModStack()` all inherited this from
+        upstream unmodified, so on the real node they would have looked for a
+        Text Encode downstream of the MODEL output instead of the prompt
+        output — silently finding nothing, or worse, something unrelated.
+        Fixed with one `promptOutIdx(node)` helper (finds the "prompt" output
+        by name) used everywhere the code previously wrote a bare `0`.
+    - Verified end to end with a synthetic graph exercising the exact
+      scenario from the question — this pack's Prompt Studio wired to the
+      *original* pack's unrenamed `MiniMaxH3RefModStack` and
+      `MiniMaxH3FantasticRefModTextEncode`: the editor recognises the chain
+      (not partial), reads the real pick and labels it `<Picture 1>`, and
+      reports the bundle as reaching the encode. A second graph — two
+      encoders reachable from the prompt output, a decoy wired to the MODEL
+      output that a slot-0 bug would misread, the first encoder's mods
+      unwired, the second already wired to an original-pack stack — confirms
+      `addRefModStack()`'s adopt loop finds and wires that stack into
+      Prompt Studio's own `mods` input rather than creating a second one.
+      Reverting either fix independently was confirmed to fail the
+      corresponding checks (5 of 6 without the recognition widening, 1 of 6
+      — the two-encoder case specifically — without the slot fix), so the
+      tests are known to catch both bugs rather than passing by construction.
+      `nodes.py`: `py_compile`, and `build()` exercised directly against a
+      real package import (stubbing only heavy third-party deps) for the
+      unwired/wired/appended-slot/non-lazy claims above.
+
+---
+
+## Upstream sync — 1.7.2 / 1.7.3
+
+84. 🟩 update with the latest upstream changes (1.7.2 and 1.7.3)
+    - Six commits, ~4,300 insertions. Version → **2.7.0**. Subject names
+      (`!Name` shorthand with Tab completion), RefMods that carry a subject
+      name / appearance / voice description, voiced speaker split buttons,
+      the right-click tag menu, and the rebuilt twelve-slot RefMod Stack node
+      with presets and seven new `refmod_presets` routes.
+    - **Merged by normalising the namespace first, rather than resolving 56
+      conflicts by hand.** Git's three-way merge was comparing this fork's
+      `mmrp-`/`mmh3p-`/`/minimax_h3_plus/` dialect against upstream's own on
+      every touched line, so most "conflicts" were pure rename noise. Applying
+      the fork's mechanical transform to the *base* and *theirs* sides first
+      (never to ours) and re-running `git merge-file` took `refmodstack.js`
+      from 20 conflicts to 1 and `promptbuilder.js` from 17 to 6 — and the
+      seven that remained were all genuine design decisions rather than
+      renames. Worth doing this way every time from here.
+    - **The two features had to be ported, not merged.** Upstream implements
+      `!Name` painting and Tab-completion *inline* in the Editor class; this
+      fork routes the full editor, the quick editor and the subject
+      definition rows through one shared `chipField()`/`paintToken()` (items
+      77 and 78, so the same token can't be one colour in one window and
+      another elsewhere). Pasting upstream's inline version back would have
+      reintroduced exactly the split those items fixed — a `!Name` resolving
+      in the full editor and painting red "unknown" in the quick editor. So
+      the `!Name` branch, the named `<d>` spans and the ghost-suggestion
+      machinery went into the shared functions instead, behind two new
+      options (`names()`, a callback because definitions change while a field
+      is open, and `nameSuggestion`), with upstream's `nameSuggestion()`
+      Editor method lifted to a module-level `nameSuggestionFor(box, state)`
+      for the same reason `subjectLine()` is module-level.
+    - Namespaced as usual: 7 new routes to `/minimax_h3_plus/`, the new CSS
+      to `mmrp-`/`mmh3p-`, RefMod node types kept on `MiniMaxH3Studio*`. The
+      interop sets from item 83 survived the merge intact and are still
+      asserted.
+    - **`refmodstack.js` was a binary file, and now isn't.** Upstream writes
+      its category sentinels as *raw NUL bytes* (`"<NUL>new"`, `"<NUL>none"`)
+      rather than the `\0` escape, which makes git, grep and most editors
+      treat the whole 3,000-line file as binary — `git diff` shows nothing
+      useful, and the merge audit below could not read it as text. Written
+      here as `\0` instead: verified identical at runtime
+      (`String.fromCharCode(0)+"new" === "\0new"`), 11 occurrences, and the
+      file is text again. Worth raising upstream.
+    - **Audited for silent loss rather than trusting the merge**, after last
+      round's damaged hunk: every line upstream added that is absent from the
+      result was listed and accounted for — 10 in `promptbuilder.js` (the
+      import line, and the inline chipField pieces deliberately relocated to
+      their shared homes) and 12 in `refmodstack.js` (the import line, plus
+      the 11 NUL sentinels, each confirmed present in escaped form).
+    - **Docs re-pointed, not just copied.** The bundled 📖 Guide's new Part C
+      listed upstream's four nodes as "the nodes this pack adds", which is
+      simply wrong here; its RefMod node names were upstream's too. Both
+      tables fixed, `+ RefMods` corrected to `◈ RefMods`, and the same
+      screenshot/layout caveat REFMODS.md carries added to Part C. SECURITY.md
+      took upstream's new RefMod-preset rows while keeping this fork's
+      namespaced paths and still omitting the three sinks it doesn't have.
+      The README's Quick start adopts upstream's better ordering (build the
+      workflow, then write into it) in Prompt-Studio shape.
+    - Verified: all 10 Python modules compile and the package still registers
+      exactly 7 nodes; all four web modules parse, load and register the three
+      expected extensions; the existing studio and interop suites still pass;
+      all three example workflows are valid JSON; every pack route the
+      frontend calls resolves (39 declared, 7 of them the new preset routes,
+      all POSTs guarded); no raw NULs remain in any tracked text file.
+    - New `names.mjs` covers the ported features on the surfaces that matter:
+      `!Casper` paints as a resolved subject chip in the full editor **and the
+      quick editor**, an undefined `!Nobody` still paints unknown, a half-typed
+      `!Cas` offers "per" as a ghost, Tab fills the saved spelling, and Escape
+      dismisses the suggestion without closing the editor. Confirmed it
+      catches the port being missing: deleting the `!Name` branch from the
+      shared `paintToken` fails both painting checks with `unknown` — the
+      exact regression item 77 was about.
+    - Harness stub gained three more fidelity fixes, all of which had been
+      masking real code paths: `textContent` now aggregates from child nodes
+      (every chip read as `""`, so no assertion about chip text could ever
+      have been honest), and `createTreeWalker`/`NodeFilter`/`nodeValue`/
+      `splitText`/`after` were missing entirely, so `insertGhost()` — the
+      whole ghost-suggestion render path — threw on contact. Item 81 still
+      stands: these live in the scratchpad, not the repo.
+
+85. 🟦 the bundled guide's prose still describes the two-node layout
+    - Part C and Part D mention "the Prompt Builder" and "the Media Loader"
+      about 22 times in body text. The node tables, node names and the
+      RefMods entry point are fixed, and Part C now opens with a note saying
+      to read those as the one node you have — but the prose itself is
+      unchanged.
+    - Not rewritten here on purpose: the file is generated from upstream's
+      README (the part header still credits `README.md` as its source), so
+      hand-editing 22 prose sites diverges from however upstream regenerates
+      it, for a gain the caveat note mostly already delivers. Worth doing
+      deliberately, as its own task, if this pack is going to keep its own
+      copy of the guide long-term.
+
+---
+
+## Follow-up round 12
+
+86. 🟩 "Draft from RefMods" does nothing when you click it
+    - **The button's own code is fine** — `draftFromRefmods()` is byte-identical
+      to upstream's once the namespace is normalised, and every path through it
+      works when driven directly: the happy path drafts its lines and retention
+      entries, the concept picker opens and completes when a RefMod has no saved
+      concept, and the "already drafted" branch offers Start over / Fill names.
+    - **What was broken is that it cannot tell you when it fails.** The handler
+      is `onclick: () => this.draftFromRefmods()` — an async method whose promise
+      is dropped. Any exception inside becomes an unhandled rejection: no toast,
+      no dialog, nothing on screen, just a console line nobody is looking at.
+      That is exactly the reported symptom, and it hides every cause equally.
+    - Fixed by catching at the call site: a failure now says so in a toast and
+      logs the error. Whatever the underlying fault is, it stops being invisible.
+    - **Found one concrete cause while proving the point.** `hasText` reads
+      `r.retention.some(...)` and `r.subjectDefs.some(...)` unguarded. A state
+      that reached the editor from somewhere other than `normaliseState()` — a
+      prompt loaded from the library, a draft buffer — can be missing either,
+      and then the very first thing the function does after the await is throw
+      a `TypeError` into that silent hole. `subjectDefs`, `retention` and
+      `summaryTypes` are now normalised on entry.
+    - **The benign case also read as a failure.** With no stack wired, or a
+      stack wired but empty, the toast was the same four words either way and
+      said nothing about what to do. It now distinguishes the two and points at
+      ◈ RefMods.
+    - `confirmDeletePhrase()` is the only other async method invoked from a bare
+      `onclick` in the file and had the identical trap; given the same treatment.
+    - `rig/draftfail.mjs` covers all four: no stack, empty stack, a state missing
+      `retention`, and an arbitrary runtime fault surfacing rather than vanishing.
+      Verified against the old code — the first two report the same undifferentiated
+      message, and the third kills the run outright with
+      `TypeError: Cannot read properties of undefined (reading 'some')` thrown from
+      the exact line named above, which in a browser is precisely "the button does
+      nothing".
+    - **Not confirmed as the reporter's own cause.** Every path reproduces
+      correctly here, so this fixes the class of fault rather than a diagnosed
+      instance. The point of the change is that the next click either works or
+      says why.
+
+---
+
+## Follow-up round 13
+
+87. 🟩 combine the RefMod loader into the Prompt Studio node
+    - Decided with the user: a **Media | ◈ RefMods tab** on the node's panel
+      (same area, node size unchanged), and the **standalone RefMod Stack node
+      kept for chaining** so existing workflows load unchanged.
+    - **Cheap because the pieces were already generic.** The stack UI
+      (`StackPanel`) and every editor path — `refmodStackFor`, `readStack`,
+      `openStackModal`, `openDraftRefMods`, `_applyRefmodSnapshot` — only need
+      "a node with a `stack_state` widget and a `_mmrPanel`". Prompt Studio got
+      both, so draft RefMods, presets, the RefMods window and Draft from RefMods
+      work on it without their own changes.
+    - Python: the Stack node's `load()` / validate / IS_CHANGED bodies became
+      `build_stack()` / `validate_stack_state()` / `stack_stamps()` in
+      `refmods.py`, and both nodes call them. Prompt Studio gained a hidden
+      `stack_state` widget, **appended after `media_state`** because widget
+      values save positionally — an older workflow loads it as `"{}"`. Its
+      `mods` output is now the chained input's entries followed by its own
+      picks. With no picks the RefMod runtime is never imported, keeping
+      RefMods optional on top of the core node the way `__init__.py` intends.
+    - Frontend: `StackPanel` takes `{ embedded: true }`, which drops the ⤡ Size
+      control (Studio's `fitPanel()` owns the node's height; `applyStackSize`
+      would fight it). The tab strip sits *outside* the media panel so T2VA's
+      collapsed toolbar can't take it along, carries the pick count, and the
+      node remembers the open tab. `[hidden]` needed an explicit
+      `display:none !important` — both panels set `display:flex`, which
+      outranks the browser's own rule for the attribute.
+    - Editor: Prompt Studio is its own stack now — `refmodSource` returns the
+      node itself and `modsChain` collects it rather than stepping through it.
+      ◈ RefMods opens the node's own picks and never adds a stack node; it
+      still wires the node's `mods` output into a Text Encode that's there. A
+      stack wired straight into a Text Encode (how 2.6.0 workflows were built)
+      is still recognised, now across *every* encoder the prompt feeds rather
+      than only the first. `chainOf` recognises the original pack's stacks and
+      counts Prompt Studio as a downstream member, so an external stack feeding
+      it reads "stack 1 / 2".
+    - **One guard is critical and is tested for.** With every Prompt Studio now
+      a "stack", one with an empty RefMods tab would take the RefMod path —
+      and that path only lists media a Text Encode receives, so the node's
+      plain media chips would vanish from every prompt that doesn't use
+      RefMods at all. A chain of nothing but empty Studios returns to the media
+      path.
+    - Verified: Python compiles, still 7 nodes; `build()` emits own picks,
+      upstream-first when chained, a pure passthrough with none, and a missing
+      file fails validation. New `builtin.mjs` (10 checks: tab strip, switching
+      and remembering, no Size control, picks reach `stack_state` and the tab
+      count, editor labels with no stack node in the graph, ◈ RefMods adds no
+      node, Draft from RefMods from built-in picks, chained numbering, chain
+      position, media chips kept with nothing picked). Removing the guard or
+      Studio-as-chain-member each fails its check. Existing suites updated to
+      the real node shape (they modelled Studio without `stack_state`) and all
+      green. Real Chromium: the two panels swap in the same 431px slot, tab
+      strip 27px, prompt bar untouched, 12 slots, grid 303px with labels.
+    - Also closes most of item 80's worry: day-to-day RefMods use is back to a
+      single node.
+
+88. 🟩 full-size media loader: a RefMods button left of a centred title that
+    opens the RefMod stacker on the left half of the screen, the loader moving
+    to the right half
+    - The header is a three-cell grid (`1fr auto 1fr`) so the title sits at the
+      true centre whatever the side groups hold — measured 0px off centre in
+      real Chromium, with and without the Prompt Builder button.
+    - `openStackModal(node, { host })` docks: no overlay of its own, the window
+      is prepended into the loader's overlay, and the overlay's `split` class
+      puts it on the left half and the loader on the right (`!important` over
+      the loader's inline width from `scaleOverlay()`, so undocking restores
+      it untouched). Measured at 1600px: RefMods 16–794, loader 810–1586.
+    - Reached through a node hook (`_mmrOpenDocked`, set by promptstudio.js)
+      rather than an import: refmodstack.js already imports medialoader.js.
+      Not shown on a draft's loader window, whose RefMods belong to the draft.
+    - Toggle button; Escape with RefMods docked closes only them; the RefMods
+      window's own Close resets the button; closing the loader closes both.
+    - **Fixed a bug of mine from item 87 on the way.** `openStackModal` built a
+      full panel with ⤡ Size even on Prompt Studio, so the editor's ◈ RefMods
+      window could resize Studio to a stack node's dimensions. It now uses the
+      embedded panel on Studio. And `StackPanel.write()` refreshes the node's
+      own panel even when it isn't in the document, so the RefMods tab can't go
+      stale behind a window.
+    - `rig/dock.mjs` (9 checks) plus the real-browser measurements above; all
+      earlier suites still green.
+
+89. 🟩 RefMod styling in the Prompt Builder should match upstream (◈ stays
+    top-left, per the user)
+    - **The real cause was merge damage in the stylesheet, not the markup.**
+      The 1.7.0 merge spliced three of upstream's CSS blocks into the *middle*
+      of existing multi-line rules — the RefMod card/strip/preview rules into
+      `.mmh3p-peek{…}`, `.mmh3p-refmodnone` into the form-field rule, and the
+      danger button plus the whole concept-dialog CSS into `.mmh3p-rolelabel`.
+      A browser reads each as one broken declaration block, so 22 rules never
+      existed: the ◈ badge fell to the bottom of the card, the group strips
+      rendered as large unstyled text, and **the "What are these RefMods?" and
+      "Definitions already exist" dialogs had no `position:fixed` or z-index —
+      they rendered as a plain div at the foot of the page, behind the editor.**
+      That is the most likely cause of item 86's "Draft from RefMods does
+      nothing": a RefMod with no saved concept opens exactly that dialog.
+      Item 86's note that the dialog's CSS "is present" was wrong — present in
+      the source, inside a broken rule. The headless stub never parses CSS, so
+      no test there could see it.
+    - Fixed by lifting each block out to after its host rule closes. Also
+      restored two markup losses from the same merge: upstream's `×N` note on
+      a RefMod picked with copies (tooltip: range, "citing <Picture 1> is
+      enough"), and not showing a paired-soundtrack "♪→V" note on every RefMod
+      voice card (its `note` is "voice"); and upstream's RefMod block in the
+      hover preview (`◈ RefMod · name | look/voice` header, the label range,
+      weight • tokens • "voice is <Audio 1>").
+    - **New permanent check (`pw/cssom.cjs`, real Chromium):** every rule
+      written in the three stylesheets must exist in the parsed CSSOM. 1,010
+      rules, 0 missing after the fix; run against the pre-fix file it reports
+      exactly the 22 lost rules. This should run after every upstream merge —
+      it is the class of damage a line-level merge produces and nothing else
+      catches.
+    - `rig/refstyle.mjs` (6 checks: badge placement, ×3 note and tooltip, no
+      voice note, soundtrack note kept, hover preview contents); the voice-note
+      fix confirmed load-bearing by revert. Screenshots of the rail and the
+      concept dialog in Chromium.
+
+90. 🟩 bring in the latest upstream changes (1.7.4 + 1.8.0, `23038f5..6ba5971`)
+    - **Masked video editing ported into Prompt Studio.** Upstream builds the
+      edit in its standalone Media Loader; here `build_bundle()` builds
+      `edit` and `video_specs`, and `Studio.build` carries them past the mode
+      gate onto the `references` output. Checked end to end in Python: a
+      masked clip in `media_state` comes out of Prompt Studio's `references`
+      with its edit settings. Four new nodes (Video Edit Latent, Edit
+      Composite, Object Mask, Store RefMod Encoder Frames) renamed
+      `MiniMaxH3Studio*` / "MiniMax H3 …"; the pack now registers 11.
+    - **Clean up hazard found and fixed.** Upstream's Clean up treats a mask
+      as used only if its own Media Loader node holds it — here that would
+      have called every Prompt Studio mask unused and deleted it. It now
+      counts Prompt Studio nodes too, and this pack's masks and saved latents
+      moved to `input/minimax_h3_plus/{masks,cache}` so neither pack's Clean
+      up can delete the other's files. RefMod Create's "pull from" list also
+      offers Prompt Studio media now (it only saw upstream's loader).
+    - **One ⚙ per window kept (item 54).** Upstream's second gear for the
+      clean-up reminder became a *Clean-up reminder* row in the existing ⚙
+      menu; the trim editor's new "⤡ Size" control is a bare ⚙ too.
+    - **Trim editor sizing.** Took upstream's new editor Size control and
+      content-height layout (mask mode needs it), and kept this fork's aim of
+      a tall clip filling the window: the picture may stand as tall as the
+      editor is wide, then 64vh, instead of upstream's 340px × window cap.
+      `sizeMedia()`'s quarter-turn cap follows the same rule. Measured at
+      1600×1000: 9:16 clip → 640px tall (upstream: 442px); 16:9 → 467px.
+    - Kept this fork's `hasCrop()` everywhere upstream reintroduced bare
+      `item.crop` tests (crop persist, crop button, video card badge/title),
+      its var()-based tag colours, and its tag-order arrows (plus upstream's
+      new "editing … also cited as" line).
+    - Docs: README "What's new in 2.9.0", node tables, masked-editing section
+      and guide Part E adapted to Prompt Studio; SECURITY.md documents the
+      three new routes and the new folders; CHANGELOG.md (upstream's) gets a
+      note that its version numbers are upstream's. Example workflows are
+      upstream's files with node types renamed. pyproject 2.9.0.
+    - Verified: loss audit (every upstream-added line absent from the result
+      is a deliberate substitution), all POSTs guarded, py_compile, stubbed
+      import (11 nodes), headless suites (load, studio, interop, names,
+      draftfail, builtin, dock, refstyle), CSSOM 1,124 rules / 0 missing,
+      Chromium trim editor + mask mode + ⚙ menu (`pw/trim.cjs`), dock layout.
+
+91. 🟩 drop the nodes that duplicate the original pack's — Prompt Studio is
+    meant to be the all-in-one node, used beside the original pack
+    - Compared each against upstream with the rename undone: Edit Composite,
+      Video Edit Latent, Object Mask, Store Encoder Frames, Create, Inspect,
+      Edit and Text Encode/Apply were byte-identical; the Stack differed only
+      by the refactor that lets Prompt Studio share its code. All unregistered
+      — the pack registers **one node** (was 11). `refmod_nodes.py`,
+      `refmod_create.py`, `refmod_inspect.py`, `refmod_edit.py`,
+      `video_edit.py`, `latent_cache.py` deleted; `refmods.py` keeps the
+      stack helpers Prompt Studio uses, `object_mask.py` keeps the layer
+      compositing `/mask_compose` uses.
+    - Prompt Studio's bundles are duck-typed (`check_bundle` checks
+      attributes, not classes) and its `references` format is the one
+      upstream's Media Loader emits, so the original pack's Text Encode and
+      Edit Composite take them unchanged.
+    - The frontend queues the original pack's node types (Auto Mask → its
+      Object Mask; the library → its Create/Inspect/Edit/Store frames) and
+      says plainly when that pack isn't installed (`originalNodeMissing`),
+      instead of a bare queue error. The "add a stack" path creates the
+      original pack's RefMod Stack; this pack no longer attaches its own UI
+      to stack nodes (that pack draws its own).
+    - **Older workflows:** a `beforeConfigureGraph` hook renames this pack's
+      old node types (subgraphs included) to the original pack's and takes
+      them out of the missing-nodes list, when that pack is installed.
+    - **Auto Mask results:** they now land in upstream's
+      `input/minimax_h3/masks`, where upstream's Clean up (which only knows
+      its own Media Loader) could delete them. `/mask_compose` copies them
+      into this pack's masks folder and the editor repoints its layers.
+      Tested against a stubbed server: copies made, layers repointed, a
+      result outside both folders still refused.
+    - Example workflows are now byte-identical to upstream's. README, REFMODS,
+      guide, SECURITY updated; pyproject 3.0.0 (major: without the original
+      pack, old workflows' RefMod nodes show as missing).
+
+92. 🟩 replace the Media | RefMods tabs with a ◈ button at the top left that
+    swaps between the two
+    - The tab strip is gone; a ◈ leads both toolbars — the media panel's
+      (left of ❐) and the RefMods panel's (left of Browse library…). It shows
+      the number of RefMods picked, is amber while the RefMods show, and the
+      node remembers the choice as before. Inside the toolbars rather than
+      above them, since the media toolbar is what T2VA's "Used" layout keeps.
+    - The panel gets the tab strip's 30px back (media panel 432 → 458px in
+      Chromium). Not shown in the full-size window, which has its own
+      docking ◈ RefMods.
+    - Headless tests rewritten for the button (initial state, swap, swap back,
+      counts on both buttons, docked-window count); Chromium screenshots of
+      both views.
+
+93. 🟩 bring in the latest upstream changes (1.8.1, `6ba5971..01b6d8d`)
+    - Merged with the namespace normaliser updated for 3.0.0: it no longer
+      renames node IDs, since this pack now uses the original pack's as-is.
+      Loss audit: every upstream-added line absent from the result is a
+      deliberate substitution.
+    - Upstream's changes to `refmod_edit.py` and `refmod_nodes.py` (the Edit
+      node's bundle copies, `stack_pictures_n`) stay out: those files were
+      deleted in 3.0.0, and the changes reach users through the original
+      pack's own nodes. README/REFMODS now ask for that pack at 1.8.1+.
+    - **RefMod card numbering adapted to Prompt Studio.** Upstream numbers a
+      stack's cards after the Media Loader feeding the Text Encode; here that
+      media is usually Prompt Studio's own panel, so `mediaBefore()` accepts
+      it too. Upstream's rewire hook is ported to Prompt Studio's
+      `onConnectionsChange` and to a small connection-only extension on the
+      Text Encode types. New `labels.mjs` (4 checks): unwired counts from 1;
+      wired, two pictures in the panel put Ann at `<Picture 3>`; the card
+      text says so; a media change redraws it. Without the adaptation the
+      second check reads `<Picture 1>`.
+    - The library's new "⤡ Size" is a bare ⚙, last beside Close (item 54's
+      rule).
+    - Custom long edge in the trim editor, mask-preview fixes: auto-merged;
+      custom size checked in Chromium (option listed, box appears, 1500
+      applied).
+    - pyproject 3.1.0; publish changelog rewritten for this release.
+
+94. 🟩 the audio trimmer doesn't open (3+ minute file; a 13 s file is fine)
+    - Reproduced in Chromium: `new TrimModal()` threw `ReferenceError: p is
+      not defined` in `layoutTimeline()`, before the window was attached. The
+      line positions this fork's 15-second marker, which only exists on clips
+      over 15 s — hence short files working — and it still called a pct
+      helper that the 1.8.0 timeline-zoom merge removed. Video over 15 s was
+      broken the same way.
+    - Now positioned with `this.pct()` in the zoomed view's terms and hidden
+      when zoomed past it. Measured: a 200 s clip opens with the marker at
+      7.5% (15/200), it hides after zooming in, a 4 s clip shows none.
+    - An `eslint no-undef` sweep of every web file (now part of each check)
+      found one more undefined name, `SPLITTER_NAME`, in the dead
+      `addSplitter()` export: removed, with its now-unused toast helper and
+      CSS.
+
+95. 🟩 Prompt Builder, Reference mode: a toggleable column layout that widens
+    the window (left: everything up to retention_analysis; right:
+    detailed_description, overall_soundscape, non_diegetic_music)
+    - Built the "Enhanced" variant chosen: **⫼ Columns** in the header,
+      shown in Reference mode only, remembered as a preference
+      (`refColumns`). Each column scrolls on its own; the subject chip bar
+      stays full width above both; each column is its own `mmh3p-fields`
+      container so the audio pair's own fold reads its column.
+    - The window grows by 520 px × window scale (cap 98vw) only while
+      Reference mode and the toggle are both on; switching mode shrinks it
+      back. Under ~760 px of form the columns fold into one scroller.
+    - Each column keeps its scroll position across re-renders.
+    - Measured in Chromium at 1900×1000: modal 1240 → 1760 px; two 552 px
+      columns, left scrolling with 14 retention rows, right holding the
+      description with the audio pair at its foot; I2VA back to 1240 with
+      the button hidden; preference persisted. At 1300 wide it folds into
+      one column scrolled by the wrapper.
+
+96. 🟩 upstream 1.8.2 (`01b6d8d..1e8df67`)
+    - RefMod Create's masking (Batch Masking, crop to subject, blur
+      background, the Crop and mask window) merged into the library; it
+      queues the original pack's Object Mask, now behind `requireOriginal`
+      in `runHidden()`. Unique RefMod names and `refmod_label` in
+      `build_stack`.
+    - Left out on purpose: upstream's own UI for its Text Encode (reference
+      order, ▦ Thumbnails) and its new Reference Map node — the original
+      pack draws those on its own nodes, and a second copy would double them
+      — with `encodeSlots()` and its CSS. The Object Mask node and its
+      subject-mask helpers stay out of `object_mask.py` (they need
+      `latent_cache`, deleted in 3.0.0). Node files deleted in 3.0.0 stay
+      deleted.
+    - Upstream's `clipPreview()` adopted for the loader's video rows, with
+      this fork's `hasCrop()` and the lightbox's ← → siblings; pictures keep
+      this fork's `picCell`.
+    - Loss audit, lint, namespace sweep, CSSOM check (no spliced rules),
+      stubbed import (1 node), module load in Chromium all clean.
+      pyproject 3.2.0.
+
+97. 🟩 add the masking feature to images in the media loader
+    - Built as chosen: subject isolation (as in RefMod Create), per picture
+      plus a batch, applied in Reference mode only.
+    - **Editor:** a picture's ▣ (also right-click → Crop and mask…, and the
+      Prompt Builder card's ▣) opens TrimModal with upstream's SubjectLayer,
+      fed by a new loader spec (`loaderSubjectSpec`): Auto mask, dots,
+      brush, Mask | Result, and settings (blur, grow, edge, crop to subject +
+      margin, keep every match), own per picture or following Mask all's.
+      Crop to subject is drawn as a dashed box (`subjectCropRect`).
+    - **Batch:** ◐ Mask all in the pictures heading, a popover with the
+      shared settings and Find and mask all (one queue job on the original
+      pack's Object Mask; brushed pictures keep their mask).
+    - **Storage:** `item.subject` in media_state (so presets and drafts carry
+      it; `_canonical_items` includes it for preset matching). SAM's masks
+      are copied out of the original pack's cache into this pack's masks
+      folder by a new guarded route, `/adopt_masks`; Clean up counts them.
+    - **Send time:** `subject.py` (blur_outside ported from upstream, crop
+      rect) and `object_mask.subject_mask` (restored); `build_bundle(...,
+      subjects=mode == "REF")` so keyframes are untouched.
+    - `runHidden`, `requireOriginal` and `turnRect` moved from refmodstack.js
+      to medialoader.js (shared; refmodstack imports them).
+    - Verified: real-tensor tests (subject pixels unchanged, background
+      blurred, crop 350×350 for a 200 px subject at margin 1.75, rotate 90 +
+      mirror lines up, brush-only works); JS ↔ Python crop maths identical on
+      16 rotate/mirror/margin cases; route test (copies only subject_ files
+      from that cache, refuses others and traversal, needs the token);
+      Chromium: editor, brush → Apply → item.subject, badge, menu, batch
+      popover with a stubbed queue → adopted paths, Clean up keeps them;
+      lint, CSSOM, earlier trim/columns checks.
+
+98. 🟩 nothing happens when clicking Auto mask (nothing in the console)
+    - Cause: when Auto mask couldn't start, `findLoaderSubjects()` reported
+      it with `panel.say()` and returned false. That message line sits behind
+      the editor overlay, SubjectLayer only shows *thrown* errors, and nothing
+      was logged — so a refusal was invisible. The likeliest refusal: the
+      checkpoint check accepted only a file named like "sam3", rejecting even
+      a model picked in the video editor's Auto model box, and the picture
+      editor had no picker to choose one.
+    - Now every refusal throws (shown as "Auto mask failed: …" in the editor
+      and in Mask all) and logs a console warning; a queued run logs a
+      console line and its result. The saved Auto model choice is used
+      whatever it's called, and an **Auto model** picker (shared SAM_KEY,
+      with the "no SAM 3.1 checkpoint found" note and link) sits in the
+      editor's settings and in Mask all.
+    - Verified in Chromium, five scenarios: no SAM checkpoint, a saved model
+      not named sam3 (used, and sent as ckpt_name), empty word, original pack
+      missing, normal run (mask adopted) — each with a visible status and a
+      console line. Earlier subject test, load, CSSOM, lint re-run.
+
+99. 🟩 panel squished horizontally after switching workflow tabs (classic canvas, WebView2; only a reload fixed it)
+    - Cause (found in the real frontend, 1.57.1): the right side panel's
+      Parameters tab lists the node's widgets and drew our DOM widget
+      `mml_panel` with `WidgetLegacy`, which sets `widget.width` to the side
+      panel's width (277). `DomWidgets.vue` sizes a DOM widget's element
+      from `widget.width ?? node.width`, so the on-node panel shrank to
+      257 px inside a 900 px node, and nothing ever cleared the value.
+      `WidgetLegacy` re-runs on every graph change (its `currentGraph`
+      watch), hence "after switching tabs"; not WebView2-specific.
+    - Fix (`web/promptstudio.js`): `addDOMWidget(..., { hideInPanel: true })`
+      keeps the panel out of the Parameters list (it showed there as an
+      empty strip anyway), and `widget.width` is pinned as an accessor that
+      reads `undefined` and ignores writes, so the frontend always falls
+      back to the node's width (covers frontends without `hideInPanel`).
+    - Verified in a real ComfyUI (master, frontend 1.57.1, Chromium):
+      before, side panel opened on a 900 px node → panel 257 px, still 257
+      after closing it; after, 880 px throughout (node − 2×10 margin), with
+      each half of the fix alone also passing. Regression pass: fresh node,
+      edge drag to 904, zoom 0.7, page reload, ◈ swap and back, ❐ full-size
+      window, side panel open/closed, three tab round trips; no console
+      errors. Scripts kept in the scratchpad rig (`realui/t/side.cjs`,
+      `regress.cjs`, `tabs.cjs`). Lint clean.
+
+100. 🟩 remove the Node Size slider from the node's ⚙
+    - `LoaderPanel.scaleControl()` (medialoader.js): on the node the menu is
+      Text size and the clean-up reminder; Apply/Reset no longer touch the
+      node's size (the node is sized by dragging its edge). The full-size
+      window's ⚙ keeps **Window size**, which still sizes that window.
+    - Verified in real ComfyUI: node ⚙ labels "Text size | Clean-up
+      reminder"; full window "Window size | Text size | Clean-up reminder".
+
+101. 🟩 text size should affect the prompt bar at the bottom
+    - The bar (and T2VA's inline fields) read `--mmh3-fs`, which on the
+      document is the Prompt Builder window's text size. `.mmh3p-nodestack`
+      now maps `--mmh3-fs` onto the node ⚙'s `--mml-fs`, so everything in
+      the node follows one setting, live, on every node.
+    - Verified: Text 150% → the bar's mode button at 16.5px (11 × 1.5).
+
+102. 🟩 consistent interface and text sizes when switching to the RefMods view
+    - Text: the same mapping as 101 (the one-off `applyTabText` copy, read
+      only at create/configure, is gone).
+    - The RefMods view gets the node's ⚙ (StackPanel `settings` option, built
+      by the media panel's `scaleControl`; copies tracked so any one closes).
+    - Toolbar: scoped CSS gives the embedded RefMods toolbar the media
+      toolbar's control height (22px × text), 8px gap and 11px small buttons.
+    - Verified: toolbar y/height, button heights and fonts, ◈ box and ⚙ box
+      identical in both views at 100% and 150% (before: 20/21/24px buttons,
+      ◈ 2px lower); the RefMods ⚙ changes the shared text size.
+
+103. 🟩 move the Prompt Builder's Columns toggle into its settings
+    - ⚙ → *Two-column Reference form* (`refColumns` pref); the header's
+      ⫼ Columns button and its CSS removed.
+    - Verified: checkbox present; on, the columns draw and the window widens
+      1240 → 1568 px.
+
+104. 🟩 Media Loader first on the Prompt Builder's toolbar
+105. 🟩 Draft after the Library button
+    - Header order now: ❐ Media Loader, ◈ RefMods, ☰ Library, Draft ▶,
+      Clear, 📖 Guide, modes, ⚙, ✕ (verified from the DOM).
+
+106. 🟩 one resize handle above overall_soundscape / non_diegetic_music
+    - `audioGrip()` (promptbuilder.js): a grip above the pair; drag up for
+      taller, down for shorter, double-click for the default. Both boxes take
+      the same height, stored at 100% text in its own key
+      (`mmh3.audioBoxH`, so stale prefs copies can't overwrite it) and scaled
+      by the text size. The boxes' own corner grips are off.
+    - In the full builder (Reference, columns or not, and the other modes),
+      Quick edit and T2VA's fields on the node.
+    - Verified: Quick edit drag −60px → both boxes +60, `resize: none`; the
+      height carries into the full editor; columns drag +50 on both.
+
+107. 🟩 media loader: mask functions only in Reference mode
+    - `LoaderPanel.maskable()`: ◐ Mask all, the ◐ badge, the right-click
+      menu and the editor's Masking row only in REF; `openPictureEditor`
+      takes `opts.masking` (the Prompt Builder passes its own mode). Masks
+      already set are kept and return with Reference mode.
+    - Verified: REF has all four; I2VA has none (no Auto mask in the editor).
+      Stub rig: Auto mask scenarios and subject test still pass.
+
+108. 🟩 Quick edit: Prompt Builder button in the middle of the toolbar
+    - The head is a 1fr/auto/1fr grid: title, 📜 Prompt Builder, ⚙ + ✕.
+      The old push-right rules removed.
+    - Verified: button centre 0 px off the head's centre.
+
+109. 🟩 the Used view in I2VA, FL2VA and L2VA only shows images that are enabled
+    - It showed the first N pictures whether on or not, while nodes.py sends
+      the first N that are on. `usedPictures()` now picks those, and the
+      window button's hidden count includes switched-off pictures.
+    - Verified: first of three pictures off → FL2VA shows the other two,
+      I2VA shows the second.
+
+110. 🟩 Used T2VA: clicking a field should not open Quick edit
+    - The bar's click opens Quick edit only while it is the collapsed
+      summary; expanded into the fields it also drops the pointer cursor and
+      the "Quick-edit" tooltip.
+    - Verified: clicking the inline field opens no Quick edit.
+    - Whole round: real-UI script `realui/t/ui_round.cjs` (28 checks pass),
+      plus `regress`, `side`, `tabs`, stub `subj`, `auto`, `cssom`, `load`,
+      `long2`; lint clean; no console errors.
+
+111. 🟩 a setting for how many rows the prompt bar shows
+    - Node ⚙ → **Prompt bar rows** (1–8, default 2), shown wherever the node's
+      ⚙ is (media and RefMods views; not the full-size window, which has no
+      bar). Stored per user (`mmh3.barRows`) and applied at once through
+      `--mmh3-barrows` on the document, so every node follows it; the bar's
+      clamp, max height and floor height all read it (the floor is still 52px
+      at two rows and 100% text). The preview now carries up to 1500 chars,
+      enough for eight rows on a wide node.
+    - Verified in real ComfyUI (`realui/t/barrows.cjs`): 2 rows by default
+      (bar 52px), 1/5/8 rows show exactly that many lines with the stack still
+      inside the node, 99 clamps to 8, 4 survives a reload, and the RefMods
+      view's ⚙ has it too. `ui_round.cjs` still 28/28; lint clean.
+
+112. 🟩 the interface size changes vertically by 1–2px in Reference mode
+    - Measured in real ComfyUI: the node, bar and panel are identical in
+      every mode, but in REF every picture slot was 93px against 95px. The
+      ◐ Mask all button (REF only since item 107) is 18px in a 12px heading,
+      so the heading grew 2px. It now overhangs with a negative block margin
+      that scales with the text size. Slots and headings are now identical in
+      all five modes at 100%, 150% and 200% text.
+    - Same kind of jump in the Prompt Builder: FL2VA/L2VA's footer stats
+      ("… • length N (Ns)") wrapped and made the footer 49px against 47px.
+      Now one line, ellipsised, with the full text as its tooltip; the
+      window's rows are identical in all modes.
+
+113. 🟩 Quick edit: a resize grip in the bottom-right corner, kept to the picture preview's aspect
+    - `.mmh3p-quickgrip`. Dragging sets the window's height, and its width
+      follows: with keyframes, the width that lets them stand the full
+      height beside the fields (the same sum `growForPics` uses), so the
+      preview's shape always holds; without pictures (T2VA, Reference) the
+      window keeps its own aspect. The pointer reads as height on either
+      axis, doubled since the window is centred, so the corner stays under
+      it. Clamped to 320px tall and 96vw × 92vh; at the width cap the height
+      comes down instead of the shape breaking.
+    - Remembered (`mmh3.quickHeight`); double-click, or changing Window
+      size in the ⚙, returns to the ⚙ size.
+    - Verified (`realui/t/quickgrip.cjs`, 11 checks): the preview fills the
+      height (16:9, ±3px) at open, after drags down, left, far up (stops at
+      320) and far out (stops at the screen), and in FL2VA with two pictures;
+      the corner follows the pointer to the pixel; the size survives a
+      reopen; T2VA keeps its ratio; double-click resets. `ui_round` 28/28,
+      `barrows` 8/8; lint clean.
+
+114. 🟩 a reasonable minimum height for resizing the Quick edit window
+    - Measured first: the fields' own natural height is 419–896px (by mode
+      and text size), often taller than the ⚙ size, so "everything fits"
+      was too big a floor. The floor is now the window's header and footer
+      plus 280px for the fields, scaled with the text: ~408px at 100%, 568px
+      at 150%, 728px at 200% (was a flat 320px), capped at 92vh.
+    - The keyframe preview is top-aligned and sticky: centred against a
+      fields column taller than the window, it sat low and was cut off.
+
+115. 🟩 Quick edit: the audio boxes' bottoms line up with the picture preview's
+    - The last audio section's 16px margin is gone (the full editor already
+      drops it for its last pair).
+    - The description box was stuck at its 12 rows (237px): the grow rule
+      targeted the textarea, which sits inside a chip wrapper. In the Quick
+      edit window the wrapper now flexes down to 100px (× text size), so the
+      fields fit at every allowed size and the boxes end level with the
+      picture instead of below it in a scrolled area. The node's T2VA fields
+      keep their fixed rows.
+    - Verified (`quickgrip.cjs`, 19 checks): level within the 1px border at
+      the default size, after drags, in FL2VA, and at the floor at 100%,
+      150% and 200% text, with no scrolling; the picture stays whole.
+
+116. 🟩 found while verifying: right-clicking a picture or clip opened two menus
+    - In Reference mode a picture's right-click opened the mask menu and the
+      slot menu (Copy / Duplicate / Paste / Switch off / Remove) stacked;
+      closing one left the other over the grid. Clips had the same with
+      their trim/mask menu. The editing entries now lead the slot menu
+      (`editRows`), and the separate picture and video menus and their CSS
+      are gone. Both Clears are one click with Undo.
+    - The slot menu's Escape listener is registered at once rather than
+      after a tick, which on a busy page let Escape arrive first.
+    - Verified: one menu with the right entries in REF and I2VA, Escape
+      closes it (`ui_round` 30/30, twice); stub rig: Clear the mask from the
+      menu then Undo restores it, Mask all, Auto mask scenarios and Clean up
+      unchanged; lint clean.
+
+117. 🟩 drag and drop onto the Quick edit picture preview to replace the shown picture
+    - Each preview tile is a drop target when its slot belongs to a media
+      panel: the panel's own `replaceWithFile` does the swap (as dropping on
+      the node's tile does), so the picture keeps its slot and tag, the
+      per-item edits go with the old file, and the node saves. The tile is
+      redrawn from the fresh slot and the window re-fits (a dragged height
+      is kept). A blue "Drop to replace" highlight while dragging; the tile
+      dims during the upload; a toast names the new picture; a non-picture
+      is refused with a toast and nothing changes.
+    - Verified (`realui/t/dropcrop.cjs`): 16:9 replaced by a square → the
+      tile becomes 457×457 at the full 457px height, node media saved, text
+      file refused.
+
+118. 🟩 the enlarged picture view: a button to go into crop mode
+    - `lightbox()` takes the tile's panel and adds **▣ Crop…** (pictures;
+      the picture editor, so masking too in Reference mode) or **✂ Trim &
+      crop…** (clips) beside Close, for the item on show (after ←/→ too).
+      The viewer closes first. Close and the backdrop now also remove the
+      viewer's key listener (only Escape did).
+    - Verified: the button is there; after → it opens the editor on the
+      second picture with the viewer gone; Close closes. `ui_round` 30/30,
+      `quickgrip` 19/19, `barrows` 8/8; lint clean.
+
+119. 🟩 a video dragged onto the prompt bar: add it, or import the Prompt Studio settings it was made with
+    - Videos only (as clarified). The bar takes a dragged video file or one
+      of ComfyUI's own asset/queue cards (`application/x-comfy-asset-info`,
+      or a plain `/view` link); anything else passes through to ComfyUI.
+      Taking the drop calls `preventDefault`, which also stops ComfyUI's
+      document drop handler loading the video's workflow over the graph.
+    - `video_meta.py` + guarded route `/minimax_h3_plus/video_studio_meta`:
+      reads the container metadata with PyAV (SaveVideo's `prompt`/`workflow`
+      keys, or VideoHelperSuite's `comment` JSON) and returns every
+      `MiniMaxH3PromptStudio` in the run — from the executed graph by input
+      name, else from the workflow's widgets_values checked by shape — with
+      a summary (mode, prompt preview, each media file and whether it still
+      exists, RefMods count) and the raw states. An uploaded video is read
+      from a random temp name and deleted; a referenced one goes through
+      `media_io.resolve()`. SECURITY.md has the row.
+    - Dialog (`openVideoDropDialog`, promptstudio.js): what was found, a
+      picker when the run had several Studios, tick boxes for Prompts /
+      Media / RefMods; Add to media (the panel's own add, fetching an output
+      file first when it came from ComfyUI's panel) or Import. Import writes
+      builder_state + prompt_text, media_state (files no longer on disk left
+      out, listed) and stack_state, redraws everything that reads them
+      (panel, RefMods, bar, T2VA fields), and offers Undo in the panel's
+      message line. Refused while the Prompt Builder or Quick edit is open
+      for the node, since either would write its own copy back.
+    - Verified: route on SaveVideo-style, workflow-only, VHS-style and plain
+      MP4s, by upload and by `[output]` reference; traversal, non-video and
+      token-less requests refused; no temp files left. Real UI
+      (`realui/t/vdrop.cjs`, 15 checks): drop accepted and highlighted, graph
+      untouched, dialog contents, import of mode/fields/sent prompt and
+      media with the missing file left out, Undo, asset-card drop, prompts
+      only, plain video (Import disabled, Add to media works), pictures not
+      taken, refusal with the Prompt Builder open, Escape. Earlier suites
+      30/19/8/10; lint and py_compile clean.
+
+120. 🟩 pictures dragged onto the prompt bar are added to the media as normal
+    - The bar is a drop target for all media now (`mediaDropTarget`):
+      pictures and audio go straight to the media panel's own `add()` (same
+      checks, upload and messages as a drop on the panel), as files or as
+      cards from ComfyUI's assets/queue panel (fetched first); a video still
+      opens the add-or-import dialog (one at a time; any further videos in
+      the same drop are just added). Taking the drop keeps ComfyUI's own
+      handler from loading a dropped picture's workflow over the graph.
+    - Verified (`vdrop.cjs`, 16 checks): a picture file and a picture card
+      are added with no dialog and the graph untouched; the video flow
+      unchanged.
+
+121. 🟩 why focus is sometimes stolen for the arrow keys in input fields
+    - Probed every kind of field in the real UI (node T2VA fields, ⚙ number
+      inputs, preset search, Quick edit, Prompt Builder), with the node
+      selected and not: arrows always moved the caret, so not ComfyUI's
+      keybindings (they skip text fields, and bind no bare arrows) nor the
+      pack's other listeners (all Escape-only, or already skip typing).
+    - Cause: the enlarged picture view's window keydown listener (← → step
+      between pictures, with preventDefault) was only removed by Escape;
+      closing with Close or the backdrop left it behind, so ← → in every
+      field afterwards did nothing until an Escape anywhere cleaned it up —
+      hence "sometimes". Reproduced on the code before item 118 (caret
+      stuck at 5 after Close and after the backdrop; fine after Escape) and
+      gone since item 118's close(). Hardened: the viewer's arrows also
+      ignore anything typed in a field. `realui/t/arrowleak.cjs` keeps the
+      check.
+
+122. 🟩 replace the prompt bar rows setting with a slider on top of the bar, 2–4 rows in steps
+    - The ⚙ row (`barRowsPrefRow`, 1–8) is gone. `barGrip()` (promptstudio.js)
+      sits on the bar's top edge — in the stack just above the bar, since
+      the bar's contents are rebuilt whenever the prompt changes, with
+      negative margins so it takes no room. Dragging up adds a row per row
+      of travel (line height × canvas zoom), down removes one, clamped 2–4;
+      double-click resets to 2. `setBarRows()` saves and applies through
+      `--mmh3-barrows`, so every node follows; old saved values clamp into
+      range. Hidden while the bar holds T2VA's fields. The pointer never
+      starts a node drag.
+    - Verified (`realui/t/barrows.cjs`, 15 checks): no ⚙ row; 2 rows/52px by
+      default with the grip on the edge and no gap; 18px up → 3, again → 4,
+      further stays 4, far down → 2, a 40px pull = two steps; node never
+      moved; double-click → 2; steps at 70% zoom; survives reload; saved 8 →
+      4 and 1 → 2; hidden in T2VA's fields view. Other suites 30/19/10/16.

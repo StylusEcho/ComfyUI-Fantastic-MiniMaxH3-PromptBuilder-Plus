@@ -16,7 +16,64 @@ name = "fantastic-minimax-h3-promptstudio"
 # collision check and an explicit rename flag for the prompt library, and
 # dimension/duration healing for presets saved before that metadata was
 # stored) — again no breakage of saved workflows.
-version = "2.2.0"
+# 2.3.0 folds in upstream 1.6.0 (Draft mode, the editor's own Media button
+# opening the loader over the top of it, a pack-owned preset picker, and the
+# [Shot N] chip's caret-drift fix) — no breakage of saved workflows.
+# 2.4.0 renames the picture_1/picture_2 outputs to first_frame/last_frame,
+# matching what MiniMaxH3ImageToVideo actually calls them. For L2VA only this
+# also moves which slot the picture comes out on — its one loaded picture
+# used to travel on picture_1, and now travels on last_frame, since that is
+# what it actually is. I2VA and FL2VA output on the same two slots as before.
+# See "Upgrading from 1.x" in the README.
+# 2.5.0 folds in upstream 1.6.1 (prompt-to-preset linking, preset categories,
+# the HTML guide replacing the PDF, save-on-close) and the 1.6.2 security
+# release (path containment, per-route CSRF guards, PyAV-only decoding with
+# no subprocess use) — no breakage of saved workflows.
+# 2.6.0 folds in upstream 1.6.3 / 1.6.4 / 1.7.0 / 1.7.1: the registry
+# policy-v0.2 hardening (session-token guard on every state-changing route),
+# a crop-after-rotate fix, the delivery-tag picker, and the whole RefMod
+# subsystem — which adds nodes to a pack that had settled on one. See
+# "Upgrading from 1.x" in the README.
+# 2.7.0 folds in upstream 1.7.2 / 1.7.3: subject names (a name box per
+# <Subject N> line, !Name shorthand with Tab completion, and RefMods that
+# carry a subject name, appearance and voice description), voiced speaker
+# buttons, the right-click tag menu, and the rebuilt twelve-slot RefMod
+# Stack node with presets — no breakage of saved workflows.
+# 2.8.0 folds the RefMod Stack into Prompt Studio as a RefMods tab (a hidden
+# stack_state widget, appended last so older workflows load it empty); the
+# standalone Stack node stays for chaining — no breakage of saved workflows.
+# 2.9.0 folds in upstream 1.7.4 and 1.8.0: masked video editing (Mask mode in
+# the clip editor, SAM 3.1 Object Mask, Video Edit Latent and Edit Composite
+# nodes, carried through Prompt Studio's references output), encoder frames
+# stored in RefMods, and compressed RefMods trimming instead of squeezing —
+# no breakage of saved workflows.
+# 3.0.0 is a pack of one node again: the RefMod and masked-editing nodes
+# (copies of the original pack's) are unregistered, and Prompt Studio uses the
+# original pack's, installed alongside. A workflow saved with the old copies
+# is remapped to them on load when that pack is installed; without it they
+# show as missing — hence the major version. The node's Media | RefMods tabs
+# became a ◈ swap button.
+# 3.1.0 folds in upstream 1.8.1: a custom long edge in the trim editor's
+# size menu, mask-preview fixes, RefMod cards numbered after Prompt Studio's
+# media, the library's own size control, and editing ComfyUI-MiniMaxH3Mod
+# bundles as copies (through the original pack's Edit node, 1.8.1+) — no
+# breakage of saved workflows.
+# 3.2.0 folds in upstream 1.8.2 (RefMod Create's crop to subject and blur
+# background, unique RefMod names), fixes the trim editor not opening on
+# clips over 15 seconds, and adds the Reference-mode column layout — no
+# breakage of saved workflows.
+# 3.3.0 adds subject masking to the media panel's pictures (blur the
+# background around the subject and/or crop to it, Reference mode only) —
+# no breakage of saved workflows.
+# 3.4.0 reworks the interface: text size only on the node's ⚙ (it now reaches
+# the prompt bar and the RefMods view), a grip for the prompt bar's 2-4 rows,
+# drag-and-drop on the prompt bar (a generated video's settings can be
+# imported), Quick edit's resize grip, the RefMods view matching the media
+# view, the Prompt Builder's header reordered with two columns in its ⚙, one
+# grip for the audio boxes, masking offered in Reference mode only, and the
+# Used view showing the pictures actually sent — no breakage of saved
+# workflows.
+version = "3.4.0"
 description = "MiniMax H3 Prompt Studio: a single guided prompt-writing and reference-media node for the H3 video model, with live checking against MiniMax's prompt guide."
 license = { file = "LICENSE" }
 requires-python = ">=3.9"

@@ -6,13 +6,81 @@
  */
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { LOADER_NAME, computeTags, viewURL as loaderViewURL,
-  safeCanvasFocus, openLoaderModal, isOn, TrimModal,
-  fileCount, MODE_CAPACITY, hasCrop } from "./medialoader.js";
+import { LOADER_NAME, STUDIO_NAME, computeTags, viewURL as loaderViewURL,
+  safeCanvasFocus, openLoaderModal, isOn, openPictureEditor,
+  fileCount, MODE_CAPACITY, hasCrop, TAG_COLORS, TAG_VARS,
+  raiseIfOpen, RAISE_CSS, postApi, outputTargets, setterOf, linkNodes,
+  keepNameChars, overlayOn, maskOverlay, refTokenEstimate, itemLook,
+} from "./medialoader.js";
+import { STACK_NAME, STACK_NAMES, ENCODE_NAMES, readStack, deriveEntries, labelGroups,
+  rangeText as refmodRange, previewURL as refmodPreviewURL, KIND as REFMOD_KIND,
+  openStackModal, refreshStackLabels } from "./refmodstack.js";
+
+// The node this editor is mounted on. Upstream names its own builder here;
+// in this pack the prompt and the media panel are the one Prompt Studio node,
+// so that is what a mods chain has to recognise as "a builder to step
+// through" (see modsChain).
+const NODE_NAME = STUDIO_NAME;
 
 // Private drag type: marks a drag as "reorder the rail" so a drop on another
 // card moves media, while a drop on a textarea still inserts the tag.
 const RAIL_MIME = "application/x-mmh3p-rail";
+
+/* Delivery tags — community findings, not from MiniMax's published guide.
+ * They go INSIDE a <d> block to shape performance. Kept in one table so the
+ * picker, the hover preview and section 6.1 of the bundled guide can never
+ * drift apart; if you edit this list, edit the guide's table to match.
+ *
+ * `wrap: true` marks a tag that surrounds text rather than standing alone:
+ * inserting one wraps the selection, or drops the caret between the halves. */
+const DELIVERY_TAGS = [
+  { group: "Pauses and breath", tag: "<pause>", what: "Short pause",
+    ex: "Okay, so. <pause> This is just me talking." },
+  { group: "Pauses and breath", tag: "<long pause>", what: "Longer pause",
+    ex: "I mean\u2026 <long pause> I don't even know." },
+  { group: "Pauses and breath", tag: "<breath>", what: "Breathing sound",
+    ex: "And then\u2026 <breath> it just happened." },
+  { group: "Pauses and breath", tag: "<inhale>", what: "In breath",
+    ex: "<inhale> Alright, let's do this." },
+  { group: "Pauses and breath", tag: "<exhale>", what: "Out breath",
+    ex: "<exhale> Fine. Have it your way." },
+  { group: "Pauses and breath", tag: "<catches breath>", what: "Out of breath",
+    ex: "Wait\u2026 <catches breath> hold on a sec." },
+  { group: "Pauses and breath", tag: "<deep breath>", what: "Calming down",
+    ex: "<deep breath> Okay. I can do this." },
+
+  { group: "Delivery and emphasis", tag: "<i>", what: "Emphasize 1\u20134 words",
+    ex: "I was <i>not</i> expecting that.", wrap: true },
+  { group: "Delivery and emphasis", tag: "<whisper>", what: "Whisper delivery",
+    ex: "<whisper> Don't tell anyone this.</whisper>", wrap: true },
+  { group: "Delivery and emphasis", tag: "<softer>", what: "Quieter delivery",
+    ex: "<softer> I don't think I can say it." },
+  { group: "Delivery and emphasis", tag: "<humming>", what: "Humming a tune",
+    ex: "<humming> da-da-da-beautiful-day.</humming>", wrap: true },
+  { group: "Delivery and emphasis", tag: "<stutter>", what: "Stutters the words",
+    ex: "<stutter> I ca can't believe that." },
+  { group: "Delivery and emphasis", tag: "<uh>", what: "Filler / hesitation",
+    ex: "So, like\u2026 <uh> what was I saying?" },
+
+  { group: "Non-verbal sounds", tag: "<laughs>", what: "Laughing",
+    ex: "That's\u2026 <laughs> that's actually funny." },
+  { group: "Non-verbal sounds", tag: "<chuckle>", what: "Small laugh",
+    ex: "<chuckle> You're not serious." },
+  { group: "Non-verbal sounds", tag: "<sighs>", what: "Sigh",
+    ex: "<sighs> I really tried." },
+  { group: "Non-verbal sounds", tag: "<gasp>", what: "Sharp intake",
+    ex: "<gasp> Oh my God." },
+  { group: "Non-verbal sounds", tag: "<coughs>", what: "Cough",
+    ex: "<coughs> Sorry, one sec." },
+  { group: "Non-verbal sounds", tag: "<clears throat>", what: "Throat clear",
+    ex: "<clears throat> So anyway\u2026" },
+  { group: "Non-verbal sounds", tag: "<sniff>", what: "Sniffing",
+    ex: "<sniff> It's just\u2026 really sad." },
+  { group: "Non-verbal sounds", tag: "<mhm>", what: "Agreement sound",
+    ex: "Yeah, <mhm> exactly." },
+  { group: "Non-verbal sounds", tag: "<phew>", what: "Relief",
+    ex: "<phew> That was close." },
+];
 
 /* ------------------------------------------------------------------ */
 /* Reference data straight from the guides                             */
@@ -26,15 +94,234 @@ const TAG_RE = /<(?:Picture|Video|Audio|Subject) \d+>/g;
 /* One pass over a field paints three things: dialogue blocks, reference tags
    and speaker IDs. Dialogue is matched first so tags inside a spoken line
    aren't chipped out of it. */
-const PAINT_RE = new RegExp([
-  "<d>[\\s\\S]*?<\\/d>",                      // a spoken line
-  // a cut marker, with its timestamp when one follows
-  "\\[Shot \\d+\\](?:\\s+at\\s+\\d{1,2}:\\d{2}(?:\\.\\d{1,3})?)?",
-  "<(?:Picture|Video|Audio|Subject) \\d+>",     // a reference tag
-  "\\(S\\d+(?:\\s*,\\s*S\\d+)*\\)",           // (S1) or (S1,S2)
-].join("|"), "g");
+/* The character that turns a subject's name into shorthand (!Bob). It's a
+   per-user editor preference, picked from symbols that mean nothing else in
+   an H3 prompt, so the patterns below are rebuilt when it changes. */
+const NAME_PREFIXES = ["!", "@", "#", "$", "%", "&", "*", "~", "+", "=", "^"];
+let NAME_PREFIX = "!";
+const reEsc = (c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+let PAINT_RE, NAME_TOKEN_RE, NAME_SPLIT_RE;
+function setNamePrefix(ch) {
+  NAME_PREFIX = NAME_PREFIXES.includes(ch) ? ch : "!";
+  const p = reEsc(NAME_PREFIX);
+  PAINT_RE = new RegExp([
+    "<d>[\\s\\S]*?<\\/d>",                      // a spoken line
+    // a cut marker, with its timestamp when one follows
+    "\\[Shot \\d+\\](?:\\s+at\\s+\\d{1,2}:\\d{2}(?:\\.\\d{1,3})?)?",
+    "<(?:Picture|Video|Audio|Subject) \\d+>",     // a reference tag
+    "\\(S\\d+(?:\\s*,\\s*S\\d+)*\\)",           // (S1) or (S1,S2)
+    `${p}[A-Za-z][\\w-]*`,                        // !Name shorthand for a named subject
+  ].join("|"), "g");
+  NAME_TOKEN_RE = new RegExp(`${p}([A-Za-z][\\w-]*)`, "g");
+  NAME_SPLIT_RE = new RegExp(`(${p}[A-Za-z][\\w-]*)`);
+}
+setNamePrefix("!");
+
+/** Named subjects from the switched-on definition lines that carry a name,
+ *  keyed by the lower-cased name so !bob, !Bob and !BOB all find "Bob":
+ *  { bob: { tag: "<Subject 1>", name: "Bob" } }. */
+function subjectNames(state) {
+  const out = {};
+  for (const d of state?.ref?.subjectDefs || []) {
+    if (d.off) continue;
+    const name = (d.name || "").trim();
+    const m = (d.text || "").trim().match(/^<Subject (\d+)>/);
+    const key = name.toLowerCase();
+    if (name && m && /^[A-Za-z][\w-]*$/.test(name) && !(key in out)) out[key] = { tag: `<Subject ${m[1]}>`, name };
+  }
+  return out;
+}
+const lookupName = (names, raw) => names[String(raw || "").toLowerCase()];
+
+/** A description saved with a RefMod or typed in a voice box, as one line
+ *  (a break reads as a shot cut) with no trailing full stop. */
+const oneLine = (s) => String(s || "").replace(/\s+/g, " ").trim().replace(/[\s.]+$/, "");
+/** "low, husky voice" -> "a low, husky voice"; kept as typed with an article. */
+const withArticle = (t) => (/^(a|an|the)\s/i.test(t) ? t : (/^[aeiou]/i.test(t) ? "an " : "a ") + t);
+/** "a low, husky voice" -> "low, husky voice", for "in the … referenced from". */
+const noArticle = (t) => t.replace(/^(a|an|the)\s+/i, "");
+/** A voice-timbre line ties a speaker ID to a subject: "<Audio 1> is the
+ *  voice-timbre reference for <Subject 1> (S1), …". Singing lines don't
+ *  count. Returns { audio, subj, sx } or null. */
+function voiceBinding(text) {
+  const t = String(text || "");
+  const a = t.match(/^\s*<Audio (\d+)>/);
+  const s = t.match(/\((S\d+)\)/);
+  if (!a || !s || /singing/i.test(t)) return null;
+  const subj = t.match(/<Subject \d+>/);
+  return { audio: `<Audio ${a[1]}>`, subj: subj ? subj[0] : null, sx: s[1] };
+}
+
+/* Right-click a tag: the tags a text holds, and how to rewrite them. */
+
+/** Reference tags, !Name shorthand and speaker IDs in a text, in order. */
+function tagTokens(text) {
+  const t = String(text || ""), out = [];
+  for (const m of t.matchAll(/<(?:Subject|Picture|Video|Audio) \d+>/g))
+    out.push({ tok: m[0], start: m.index, end: m.index + m[0].length });
+  for (const m of t.matchAll(NAME_TOKEN_RE))
+    out.push({ tok: m[0], start: m.index, end: m.index + m[0].length });
+  for (const m of t.matchAll(/\(S\d+(?:\s*,\s*S\d+)*\)/g))
+    out.push({ tok: m[0], start: m.index, end: m.index + m[0].length });
+  return out.sort((a, b) => a.start - b.start);
+}
+const isSpk = (tok) => tok.startsWith("(");
+const spkIds = (tok) => tok.match(/S\d+/g) || [];
+/** "(S2,S1)" from ids, in number order; "" when none are left. */
+const spkTok = (ids) => {
+  const sorted = [...new Set(ids)].sort((a, b) => +a.slice(1) - +b.slice(1));
+  return sorted.length ? `(${sorted.join(",")})` : "";
+};
+/** Same tag: exact for labels, any case for names (!ann is !Ann), the same
+ *  IDs for speakers whatever the spacing. */
+const sameTok = (a, b) => {
+  if (isSpk(a) || isSpk(b)) return isSpk(a) && isSpk(b) && spkTok(spkIds(a)) === spkTok(spkIds(b));
+  return (a.startsWith("<") || b.startsWith("<")) ? a === b : a.toLowerCase() === b.toLowerCase();
+};
+/** Copies of a tag. A single speaker ID also counts inside group tags. */
+const countTok = (text, tok) => {
+  if (isSpk(tok) && spkIds(tok).length === 1)
+    return tagTokens(text).filter((t) => isSpk(t.tok) && spkIds(t.tok).includes(spkIds(tok)[0])).length;
+  return tagTokens(text).filter((t) => sameTok(t.tok, tok)).length;
+};
+const tagClass = (tok) => (tok.startsWith("<") ? tok.match(/^<(\w+)/)[1] : isSpk(tok) ? "Speaker" : "Name");
+const TAG_CLASS_LABEL = { Picture: "picture", Video: "video", Audio: "audio", Subject: "subject",
+  Name: "subject name", Speaker: "speaker ID" };
+
+/** Close the gaps removed tags leave behind. "!" is left alone: it starts
+ *  a name, and pulling it onto the previous word would break the name. */
+const tidyGaps = (t) => t.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+([,.;:?)])/g, "$1")
+  .replace(/\(\s*\)/g, "").replace(/^[ \t]+|[ \t]+$/gm, "");
+
+/** Replace every copy of tok with target (remove it when target is null).
+ *  With swap, copies of target become `back` (tok as the prompt spells it). */
+function rewriteTokens(text, tok, target, swap, back = tok, ctx = null) {
+  let out = "", last = 0;
+  // One speaker ID is rewritten wherever it appears, group tags included:
+  // swapping S1 and S2 turns "(S1,S2)" into "(S2,S1)", removing S2 leaves "(S1)".
+  const byId = isSpk(tok) && spkIds(tok).length === 1 && (target == null || (isSpk(target) && spkIds(target).length === 1));
+  const from = byId ? spkIds(tok)[0] : null, to = byId && target != null ? spkIds(target)[0] : null;
+  if (byId && ctx) {
+    // A line from a speaker button — "!Ann (S1), in the low voice referenced
+    // from <Audio 1>, says:" — belongs to its speaker as a whole. When the ID
+    // changes hands, the name and voice clause follow the new speaker's voice
+    // line; removing the ID drops the clause and keeps the name. Only wording
+    // that matches the old speaker's voice line is touched.
+    const P = reEsc(ctx.prefix);
+    const re = new RegExp(`(?:${P}([A-Za-z][\\w-]*) )?\\((S\\d+)\\)(, in the [^<\\n]+? referenced from (<Audio \\d+>),)?`, "g");
+    text = text.replace(re, (m, name, id, clause, audio) => {
+      const Y = id === from ? to : (swap && id === to ? from : undefined);
+      if (Y === undefined) return m;
+      const bx = ctx.bindings[id] || null, by = Y ? ctx.bindings[Y] || null : null;
+      let who = name ? `${ctx.prefix}${name} ` : "";
+      if (Y && name && bx?.name && name.toLowerCase() === bx.name.toLowerCase())
+        who = by?.name ? `${ctx.prefix}${by.name} ` : "";
+      let how = clause || "";
+      if (clause && bx?.audio && audio === bx.audio)
+        how = Y && by?.voice && by?.audio ? `, in the ${noArticle(by.voice)} referenced from ${by.audio},` : "";
+      return who + (Y ? `(${Y})` : "") + how;
+    });
+  }
+  for (const t of tagTokens(text)) {
+    let rep = null;
+    if (byId && isSpk(t.tok)) {
+      const ids = spkIds(t.tok);
+      if (ctx && ids.length === 1) continue;           // handled with its line above
+      if (!ids.includes(from) && !(swap && to && ids.includes(to))) continue;
+      rep = spkTok(ids.map((id) => id === from ? to : (swap && id === to ? from : id)).filter(Boolean));
+    } else if (sameTok(t.tok, tok)) rep = target ?? "";
+    else if (swap && target != null && sameTok(t.tok, target)) rep = back;
+    if (rep === null) continue;
+    out += text.slice(last, t.start) + rep;
+    last = t.end;
+  }
+  out += text.slice(last);
+  return target == null ? tidyGaps(out) : out;
+}
+
+/** A single removed tag takes one neighbouring space with it. */
+function tidyRange(text, start, end) {
+  const before = text[start - 1], after = text[end];
+  if (before === " " && (after === undefined || after === " " || after === "\n" || /[,.;:?)]/.test(after)))
+    return { start: start - 1, end };
+  if (after === " " && (start === 0 || before === "\n" || before === "("))
+    return { start, end: end + 1 };
+  return { start, end };
+}
+
+/** Show a name suggestion in a chip field's mirror, at a text offset. A
+ *  partly typed !name is painted as its own chip, so the suggestion goes
+ *  after that chip rather than inside it. */
+function insertGhost(root, pos, text) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let seen = 0, node;
+  while ((node = walker.nextNode())) {
+    const len = node.nodeValue.length;
+    if (seen + len >= pos) {
+      const off = pos - seen;
+      const ghost = el("span", { class: "mmh3p-ghost" }, text);
+      const parent = node.parentNode;
+      if (off === len && parent !== root && parent.classList?.contains("mmh3p-reftag")) { parent.after(ghost); return; }
+      parent.insertBefore(ghost, node.splitText(off));
+      return;
+    }
+    seen += len;
+  }
+}
+
+/** Edit a field through the browser so Ctrl+Z undoes it, falling back to
+ *  setting the value. Either way the field's own input handler runs. */
+function editField(box, start, end, text) {
+  const v = box.value, want = v.slice(0, start) + text + v.slice(end);
+  box.focus();
+  box.setSelectionRange(start, end);
+  let ok = false;
+  try { ok = document.execCommand(text ? "insertText" : "delete", false, text); } catch (e) { ok = false; }
+  if (!ok || box.value !== want) {
+    box.value = want;
+    box.setSelectionRange(start + text.length, start + text.length);
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+}
+
+/** Turn every !Name into "<Subject N> Name" — or just "Name" inside a
+ *  spoken <d> line, where a label would be read aloud. The name is written
+ *  as it was defined, whatever case was typed. Unknown names are left as
+ *  typed so the warning can point at them. */
+function expandNames(text, names) {
+  if (!text || !Object.keys(names).length) return text;
+  const parts = String(text).split(/(<d>[\s\S]*?<\/d>)/);
+  return parts.map((part, i) => part.replace(NAME_TOKEN_RE, (m, raw) => {
+    const hit = lookupName(names, raw);
+    return hit ? (i % 2 ? hit.name : `${hit.tag} ${hit.name}`) : m;
+  })).join("");
+}
 
 const LANG_RE = /^(\s*\[[^\]\n]+\])/;
+/* Every delivery tag, opening or closing, as one alternation — for picking
+ * them out of a <d> line so the mirror and the picker's example can colour
+ * them. Longer names first so "<long pause>" isn't cut to "<pause>". */
+const DELIVERY_RE = new RegExp("(<\\/?(?:" + [...new Set(DELIVERY_TAGS.map((t) => t.tag.slice(1, -1)))]
+  .sort((a, b) => b.length - a.length).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")>)", "g");
+
+/** Text with its delivery tags wrapped as .mmh3p-dtag spans, and any !Name
+ *  shorthand as a subject tag (it becomes the bare name in a spoken line). */
+function deliverySpans(text, names = null) {
+  // split() with a capture group alternates text, tag, text… — the parity
+  // is what says which is which, so empties are dropped only afterwards.
+  return String(text).split(DELIVERY_RE)
+    .flatMap((part, i) => {
+      if (i % 2) return [el("span", { class: "mmh3p-dtag" }, part)];
+      if (!names) return [part];
+      return part.split(NAME_SPLIT_RE).map((p, j) => {
+        if (!(j % 2)) return p;
+        const hit = lookupName(names, p.slice(1));
+        return el("span", { class: "mmh3p-reftag " + (hit ? "subj" : "unknown"), dataset: { tag: p },
+          title: hit ? `just \u201c${hit.name}\u201d when spoken` : "No subject has this name" }, p);
+      });
+    })
+    .filter((part) => part !== "");
+}
 
 /* --- reference tags as chips ------------------------------------------ */
 /* Shared by the full editor and the quick prompt editors (the popup and the
@@ -44,15 +331,19 @@ const LANG_RE = /^(\s*\[[^\]\n]+\])/;
 
 /** Render one matched token as the spans the chip mirror shows.
  *  `slotFor`/`subjectInfo` resolve a reference tag to what it points at —
- *  omit either to treat every tag of that kind as unresolved ("unknown"). */
-function paintToken(tok, { slotFor, subjectInfo } = {}) {
+ *  omit either to treat every tag of that kind as unresolved ("unknown").
+ *  `names` is the subject-name map (see subjectNames): it resolves !Name
+ *  shorthand, and paints the names inside a spoken <d> line. Omit it and a
+ *  !Name paints as unknown, which is right for a surface that has no state
+ *  to resolve against. */
+function paintToken(tok, { slotFor, subjectInfo, names = null } = {}) {
   if (tok.startsWith("<d>")) {
     const inner = tok.slice(3, -4);
     const kids = [el("span", { class: "mmh3p-dmark" }, "<d>")];
     const lang = inner.match(LANG_RE);
     const body = lang ? inner.slice(lang[0].length) : inner;
     if (lang) kids.push(el("span", { class: "mmh3p-dlang" }, lang[1]));
-    kids.push(el("span", { class: "mmh3p-dtext" }, body));
+    kids.push(el("span", { class: "mmh3p-dtext" }, ...deliverySpans(body, names)));
     kids.push(el("span", { class: "mmh3p-dmark" }, "</d>"));
     return [el("span", { class: "mmh3p-dblock" }, ...kids)];
   }
@@ -62,6 +353,11 @@ function paintToken(tok, { slotFor, subjectInfo } = {}) {
   if (tok.startsWith("(")) {
     return [el("span", { class: "mmh3p-reftag spk", dataset: { tag: tok } }, tok)];
   }
+  if (tok.startsWith(NAME_PREFIX) && !tok.startsWith("<")) {
+    const hit = names ? lookupName(names, tok.slice(1)) : null;
+    return [el("span", { class: "mmh3p-reftag " + (hit ? "subj" : "unknown"), dataset: { tag: tok },
+      title: hit ? `${hit.tag} ${hit.name} in the prompt` : "No subject has this name" }, tok)];
+  }
   let cls;
   if (tok.startsWith("<Subject")) {
     cls = subjectInfo?.(tok) ? "subj" : "unknown";
@@ -70,6 +366,39 @@ function paintToken(tok, { slotFor, subjectInfo } = {}) {
     cls = slot ? (slot.cls || "pic") : "unknown";
   }
   return [el("span", { class: "mmh3p-reftag " + cls, dataset: { tag: tok } }, tok)];
+}
+
+/** The definition line for a subject tag, or null if it has none.
+ *
+ *  Shared, because the two editors used to disagree about it: the quick
+ *  editor never resolved subjects at all, so paintToken() fell through to
+ *  "unknown" — the red that means "this tag names media that isn't loaded" —
+ *  and the same <Subject 1> was green in one window and red in the other. */
+function subjectLine(state, tag) {
+  return (state?.ref?.subjectDefs || []).find(
+    (d) => !d.off && (d.text || "").trim().startsWith(tag)) || null;
+}
+
+/** A subject name to finish: the caret sits right after "!cas" and a
+ *  switched-on subject is named castle_with_moat. First match
+ *  alphabetically when several start the same way.
+ *
+ *  Module level, like subjectLine(), so every field that offers completion
+ *  offers the same one — the full editor, the quick editor and the subject
+ *  definition rows all pass this to chipField(). */
+function nameSuggestionFor(box, state) {
+  if (box._ghostOff || document.activeElement !== box) return null;
+  const pos = box.selectionStart;
+  if (pos == null || pos !== box.selectionEnd) return null;
+  const v = box.value || "";
+  if (/[\w-]/.test(v[pos] || "")) return null;          // mid-word: nothing to finish
+  const m = v.slice(0, pos).match(new RegExp(`(?:^|[^\\w])${reEsc(NAME_PREFIX)}([A-Za-z][\\w-]*)$`));
+  if (!m) return null;
+  const typed = m[1], low = typed.toLowerCase();
+  const hits = Object.values(subjectNames(state)).map((n) => n.name)
+    .filter((n) => n.length > typed.length && n.toLowerCase().startsWith(low))
+    .sort((a, b) => a.localeCompare(b));
+  return hits.length ? { pos, typed: typed.length, name: hits[0] } : null;
 }
 
 /** Wrap a textarea so <Picture 1> and friends read as chips.
@@ -82,9 +411,17 @@ function paintToken(tok, { slotFor, subjectInfo } = {}) {
  *
  *  Returns `{ wrap, paint }`: `wrap` is what to mount in place of the bare
  *  textarea, `paint` lets the caller force a repaint (the full editor calls
- *  it after a mode switch, when slotFor's answers can change under it). */
+ *  it after a mode switch, when slotFor's answers can change under it).
+ *
+ *  `names()` returns the subject-name map for resolving !Name shorthand (see
+ *  paintToken) — a callback rather than a value, because a definition edited
+ *  while the field is open changes it under us. `nameSuggestion(box)`
+ *  enables Tab-to-complete: return `{ pos, typed, name }` for the name being
+ *  typed at the caret, or null. Both are optional, so a surface with no
+ *  subject state to resolve against simply doesn't offer them. */
 function chipField(box, opts = {}) {
-  const { slotFor, subjectInfo, highlightTags = true, onHover, onLeave } = opts;
+  const { slotFor, subjectInfo, names = null, nameSuggestion = null,
+          highlightTags = true, onHover, onLeave } = opts;
   const mirror = el("div", { class: "mmh3p-chipmirror", "aria-hidden": "true" });
   // Order matters: the mirror is painted ON TOP of the textarea so the
   // selection band (drawn by the textarea) sits behind the glyphs instead
@@ -103,12 +440,18 @@ function chipField(box, opts = {}) {
     while ((m = PAINT_RE.exec(text)) !== null) {
       if (m.index > last)
         mirror.append(document.createTextNode(text.slice(last, m.index)));
-      mirror.append(...paintToken(m[0], { slotFor, subjectInfo }));
+      mirror.append(...paintToken(m[0], { slotFor, subjectInfo, names: names?.() }));
       last = m.index + m[0].length;
     }
     // The trailing newline keeps the mirror's last line height in step with
     // the textarea's when the text ends mid-line.
     mirror.append(document.createTextNode(text.slice(last) + "\n"));
+    // Typing a subject's name: the rest of it, greyed after the caret.
+    if (nameSuggestion) {
+      const g = box._ghost = nameSuggestion(box);
+      box._ghostKey = g ? `${g.pos}|${g.name}` : "";
+      if (g) insertGhost(mirror, g.pos, g.name.slice(g.typed));
+    }
     syncBox();
   };
 
@@ -129,8 +472,32 @@ function chipField(box, opts = {}) {
     mirror.scrollLeft = box.scrollLeft;
   };
 
+  if (nameSuggestion) box.addEventListener("input", () => { box._ghostOff = false; });
   box.addEventListener("input", paint);
   box.addEventListener("scroll", syncBox);
+  if (nameSuggestion) {
+    // The suggestion follows the caret, and Tab takes it.
+    const caretMoved = () => {
+      const g = nameSuggestion(box);
+      if ((g ? `${g.pos}|${g.name}` : "") !== (box._ghostKey || "")) paint();
+    };
+    ["keyup", "click", "focus"].forEach((ev) => box.addEventListener(ev, caretMoved));
+    box.addEventListener("blur", () => { if (box._ghostKey) paint(); });
+    box.addEventListener("keydown", (e) => {
+      const g = box._ghost;
+      if (!g) return;
+      if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        editField(box, g.pos - g.typed, g.pos, g.name);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();            // hides the suggestion, not the editor
+        box._ghostOff = true;
+        paint();
+      }
+    });
+  }
   // Dragging the resize grip can add or remove the scrollbar.
   if (typeof ResizeObserver === "function") {
     new ResizeObserver(syncBox).observe(box);
@@ -379,6 +746,49 @@ const ROLE_HINTS = [
     note: "the source structure is retained where the edit does not change it." },
 ];
 
+/* What a RefMod's saved concept says about it, in the guide's own wording.
+   `subject` lines open with <Subject N>; the others are standalone reference
+   lines. Concept names are the library's (refmods.CONCEPT_TYPES). */
+const REFMOD_CONCEPTS = {
+  identity: { subject: true, marker: "fully_preserved", task: "reference generation",
+    text: (c) => `${c.subj} is the person in ${c.tag}.`,
+    note: (c) => `${c.subj}'s identity and appearance from ${c.tag} are retained. Face, facial features, body type.` },
+  clothing: { subject: true, marker: "attribute_transfer", task: "reference generation",
+    text: (c) => `${c.subj} is the outfit in ${c.tag}.`,
+    note: (c) => `the garments, colours and fit of ${c.subj} from ${c.tag} are transferred.` },
+  background: { subject: true, marker: "fully_preserved", task: "reference generation",
+    text: (c) => `${c.subj} is the environment in ${c.tag}.`,
+    note: (c) => `the layout, surfaces and lighting of ${c.subj} from ${c.tag} are retained.` },
+  style: { subject: false, marker: "attribute_transfer", task: "reference generation",
+    text: (c) => `${c.tag} is the visual-style reference; its palette, lighting and rendering look guide the target video.`,
+    note: (c) => `its colour palette, lighting and rendering style are transferred; its content is not reproduced.` },
+  pose_motion: { subject: false, marker: "attribute_transfer", task: "reference generation",
+    text: (c) => `${c.tag} is the pose and motion reference; its movement and timing guide the target video.`,
+    note: (c) => `its poses and motion timing are transferred; its subject is not reproduced.` },
+  voice: { audio: true, marker: "reference", task: "audio reference",
+    text: (c) => `${c.tag} is the voice-timbre reference for ${c.subj} (${c.sx}), guiding delivery and speaking rate without copying the original signal.`,
+    note: (c) => `its vocal timbre guides the dialogue delivery of ${c.subj} without copying the original signal.`,
+    speaker: (c) => `${c.subj} is the speaker heard in ${c.tag}.` },
+  singing: { audio: true, marker: "reference", task: "audio reference",
+    text: (c) => `${c.tag} is the singing-voice timbre reference for ${c.subj} (${c.sx}), guiding vocal tone without copying the original signal.`,
+    note: (c) => `its singing timbre guides the vocal delivery of ${c.subj} without copying the original signal.`,
+    speaker: (c) => `${c.subj} is the singer heard in ${c.tag}.` },
+  music_style: { audio: true, marker: "reference", task: "audio reference",
+    text: (c) => `${c.tag} is the background-music style reference for the target video's audience-only score.`,
+    note: () => "only its instrumentation, tempo, and rhythmic feel guide the new score; the signal is not copied." },
+  sound_fx: { audio: true, marker: "reference", task: "audio reference",
+    text: (c) => `${c.tag} is the sound-effect texture reference for the target video's physical action sounds.`,
+    note: () => "only its sound-effect texture is referenced; the signal is not copied." },
+  ambience: { audio: true, marker: "reference", task: "audio reference",
+    text: (c) => `${c.tag} is the ambience reference for the target video's background sound.`,
+    note: () => "only its ambient texture is referenced; the signal is not copied." },
+};
+const VISUAL_CONCEPTS = ["identity", "clothing", "background", "style", "pose_motion"];
+const AUDIO_CONCEPTS = ["voice", "singing", "music_style", "sound_fx", "ambience"];
+const CONCEPT_LABEL = { identity: "a person / character", clothing: "an outfit", background: "a place / setting",
+  style: "a visual style", pose_motion: "a pose or motion", voice: "a speaking voice", singing: "a singing voice",
+  music_style: "a music style", sound_fx: "sound effects", ambience: "ambience" };
+
 function roleHint(text) {
   return ROLE_HINTS.find((h) => h.re.test(text || "")) || null;
 }
@@ -402,9 +812,17 @@ const TAG_CLASS = { Subject: "subj", Picture: "pic", Video: "vid", Audio: "aud" 
 const PREF_KEY = "mmh3.editorPrefs";
 const PREF_DEFAULTS = {
   closeOnBackdrop: true, warnUnsaved: true,
+  // Closing writes the prompt to the node instead of asking about it. Off by
+  // default: the node holding something you didn't deliberately put there is
+  // a bigger surprise than being asked.
+  saveOnClose: false,
   // Window and text scale, 100%-300%. A 4K monitor makes the default window
   // small; these are per user, so they follow you into every workflow.
   windowScale: 1.0, textScale: 1.0,
+  // Reference mode's form in two columns (⚙ → Two-column Reference form),
+  // with the window widened to fit. Off by default: one column is the
+  // layout everything else in the editor was sized against.
+  refColumns: false,
   // Chips can be switched off for a plain text field. The mirror still
   // renders (invisibly), so hover previews keep working.
   highlightTags: true,
@@ -430,11 +848,17 @@ const PREF_DEFAULTS = {
   // Media card size in the strip, independent of window and text scale so
   // the thumbnails can be made bigger without enlarging everything else.
   chipScale: 1.0,
+  // Quick-edit window, set from its own settings button. The window scales
+  // its 900x585 base; the picture scale moves the split between the keyframe
+  // pane and the fields beside it.
+  quickScale: 1.0,
   // Prompt library display, set from that window's own settings button
   // rather than the editor's.
   libFullPrompt: false,
   // How many preview lines each library row shows.
   libPreviewRows: 1,
+  // The character before a subject's name that makes it shorthand (!Bob).
+  namePrefix: "!",
 };
 // Breathing room left above and below the editor when tallWindow is on.
 const TALL_MARGIN_VH = 4;
@@ -443,11 +867,19 @@ const SCALE_MAX = 3.0;          // window
 const TEXT_SCALE_MAX = 2.0;     // type gets unwieldy past this
 // Cards past double width stop being thumbnails and start crowding the form.
 const CHIP_SCALE_MAX = 2.0;
+// The keyframe pane's share of the quick editor. Past 2x the fields floor
+// takes over anyway, so there is nothing above it left to give — and below
+// 40% the previews stop being readable.
 
-function clampScale(v, max = SCALE_MAX) {
+/** `min` is a parameter because not every scale floors at 100%: the window
+ *  and text scales only ever grow (shrinking them below the design size is
+ *  what the window's own dimensions are for), but the keyframe pane's share
+ *  is genuinely two-way — turning it *down* to give the fields more room is
+ *  the useful direction, and the shared SCALE_MIN made that unreachable. */
+function clampScale(v, max = SCALE_MAX, min = SCALE_MIN) {
   const n = Number(v);
   if (!Number.isFinite(n)) return 1.0;
-  return Math.min(max, Math.max(SCALE_MIN, Math.round(n * 100) / 100));
+  return Math.min(max, Math.max(min, Math.round(n * 100) / 100));
 }
 
 function loadPrefs() {
@@ -456,19 +888,27 @@ function loadPrefs() {
       ...JSON.parse(localStorage.getItem(PREF_KEY) || "{}") };
     v.windowScale = clampScale(v.windowScale);
     v.chipScale = clampScale(v.chipScale, CHIP_SCALE_MAX);
+    v.quickScale = clampScale(v.quickScale);
     v.libPreviewRows = Math.max(1, Math.min(6,
       Math.round(Number(v.libPreviewRows) || 1)));
     v.textScale = clampScale(v.textScale, TEXT_SCALE_MAX);
+    if (!NAME_PREFIXES.includes(v.namePrefix)) v.namePrefix = "!";
     return v;
   } catch (e) {
     return { ...PREF_DEFAULTS };
   }
 }
 
+// The width the two-column Reference form adds to the editor: roughly one more form column.
+const REFCOL_EXTRA = 520;
+
 function savePrefs(prefs) {
   try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); }
   catch (e) { /* private mode: the session's choice still applies */ }
 }
+// Apply the saved name prefix as soon as the script loads, so a prompt
+// generated before any editor opens uses it too.
+setNamePrefix(loadPrefs().namePrefix);
 
 /** Turn a failed request into something actionable.
  *
@@ -541,6 +981,38 @@ export function el(tag, props = {}, ...children) {
   return e;
 }
 
+/** Kind icons as inline SVG.
+ *
+ *  Not glyphs: ▦ ▶ ♪ depend on whatever font the browser resolves for
+ *  system-ui, and on Linux that chain frequently has no coverage for the
+ *  Geometric Shapes block — the icons simply vanish or become tofu. SVG
+ *  renders identically everywhere, scales with font-size through the `em`
+ *  sizing, and takes its colour from currentColor. */
+const KIND_SVG = {
+  picture:
+    '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" ' +
+    'stroke="currentColor" stroke-width="1.4"/>' +
+    '<circle cx="5.5" cy="6" r="1.3" fill="currentColor"/>' +
+    '<path d="M3 12l3.2-3.6 2.3 2.4 2.1-2.3L13 12z" fill="currentColor"/>',
+  video:
+    '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" ' +
+    'stroke="currentColor" stroke-width="1.4"/>' +
+    '<path d="M6.3 5.6l4.5 2.4-4.5 2.4z" fill="currentColor"/>',
+  audio:
+    '<path d="M2 9.5V6.5M5 11.5v-7M8 13V3M11 11.5v-7M14 9.5V6.5" ' +
+    'fill="none" stroke="currentColor" stroke-width="1.5" ' +
+    'stroke-linecap="round"/>',
+};
+
+function kindIcon(kind) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("class", "mmh3p-kindicon");
+  svg.setAttribute("aria-hidden", "true");
+  svg.innerHTML = KIND_SVG[kind] || "";
+  return svg;
+}
+
 function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -609,14 +1081,23 @@ function defaultState() {
   };
 }
 
+/** Merge a stored state over the current defaults.
+ *
+ *  Every state that comes from outside this session must pass through here,
+ *  not just the node's widget: a state missing a field the renderer reads
+ *  throws mid-render, which aborts the form build and leaves a half-drawn
+ *  panel — no chips, no rail, and no error the user can see. Drafts come
+ *  from disk and are exactly that kind of outside state. */
+function normaliseState(s) {
+  if (!s || !s.version) return defaultState();
+  const d = defaultState();
+  return { ...d, ...s, ref: { ...d.ref, ...(s.ref || {}) } };
+}
+
 function loadState(node) {
   const w = node.widgets?.find((w) => w.name === "builder_state");
   try {
-    const s = JSON.parse(w?.value || "{}");
-    if (s && s.version) {
-      const d = defaultState();
-      return { ...d, ...s, ref: { ...d.ref, ...(s.ref || {}) } };
-    }
+    return normaliseState(JSON.parse(w?.value || "{}"));
   } catch (e) { /* fall through */ }
   return defaultState();
 }
@@ -644,13 +1125,18 @@ function viewURL(v) {
   );
 }
 
+/** The node behind an input, looked through reroutes and KJNodes' Get/Set
+ *  pairs (a Get node stands in for whatever feeds its Set node). */
 function originNode(node, slotIndex) {
   let n = node.getInputNode?.(slotIndex);
   let guard = 0;
-  while (n && /reroute/i.test(n.type || "") && guard++ < 16) {
-    const nn = n.getInputNode?.(0);
-    if (!nn) break;
-    n = nn;
+  while (n && guard++ < 16) {
+    let up = null;
+    if (/reroute/i.test(n.type || "")) up = n.getInputNode?.(0);
+    else if (n.type === "GetNode") up = setterOf(n)?.getInputNode?.(0);
+    else break;
+    if (!up) break;
+    n = up;
   }
   return n || null;
 }
@@ -693,30 +1179,26 @@ function mediaSource(node) {
   };
 }
 
-function slotsFromBundle(node) {
-  const src = mediaSource(node);
-  if (!src) return null;
-  // Prefer the owning panel's live objects over a fresh parse: editing a clip
-  // or reordering from the rail has to mutate the same items the panel holds,
-  // or the change is written over the moment the panel next commits.
-  const panel = src.owner?._mmlPanel || null;
-  let items = Array.isArray(panel?.items) ? panel.items : null;
-  if (!items) {
-    try {
-      items = JSON.parse(src.raw || "[]");
-    } catch (e) { return null; }
-  }
-  if (!Array.isArray(items)) return null;
-  items = items.filter(isOn);      // switched-off media never reaches the model
+/** Pure half of slotsFromBundle: compute the slots from an items array,
+ *  regardless of where it came from — this node's own panel, a wired loader,
+ *  or a draft's stored media snapshot. Tag numbering must match nodes.py
+ *  exactly either way, which is why draft mode goes through the same code.
+ *
+ *  `panel` is the LoaderPanel that owns these items, if any, so the rail can
+ *  offer the same per-clip tools the node tile does; a draft's snapshot has
+ *  no live panel and passes null. */
+function slotsFromItems(rawItems, sourceLabel, panel = null, own = false) {
+  if (!Array.isArray(rawItems)) return null;
+  const items = rawItems.filter(isOn);   // switched-off media never reaches the model
 
   const { tags, extra } = computeTags(items);
   const out = [];
   const push = (tag, kind, item, note, previewKind) => {
     const n = +(tag.match(/(\d+)>/) || [])[1];
     const slot = {
-      tag, kind, idx: n, cls: TAG_CLASS[kind], note,
+      tag, kind, idx: n, cls: TAG_CLASS[kind], note, edit: !!item.edit, name: item.name,
       slotName: `loader:${item.name}`,
-      source: `${src.label} \u2022 ${item.name}`,
+      source: `${sourceLabel} \u2022 ${item.name}`,
       preview: { type: previewKind, url: loaderViewURL(item.file) },
       // The live item and the panel that owns it, so the rail can offer the
       // same per-clip tools the node tile does.
@@ -748,13 +1230,272 @@ function slotsFromBundle(node) {
       push(extra.get(i), "Audio", i, "split from " + tags.get(i), "audio");
   });
   out.bundled = true;
-  out.own = src.label === "Media";   // this node's own panel, not a wired loader
+  out.own = own;                     // this node's own panel, not a wired loader
   return out;
 }
 
-function getRefSlots(node) {
+/** The live items array behind this node's tags, or null if there is none.
+ *
+ *  Prefers the owning panel's live objects over a fresh parse of the widget:
+ *  editing a clip or reordering from the rail has to mutate the same items
+ *  the panel holds, or the change is written over the moment the panel next
+ *  commits. */
+function loaderItems(node) {
+  const src = mediaSource(node);
+  if (!src) return null;
+  const items = src.owner?._mmlPanel?.items;
+  if (Array.isArray(items)) return items;
+  try {
+    const parsed = JSON.parse(src.raw || "[]");
+    return Array.isArray(parsed) ? parsed : null;
+  } catch (e) { return null; }
+}
+
+function slotsFromBundle(node) {
+  // The panel keeps its inventory in a widget, so the tags it will produce
+  // can be read straight off the graph without a round trip.
+  const src = mediaSource(node);
+  if (!src) return null;
+  const items = loaderItems(node);
+  if (!items) return null;
+  return slotsFromItems(items, src.label, src.owner?._mmlPanel || null,
+    src.label === "Media");
+}
+
+/** Walk a mods chain upstream from `head`. RefMod Stacks — this pack's own
+ *  or the original Adudeguyman pack's, see STACK_NAMES — are collected in
+ *  bundle order; Prompt Builders are stepped through (their mods output is
+ *  the bundle they were given). Anything else heads the chain with entries
+ *  we cannot see, so the result is marked partial. */
+function modsChain(head) {
+  const chain = [];
+  let partial = false, n = head, guard = 0;
+  while (n && guard++ < 32) {
+    if (!STACK_NAMES.has(n.type) && n.type !== NODE_NAME) { partial = true; break; }
+    // Prompt Studio is a stack in its own right now (its RefMods tab), so it
+    // is collected like one rather than stepped through: its mods output is
+    // what came in, plus its own picks after it.
+    if (STACK_NAMES.has(n.type) || holdsOwnStack(n)) chain.unshift(n);
+    const up = (n.inputs || []).findIndex((i) => i.name === "mods");
+    if (up < 0 || n.inputs[up].link == null) break;
+    n = originNode(n, up);
+  }
+  return { chain, partial };
+}
+
+/** The "prompt" output's slot index. Upstream's own Prompt Builder has it at
+ *  slot 0 (its first output), which is why the RefMod-chain code below was
+ *  written against a bare `0` — but this fork's Prompt Studio moved `model`
+ *  to slot 0 at 2.0.0, well before RefMods existed, so a literal `0` here
+ *  would target Prompt Studio's MODEL output instead. Finding it by name
+ *  keeps this correct on either node shape. */
+function promptOutIdx(node) {
+  return (node.outputs || []).findIndex((o) => o.name === "prompt");
+}
+
+/** A node that carries its own RefMod picks: Prompt Studio's RefMods tab
+ *  writes the same stack_state a RefMod Stack does. */
+function holdsOwnStack(node) {
+  return node?.type === NODE_NAME && !!node.widgets?.some((w) => w.name === "stack_state");
+}
+
+/** Where this builder's RefMods come from.
+ *
+ *  Prompt Studio is its own stack: the head is the node itself, and its mods
+ *  input (if wired) is simply the chain above it. The one exception is the
+ *  older wiring, still honoured — a stack wired straight into a Text Encode
+ *  this prompt feeds, with nothing picked or chained on the node — where the
+ *  node isn't where the RefMods live. */
+function refmodSource(node) {
+  const own = (node.inputs || []).findIndex((i) => i.name === "mods");
+  const ownWired = own >= 0 && node.inputs[own].link != null;
+  if (holdsOwnStack(node)) {
+    if (ownWired || readStack(node).picks.length) return { head: node, direct: true };
+    for (const enc of outputTargets(node, promptOutIdx(node)).filter((n) => ENCODE_NAMES.has(n?.type))) {
+      const mi = (enc.inputs || []).findIndex((i) => i.name === "mods");
+      const fed = mi >= 0 && enc.inputs[mi].link != null ? originNode(enc, mi) : null;
+      if (fed && fed !== node) return { head: fed, direct: false };
+    }
+    return { head: node, direct: true };
+  }
+  if (ownWired)
+    return { head: originNode(node, own), direct: true };
+  const enc = outputTargets(node, promptOutIdx(node)).find((n) => ENCODE_NAMES.has(n?.type));
+  if (!enc) return { head: null, why: "encode" };
+  const mi = (enc.inputs || []).findIndex((i) => i.name === "mods");
+  if (mi < 0 || enc.inputs[mi].link == null) return { head: null, why: "mods" };
+  return { head: originNode(enc, mi), direct: false };
+}
+
+/** True when this builder's RefMods reach a Text Encode: its mods output is
+ *  wired somewhere, or a Text Encode its prompt feeds has mods of its own. */
+function refmodsReachEncode(node) {
+  const out = (node.outputs || []).findIndex((o) => o.name === "mods");
+  if (out >= 0 && outputTargets(node, out).length) return true;
+  return outputTargets(node, promptOutIdx(node)).some((enc) => ENCODE_NAMES.has(enc?.type) &&
+    (enc.inputs || []).some((i) => i.name === "mods" && i.link != null));
+}
+
+/** The RefMod Text Encodes this builder drives, through its prompt or mods output. */
+function encodersOf(node) {
+  const seen = new Set(), out = [];
+  const promptOut = promptOutIdx(node);
+  const modsOut = (node.outputs || []).findIndex((o) => o.name === "mods");
+  for (const slot of modsOut >= 0 ? [promptOut, modsOut] : [promptOut]) {
+    for (const n of outputTargets(node, slot)) {
+      if (ENCODE_NAMES.has(n?.type) && !seen.has(n)) { seen.add(n); out.push(n); }
+    }
+  }
+  return out;
+}
+
+/** Where the Text Encode's media comes from: "builder" (this node's
+ *  references output), "loader" (the same Media Loader, wired straight in),
+ *  "other" (a source this builder can't see), or null (no media sent). */
+function mediaReach(node) {
+  const refIn = (node.inputs || []).findIndex((i) => i.name === "references");
+  const loader = refIn >= 0 && node.inputs[refIn].link != null ? originNode(node, refIn) : null;
+  let found = null;
+  for (const enc of encodersOf(node)) {
+    const ri = (enc.inputs || []).findIndex((i) => i.name === "references");
+    if (ri < 0 || enc.inputs[ri].link == null) continue;
+    const src = originNode(enc, ri);
+    if (src === node) return "builder";
+    if (loader && src === loader) return "loader";
+    found = found || "other";
+  }
+  return found;
+}
+
+/** The mode the node's Python side gates media by: the saved mode, or REF
+ *  (everything passes) when nothing has been saved yet — nodes.py's rule,
+ *  which differs from the editor's own T2VA starting point. */
+function gateMode(node) {
+  try {
+    const mode = JSON.parse(node.widgets?.find((w) => w.name === "builder_state")?.value || "{}").mode;
+    return MODE_CAPACITY[mode] ? mode : "REF";
+  } catch (e) { return "REF"; }
+}
+
+/** Media slots as the builder's own outputs would carry them: everything a
+ *  connected Media Loader holds, else what is wired to the picture_/video_/
+ *  audio_ inputs. */
+function mediaSlots(node) {
+  return slotsFromBundle(node) || directSlots(node);
+}
+
+/** Reference slots when this prompt uses RefMods.
+ *
+ * RefMod Text Encode (ours, the original Adudeguyman pack's, or
+ * ComfyUI-MiniMaxH3Mod's) labels its bundle
+ * itself: one counter per kind, in bundle order, every copy numbered. Find
+ * the stacks (see refmodSource) and reproduce that numbering. A non-stack
+ * loader at the head of the chain contributes entries we cannot see, so the
+ * result is marked partial and the numbers are best-effort.
+ */
+function refmodSlots(node, opts = {}) {
+  const src = refmodSource(node);
+  if (!src.head) return null;
+  const { chain, partial } = modsChain(src.head);
+  if (!chain.length) return null;
+  // A draft can stand in for what the nearest stack holds (its own picks, or
+  // the ones frozen when it started) and for the loader's media.
+  const nearest = chain[chain.length - 1];
+  // A pick's saved uid only counts within its own stack node: a pasted node
+  // keeps its copy's numbers, so two stacks in a chain can hold the same
+  // uid, and the draft would then fold one RefMod's look and voice into
+  // another's. Key each pick by node and position instead.
+  const picksOf = (st) => (st === nearest && opts.picks ? opts.picks : readStack(st).picks)
+    .map((p, i) => (p && typeof p === "object" ? { ...p, uid: `${st.id}:${i}` } : p));
+  // Every Prompt Studio is a "stack" now, even one with an empty RefMods tab.
+  // Taking the RefMod path for that would drop its plain media chips (media
+  // is only listed here when a Text Encode receives it), so a chain of
+  // nothing but empty Studios isn't using RefMods — fall back to the media.
+  if (!partial && chain.every(holdsOwnStack) && !chain.some((st) => picksOf(st).length))
+    return null;
+  const sourceLabel = opts.picks ? (opts.picksLabel || "Draft RefMods") : "RefMod Stack";
+  const media = opts.media ? slotsFromItems(opts.media, opts.mediaLabel || "Media Loader") : mediaSlots(node);
+
+  // Loader media the Text Encode also receives is labelled first, one
+  // counter per kind — the RefMods' numbers move up behind it.
+  const reach = mediaReach(node);
+  const out = [];
+  const offset = { Picture: 0, Video: 0, Audio: 0 };
+  if (reach === "builder" || reach === "loader") {
+    const cap = reach === "builder" ? MODE_CAPACITY[gateMode(node)] : MODE_CAPACITY.REF;
+    for (const m of media || []) {
+      // The builder withholds what its mode doesn't use; a loader wired
+      // straight in sends everything. Orphan soundtracks reach neither.
+      if (!m.tag || m.idx > (cap[m.kind] ?? 0)) continue;
+      out.push(m);
+      offset[m.kind] = Math.max(offset[m.kind], m.idx);
+    }
+  }
+  const allPicks = chain.flatMap((st) => picksOf(st));
+  const pickByUid = new Map(allPicks.map((p) => [p.uid, p]));
+  const groups = labelGroups(chain.flatMap((st) => deriveEntries(picksOf(st))));
+  const copyTags = new Set();
+  const firstRefmod = out.length;
+  for (const g of groups) {
+    if (!g.nums.length) continue;
+    const kind = REFMOD_KIND[g.kind].label;
+    g.nums = g.nums.map((num) => num + offset[kind]);
+    const tags = g.nums.map((num) => `<${kind} ${num}>`);
+    tags.slice(1).forEach((t) => copyTags.add(t));
+    out.push({
+      tag: tags[0], kind, idx: g.nums[0], cls: TAG_CLASS[kind],
+      note: g.key === "audio" ? "voice" : null,
+      copies: tags.slice(1), range: refmodRange(g),
+      slotName: `refmod:${g.file}`,
+      source: `${sourceLabel} \u2022 ${g.name}`,
+      preview: g.preview ? { type: "img", url: refmodPreviewURL(g.preview) } : null,
+      refmod: { uid: g.uid, name: g.name, role: g.key === "audio" ? "voice" : "look",
+        weight: weightText(pickByUid.get(g.uid)?.[g.key]), tokens: g.tokens * g.nums.length,
+        draft: !!opts.picks },
+    });
+  }
+  // A RefMod's look and voice name each other in the hover card.
+  for (const sl of out.slice(firstRefmod)) {
+    const other = out.slice(firstRefmod).find((o) => o !== sl && o.refmod.uid === sl.refmod.uid);
+    if (other) sl.refmod.pair = { role: other.refmod.role, tag: other.tag };
+  }
+  out.refmod = true;
+  out.partial = partial || reach === "other";
+  out.copyTags = copyTags;
+  out.unsent = !!src.direct && !refmodsReachEncode(node);
+  out.media = reach;
+  out.mediaUnsent = !reach && (media || []).some((m) => m.tag);
+  return out;
+}
+
+/** A stack channel's weight the way its row shows it. */
+function weightText(ch) {
+  if (!ch) return "";
+  if (ch.mode === "sc") return `strength ${Number(ch.s ?? 1).toFixed(2)} \u00d7 ${ch.c ?? 1}`;
+  return `weight ${Number(ch.w ?? 1).toFixed(2).replace(/\.?0+$/, "")}`;
+}
+
+/** The RefMod Stack this prompt's references come from (the one nearest the
+ *  builder), or null with a reason: "encode", "mods" or "other". */
+function refmodStackFor(node) {
+  const src = refmodSource(node);
+  if (!src.head) return { stack: null, why: src.why };
+  const { chain } = modsChain(src.head);
+  return chain.length ? { stack: chain[chain.length - 1] } : { stack: null, why: "other" };
+}
+
+function getRefSlots(node, opts = {}) {
+  const viaRefmod = refmodSlots(node, opts);
+  if (viaRefmod) return viaRefmod;
+  if (opts.media) return slotsFromItems(opts.media, opts.mediaLabel || "Media Loader");
   const bundled = slotsFromBundle(node);
   if (bundled) return bundled;
+  return directSlots(node);
+}
+
+/** Slots from the picture_/video_/audio_ inputs, numbered as the native
+ *  Reference to Video node numbers them. */
+function directSlots(node) {
   const group = (re) => {
     const arr = [];
     (node.inputs || []).forEach((inp, i) => {
@@ -864,19 +1605,37 @@ function genBase(state) {
 
 function genRef(state) {
   const r = state.ref;
+  const names = subjectNames(state);
+  const ex = (t) => expandNames(t, names);
   const defs = r.subjectDefs
     .filter((d) => !d.off)
-    .map((d) => d.text.trim()).filter(Boolean).join("\n");
+    .map((d) => {
+      let line = d.text.trim();
+      const name = (d.name || "").trim();
+      // The name rides on the definition so the model ties it to the label.
+      if (line && name && /^<Subject \d+>/.test(line))
+        line = line.replace(/\.?\s*$/, "") + `. Their name is ${name}.`;
+      // A voice line says whose voice it is when its subject has a name, and
+      // its description rides along, after the drafted wording.
+      const bind = voiceBinding(line);
+      const owner = bind?.subj && Object.values(names).find((n) => n.tag === bind.subj);
+      const voice = oneLine(d.voice);
+      if (line && bind && (owner || voice))
+        line = line.replace(/\.?\s*$/, "") + (owner
+          ? `. It is ${owner.name}'s voice${voice ? `: ${voice}` : ""}.`
+          : `. It is ${withArticle(voice)}.`);
+      return line;
+    }).filter(Boolean).join("\n");
   const types = TASK_TYPES.filter((t) => r.summaryTypes.includes(t)).join(" + ");
-  const summary = `[${types || "reference generation"}] ${r.summaryText.trim()}`;
+  const summary = `[${types || "reference generation"}] ${ex(r.summaryText.trim())}`;
   const retention = r.retention
     .filter((row) => row.label && !row.off)
     .map((row) => {
       const ctx = row.context?.trim() ? ` (${row.context.trim()})` : "";
-      return `${row.label}${ctx}: ${row.marker} - ${row.note.trim()}`;
+      return `${row.label}${ctx}: ${row.marker} - ${ex(row.note.trim())}`;
     })
     .join("\n");
-  const detail = [r.styleLine.trim(), r.detail.trim()].filter(Boolean).join("\n");
+  const detail = [ex(r.styleLine.trim()), ex(r.detail.trim())].filter(Boolean).join("\n");
   const on = (name) => sectionOn(state, name);
   const blocks = [];
   if (on("subject_definitions"))
@@ -886,9 +1645,9 @@ function genRef(state) {
     blocks.push(`retention_analysis:\n${retention}`);
   blocks.push(`detailed_description:\n${detail}`);
   if (on("overall_soundscape"))
-    blocks.push(`overall_soundscape:\n${r.soundscape.trim()}`);
+    blocks.push(`overall_soundscape:\n${ex(r.soundscape.trim())}`);
   if (on("non_diegetic_music"))
-    blocks.push(`non_diegetic_music:\n${r.music.trim() || "N/A"}`);
+    blocks.push(`non_diegetic_music:\n${ex(r.music.trim()) || "N/A"}`);
   return blocks.join("\n\n");
 }
 
@@ -926,7 +1685,25 @@ function validate(state, slots) {
     );
   });
 
-  if (state.mode === "REF") {
+  if (slots.refmod) {
+    // The prompt feeds H3 RefMod Text Encode, which labels whatever the
+    // stack sends regardless of mode — none of the per-mode capacity rules
+    // below apply. What matters is that the numbers line up.
+    if (slots.unsent)
+      warn("RefMods are wired into this node, but its mods output isn't connected " +
+        "to RefMod Text Encode \u2014 wire mods into the Text Encode's mods input, " +
+        "or the model won't see them.");
+    if (slots.mediaUnsent)
+      warn("This node's media isn't sent to RefMod Text Encode \u2014 wire its " +
+        "references output into the Text Encode's references input, or the model " +
+        "won't see those pictures and clips.");
+    if (slots.media === "other")
+      info("The Text Encode's references input comes from somewhere this node can't " +
+        "see, so its media is numbered first and the labels shown here may be shifted.");
+    else if (slots.partial)
+      info("A loader that isn't a RefMod Stack heads this chain, so its entries " +
+        "are numbered first and the labels shown here may be shifted.");
+  } else if (state.mode === "REF") {
     const total = live.length;
     if (cap.total && total > cap.total) {
       err(
@@ -1017,7 +1794,7 @@ function validate(state, slots) {
   const cited = new Set([...full.matchAll(/<(Picture|Video|Audio) (\d+)>/g)]
     .map((m) => `<${m[1]} ${m[2]}>`));
   const uncited = live.filter((s) => {
-    const usable = state.mode === "REF" ||
+    const usable = slots.refmod || state.mode === "REF" ||
       (s.kind === "Picture" && s.idx <= cap.Picture);
     return usable && !cited.has(s.tag);
   }).map((s) => s.tag);
@@ -1028,9 +1805,20 @@ function validate(state, slots) {
       uncited.join(", ") + ".");
   }
   const connected = new Set(live.map((s) => s.tag));
+  const copyTags = slots.copyTags || new Set();
   for (const t of cited) {
     const [, kind, num] = t.match(/<(\w+) (\d+)>/);
-    if (cap[kind] === 0) {
+    if (slots.refmod) {
+      if (copyTags.has(t)) {
+        const owner = live.find((s) => s.copies?.includes(t));
+        info(`${t} is a copy of ${owner?.tag || "another label"} (${owner?.source || "RefMod Stack"}); citing ${owner?.tag || "the first label"} is enough.`);
+      } else if (!connected.has(t)) {
+        if (slots.partial)
+          info(`${t} is cited but no RefMod Stack in the chain provides it — the upstream loader may.`);
+        else
+          warn(`${t} is cited but the RefMod Stack does not provide it. Check the stack's order and weights.`);
+      }
+    } else if (cap[kind] === 0) {
       warn(`${t} is cited, but ${state.mode} has no ${kind.toLowerCase()} reference to bind it to.`);
     } else if (+num > cap[kind]) {
       warn(`${t} is cited, but ${state.mode} only uses ${kind} 1${cap[kind] > 1 ? `\u2013${cap[kind]}` : ""}.`);
@@ -1054,6 +1842,22 @@ function validate(state, slots) {
       if (![...retLabels].some((l) => l === `<Subject ${n}>`))
         warn(`<Subject ${n}> has no retention_analysis entry.`);
     }
+    // !Name shorthand: every one used must belong to a named, switched-on subject.
+    const names = subjectNames(state);
+    const r = state.ref;
+    const used = new Set([...[r.summaryText, r.styleLine, r.detail, r.soundscape, r.music,
+      ...liveRet.map((x) => x.note)].join("\n").matchAll(NAME_TOKEN_RE)].map((m) => m[1]));
+    for (const nm of used) {
+      if (!lookupName(names, nm)) warn(`${NAME_PREFIX}${nm} is used, but no switched-on subject definition has the name "${nm}" \u2014 ` +
+        "give a subject that name, or write it out.");
+    }
+    liveDefs.forEach((d) => {
+      const nm = (d.name || "").trim();
+      if (nm && !/^[A-Za-z][\w-]*$/.test(nm))
+        warn(`Subject name "${nm}" can't be used as a ${NAME_PREFIX}tag \u2014 letters, digits, - and _ only, no spaces.`);
+      else if (nm && !/^<Subject \d+>/.test((d.text || "").trim()))
+        warn(`The name "${nm}" is on a line that doesn't start with <Subject N>, so it isn't used.`);
+    });
     // The guide requires the marker to sit inside the role the definition
     // already states, so a plain contradiction is worth flagging.
     liveRet.forEach((row) => {
@@ -1091,6 +1895,8 @@ function validate(state, slots) {
 /* ------------------------------------------------------------------ */
 
 const CSS = `
+${TAG_VARS}
+${RAISE_CSS}
 .mmh3p-overlay{position:fixed;inset:0;z-index:10000;background:rgba(8,10,14,.62);
   display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;
   --mmh3p-mw:min(1240px,95vw);
@@ -1103,8 +1909,9 @@ const CSS = `
   display:flex;flex-direction:column;
   background:#191c22;color:#d7dbe2;border:1px solid #303642;border-radius:10px;
   box-shadow:0 24px 64px rgba(0,0,0,.55);overflow:hidden;}
-.mmh3p-head{display:flex;align-items:center;gap:14px;padding:10px 16px;
-  border-bottom:1px solid #2a2f3a;background:#1e222a;}
+.mmh3p-head{display:flex;align-items:center;gap:var(--mmh3-headgap);
+  padding:10px 16px;border-bottom:1px solid #2a2f3a;background:#1e222a;
+  --mmh3-headgap:14px;}
 /* One height for every control here, regardless of which of several
    differently-padded button styles it happens to use — .mmh3p-btn, .mmh3p-x
    and the mode switcher's own buttons each disagreed by a couple of px. */
@@ -1129,12 +1936,26 @@ const CSS = `
    sit on the mode selector — otherwise the gap opens between the two and Guide
    reads as part of the left-hand group instead. */
 .mmh3p-guidebtn{margin-left:auto;}
-/* Pushes an item, and everything after it, to the right of a flex header. */
-.mmh3p-pushright{margin-left:auto;}
-/* ...which only holds if the close button stops claiming the slack too: with
-   two auto margins the free space splits between them and the pair ends up
-   apart rather than together. */
-.mmh3p-head .mmh3p-pushright ~ .mmh3p-x{margin-left:0;}
+/* Settings and close are ONE control group at the right-hand end of every
+   window that has a header — the editor, the library and the quick editor
+   all share this rule, and the media loader mirrors it in its own sheet.
+   The settings wrapper claims the header's slack, and the close button
+   after it stands down: two auto margins would split the free space
+   between them instead of pooling it. */
+.mmh3p-head .mmh3p-prefwrap{margin-left:auto;}
+.mmh3p-head .mmh3p-prefwrap ~ .mmh3p-x{margin-left:0;}
+/* ...and where settings sits directly before it, the gap between those two
+   closes so they read as one group. This MUST stay after the rules above:
+   it ties with them on specificity, so source order is what decides it.
+   Derived from the gap rather than repeating 14px, so changing the gap
+   can't reopen it either. */
+.mmh3p-head .mmh3p-prefwrap+.mmh3p-x{margin-left:calc(-1 * var(--mmh3-headgap));}
+/* Quick edit: the title at the left, 📜 Prompt Builder in the middle of the
+   bar, settings and close at the right. Equal outer columns are what keep
+   the button centred on the bar rather than in whatever the title leaves. */
+.mmh3p-head.mmh3p-quickhead{display:grid;grid-template-columns:1fr auto 1fr;}
+.mmh3p-quickends{display:flex;align-items:center;justify-content:flex-end;
+  gap:var(--mmh3-headgap);min-width:0;}
 .mmh3p-modes button{background:none;border:0;color:#9aa3b2;padding:5px 12px;border-radius:5px;
   cursor:pointer;font-size:calc(12px * var(--mmh3-fs, 1));}
 .mmh3p-modes button.on{background:#2f3947;color:#fff;}
@@ -1148,20 +1969,29 @@ const CSS = `
    DOM so the grid's track count only changes with the class, never with what
    happens to be rendered. */
 .mmh3p-rail{display:none;}
-/* 164px = the 130px card + the rail's 16px padding and 1px border, plus ~17px
-   of slack for a classic scrollbar. Sized to the card rather than the other way
+/* --mmh3-railw: the card at the current chip scale, plus the rail's 16px
+   padding and 1px border, plus ~17px of slack for a classic scrollbar --
+   164px at the default 1x chip scale. Sized to the card rather than the other
    round, so the column carries no dead width; the slack is what stops a
-   platform with non-overlay scrollbars clipping the card once the list scrolls. */
-.mmh3p-body.sidebar{grid-template-columns:164px minmax(0,1fr) 440px;}
+   platform with non-overlay scrollbars clipping the card once the list
+   scrolls. A custom property because both the grid track below and the rail
+   element's own width (further down) have to agree on it exactly, or the
+   track and its content disagree about how wide the column is. */
+.mmh3p-body.sidebar{--mmh3-railw:calc(128px * var(--mmh3-chip, 1) + 36px);
+  grid-template-columns:var(--mmh3-railw) minmax(0,1fr) 440px;}
 /* Top padding matches .mmh3p-chipbar's own (16px, below) so the "media"
    heading starts at the same Y coordinate whichever view you toggle into —
    otherwise it visibly jumps a few px on every toggle. */
 .mmh3p-body.sidebar .mmh3p-rail{display:flex;flex-direction:column;gap:6px;
   min-height:0;overflow-y:auto;padding:16px 8px 10px;background:#15181e;
   border-right:1px solid #2a2f3a;
-  /* Wide enough for a card at the current chip scale plus this padding, or
-     larger cards would be clipped by the column holding them. */
-  flex:0 0 auto;min-width:calc(128px * var(--mmh3-chip, 1) + 16px);}
+  /* Matches --mmh3-railw exactly (the grid track above) — border-box, since
+     --mmh3-railw already counts this padding and border; content-box would
+     add them again on top, so the rendered rail would come out wider than
+     the track and force the track to grow past its own declared size
+     (a fixed-length grid track still yields to an item's automatic minimum
+     size, which is border-box by default). */
+  flex:0 0 auto;box-sizing:border-box;width:var(--mmh3-railw);}
 .mmh3p-railhead{flex:0 0 auto;font-size:calc(10px * var(--mmh3-fs, 1));text-transform:uppercase;
   letter-spacing:.08em;color:#8a93a3;}
 /* In the sidebar the column's own gap spaces this; inline it is a block, so it
@@ -1209,8 +2039,8 @@ const CSS = `
 .mmh3p-wave{background:#0d1015;}
 .mmh3p-cardbar{display:flex;align-items:center;gap:3px;padding:2px 4px;}
 .mmh3p-tagname{font-family:ui-monospace,monospace;font-size:calc(9px * var(--mmh3-fs, 1));}
-.mmh3p-tagname.pic{color:#e0a94c;} .mmh3p-tagname.vid{color:#4cc3e0;}
-.mmh3p-tagname.aud{color:#b48ce8;} .mmh3p-tagname.subj{color:#7ec87e;}
+.mmh3p-tagname.pic{color:var(--mmh3-tag-pic, #e0a94c);} .mmh3p-tagname.vid{color:var(--mmh3-tag-vid, #4cc3e0);}
+.mmh3p-tagname.aud{color:var(--mmh3-tag-aud, #b48ce8);} .mmh3p-tagname.subj{color:var(--mmh3-tag-subj, #7ec87e);}
 /* Badged into the card's top-right corner, over the thumbnail. The dark pill
    and shadow are what keep a single digit legible against a bright frame;
    pointer-events:none so the corner is still part of the card's click target
@@ -1233,6 +2063,29 @@ const CSS = `
   min-width:240px;max-width:540px;background:#1e222a;
   border:1px solid #3a4252;border-radius:9px;overflow:hidden;
   box-shadow:0 12px 32px rgba(0,0,0,.5);}
+.mmh3p-card.refmod{position:relative;}
+.mmh3p-cardbadge{position:absolute;top:2px;left:2px;background:rgba(8,10,14,.82);color:#e692c8;
+  border:1px solid #7a4d6b;border-radius:4px;font-size:calc(9px * var(--mmh3-fs, 1));line-height:1.3;
+  padding:0 3px;pointer-events:none;}
+.mmh3p-cardvoice{position:absolute;top:22px;right:4px;color:#b48ce8;font-size:calc(12px * var(--mmh3-fs, 1));
+  text-shadow:0 0 3px #000,0 0 2px #000;pointer-events:none;}
+.mmh3p-cardgroup{display:flex;flex-direction:column;gap:3px;flex:0 0 auto;}
+.mmh3p-editthumb{position:relative;line-height:0;}
+.mmh3p-editthumb .mmlp-mkoverlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
+.mmh3p-card.mmh3p-editsrc{border-color:#7a3d52 !important;}
+.mmh3p-editbadge{color:#e86a8a !important;}
+.mmh3p-editsrc .mmh3p-thumb{object-fit:contain;background:#000;}
+.mmh3p-card.mmh3p-editsrc{position:relative;}
+.mmh3p-maskmissing{position:absolute;right:3px;bottom:18px;color:#ffcf5a;text-shadow:0 0 3px #000;cursor:help;
+  font-size:calc(12px * var(--mmh3-fs, 1));}
+.mmh3p-cardgroupcards{display:flex;gap:6px;}
+.mmh3p-cardstrip{box-sizing:border-box;width:0;min-width:100%;font-size:calc(9px * var(--mmh3-fs, 1));
+  color:#8a93a3;border:1px solid #2e3440;border-radius:4px;padding:0 5px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;}
+.mmh3p-cardgroup.refmod .mmh3p-cardstrip{color:#e692c8;border-color:#7a4d6b;background:rgba(230,146,200,.10);}
+.mmh3p-peekrefmod{display:flex;justify-content:space-between;gap:6px;font-size:calc(10px * var(--mmh3-fs, 1));
+  color:#e692c8;margin-bottom:3px;}
+.mmh3p-peekrefmod span:last-child{color:#8a93a3;}
 /* auto on both axes with a cap on each: the image keeps its own proportions
    and the box above shrinks to whatever width that leaves. */
 .mmh3p-peekmedia{display:block;margin:0 auto;width:auto;height:auto;
@@ -1248,7 +2101,11 @@ const CSS = `
    gap is the bar's own 16px instead, which is why it matches the sides here.
    Bottom is 16px to match too. */
 .mmh3p-form{overflow-y:auto;padding:0 16px 16px;min-width:0;
-  display:flex;flex-direction:column;}
+  display:flex;flex-direction:column;
+  /* Named so the audio pair above can ask this column's width rather than
+     the viewport's. inline-size only: the height still comes from the flex
+     layout, and this column's own width never depends on its contents. */
+  container:mmh3p-fields / inline-size;}
 /* Sections keep their natural height; the one marked grow takes the slack, so
    the audio sections after it sit at the bottom of the form instead of
    floating under a short description box. When the content is genuinely
@@ -1263,6 +2120,28 @@ const CSS = `
    below their real rendered size, or the flex-shrink algorithm silently
    overflows them past this section's box and onto whatever follows it. */
 .mmh3p-sec.mmh3p-grow>label,.mmh3p-sec.mmh3p-grow>.hint{flex-shrink:0;}
+/* Two-column Reference form. The form stops scrolling and hands it to the
+   two columns, so a long retention list never pushes the description away;
+   the chip bar and any strip above stay full width. Each column is its own
+   mmh3p-fields container, so the audio pair's own query reads the column it
+   sits in. Under about 760px of form there isn't room for two useful
+   columns: they fold back into one scrolling column. */
+.mmh3p-form.refcols{overflow:hidden;padding-bottom:0;}
+.mmh3p-refcols{flex:1 1 auto;min-height:0;display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;}
+.mmh3p-refcol{min-width:0;min-height:0;overflow-y:auto;display:flex;flex-direction:column;
+  padding-bottom:16px;container:mmh3p-fields / inline-size;}
+.mmh3p-refcol>*{flex:0 0 auto;}
+.mmh3p-refcol>.mmh3p-sec.mmh3p-grow{flex:1 1 auto;}
+.mmh3p-refcol>.mmh3p-audiopair:last-child>.mmh3p-sec,.mmh3p-refcol>.mmh3p-sec:last-child{margin-bottom:0;}
+/* Queried against the form (the columns' container), so the fold-back is
+   styled on the column wrapper, which then does the scrolling itself. */
+@container mmh3p-fields (max-width: 760px){
+  .mmh3p-refcols{display:block;overflow-y:auto;}
+  .mmh3p-refcols>.mmh3p-refcol{overflow:visible;padding-bottom:0;}
+  .mmh3p-refcols>.mmh3p-refcol.left{margin-bottom:16px;}
+  .mmh3p-refcols>.mmh3p-refcol.right{padding-bottom:16px;}
+}
 .mmh3p-side{border-left:1px solid #2a2f3a;display:flex;flex-direction:column;min-height:0;background:#15181e;}
 .mmh3p-sec{margin-bottom:16px;}
 /* The form is a flex column, so margins don't collapse: the last section's own
@@ -1288,7 +2167,12 @@ const CSS = `
 /* A heading carrying its own controls: they sit against the right edge, clear
    of the field below. min-height keeps a header with buttons the same height
    as one without, so sections in a row still line up. */
-.mmh3p-sec>label.act{display:flex;align-items:center;gap:8px;}
+/* Wraps rather than overflows. The container query above is sized for the
+   default text; at a larger --mmh3-fs the label outgrows any fixed px
+   threshold, so the button drops below the heading instead of spilling out
+   of the section. min-width:0 lets the heading itself shrink first. */
+.mmh3p-sec>label.act{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  min-width:0;}
 .mmh3p-secact{margin-left:auto;display:flex;align-items:center;gap:5px;
   flex:0 0 auto;text-transform:none;letter-spacing:normal;}
 /* Header-sized: the standard .mmh3p-btn padding is built for a footer row and
@@ -1307,6 +2191,7 @@ const CSS = `
 .mmh3p-form textarea,.mmh3p-form input[type=text],.mmh3p-form input[type=number],.mmh3p-form select{
   width:100%;box-sizing:border-box;background:#12151b;color:#dde2ea;border:1px solid #2e3440;
   border-radius:6px;padding:7px 9px;font-size:calc(13px * var(--mmh3-fs, 1));font-family:inherit;}
+.mmh3p-refmodnone{font-size:calc(10.5px * var(--mmh3-fs, 1));color:#6b7484;font-style:italic;align-self:center;}
 .mmh3p-form textarea{resize:vertical;line-height:1.5;}
 .mmh3p-form textarea:focus,.mmh3p-form input:focus,.mmh3p-form select:focus{
   outline:none;border-color:#4a5568;}
@@ -1348,6 +2233,7 @@ const CSS = `
   border-radius:6px;cursor:pointer;}
 .mmh3p-prefitem:hover{background:#242a34;}
 .mmh3p-prefitem input{margin-top:2px;flex-shrink:0;}
+.mmh3p-prefselect select{flex:0 0 auto;margin-top:1px;}
 .mmh3p-preflabel{display:block;font-size:calc(12px * var(--mmh3-fs, 1));color:#d7dbe2;}
 .mmh3p-prefhint{display:block;font-size:calc(10px * var(--mmh3-fs, 1));color:#6b7484;line-height:1.35;
   margin-top:2px;}
@@ -1370,18 +2256,49 @@ const CSS = `
   box-shadow:0 16px 40px rgba(0,0,0,.55);pointer-events:none;}
 .mmh3p-phrasepeekhead{display:flex;gap:8px;align-items:baseline;
   margin-bottom:5px;}
-.mmh3p-phrasepeekhead span:first-child{font-size:calc(11px * var(--mmh3-fs, 1));color:#d7dbe2;
+.mmh3p-phrasepeekhead span:first-child{font-size:calc(11px * var(--mmh3-fs, 1));color:#e692c8;
   font-weight:600;}
 .mmh3p-phrasepeekcat{font-size:calc(9px * var(--mmh3-fs, 1));color:#6b7484;text-transform:uppercase;
   letter-spacing:.06em;}
 .mmh3p-phrasepeektext{font-size:calc(12px * var(--mmh3-fs, 1));color:#a9b2c2;line-height:1.5;
   white-space:pre-wrap;max-height:220px;overflow:hidden;}
+.mmh3p-tagpeekwhat{margin-top:5px;font-size:calc(11px * var(--mmh3-fs, 1));color:#6b7484;line-height:1.45;}
 .mmh3p-ctxmenu{position:fixed;z-index:10006;min-width:190px;background:#1e222a;
   border:1px solid #3a4252;border-radius:8px;padding:4px;
   box-shadow:0 16px 40px rgba(0,0,0,.55);}
 .mmh3p-ctxitem{padding:7px 10px;border-radius:6px;font-size:calc(12px * var(--mmh3-fs, 1));color:#d7dbe2;
   cursor:pointer;white-space:nowrap;}
 .mmh3p-ctxitem:hover{background:#2a313d;}
+.mmh3p-tagpick{position:absolute;z-index:10006;width:350px;background:#1b1f27;border:1px solid #3a4252;border-radius:9px;
+  padding:9px;box-shadow:0 12px 32px rgba(0,0,0,.5);color:#d7dbe2;font-size:calc(12px * var(--mmh3-fs, 1));}
+.mmh3p-tagpickhead{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.mmh3p-tagpicktag{font-family:ui-monospace,monospace;font-size:calc(12px * var(--mmh3-fs, 1));}
+.mmh3p-tagpickgrow{flex:1;}
+.mmh3p-tagpickrow{display:flex;align-items:center;gap:6px;margin-bottom:7px;}
+.mmh3p-tagpicklbl{width:56px;flex:0 0 auto;color:#8a93a3;font-size:calc(10.5px * var(--mmh3-fs, 1));}
+.mmh3p-tagseg{display:inline-flex;border:1px solid #3a4252;border-radius:6px;overflow:hidden;}
+.mmh3p-tagseg button{background:#12151b;border:0;border-right:1px solid #3a4252;color:#8a93a3;padding:3px 8px;
+  font-size:calc(11px * var(--mmh3-fs, 1));cursor:pointer;font-family:inherit;}
+.mmh3p-tagseg button:last-child{border-right:0;}
+.mmh3p-tagseg button.on{background:#2b3140;color:#d7dbe2;}
+.mmh3p-tagseg button:disabled{opacity:.4;cursor:default;}
+.mmh3p-tagpickgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:8px;
+  max-height:250px;overflow:auto;}
+.mmh3p-tagpickopt{display:flex;flex-direction:column;gap:3px;min-width:0;text-align:left;background:#12151b;
+  border:1px solid #2e3440;border-radius:7px;padding:5px;cursor:pointer;color:#d7dbe2;font-family:inherit;}
+.mmh3p-tagpickopt:hover{border-color:#6f86b8;background:#1b2230;}
+.mmh3p-tagpickthumb{position:relative;height:48px;border-radius:5px;overflow:hidden;background:#0d1015;display:flex;align-items:center;
+  justify-content:center;color:#6b7484;font-weight:600;font-size:calc(11px * var(--mmh3-fs, 1));}
+.mmh3p-tagpickthumb .mmh3p-thumb{width:100%;height:100%;object-fit:cover;display:block;border-radius:0;}
+.mmh3p-tagpicknm{font-family:ui-monospace,monospace;font-size:calc(10.5px * var(--mmh3-fs, 1));white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;}
+.mmh3p-tagpickun{position:absolute;left:3px;top:3px;padding:0 4px;border-radius:4px;background:rgba(18,21,27,.85);
+  border:1px solid rgba(224,169,76,.55);color:#e0a94c;font-family:system-ui,sans-serif;font-weight:500;
+  font-size:calc(9px * var(--mmh3-fs, 1));line-height:1.4;}
+.mmh3p-tagpicksub{color:#6b7484;font-size:calc(10px * var(--mmh3-fs, 1));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mmh3p-tagpickfoot{display:flex;align-items:center;gap:8px;border-top:1px solid #2a2f3a;padding-top:8px;}
+.mmh3p-tagpicknote{color:#8a93a3;font-size:calc(10.5px * var(--mmh3-fs, 1));}
+.mmh3p-tagpicknone{color:#8a93a3;padding:4px 2px 10px;font-size:calc(11px * var(--mmh3-fs, 1));}
 .mmh3p-phraseover{z-index:10004;display:flex;align-items:center;
   justify-content:center;}
 .mmh3p-phrasemodal{width:min(520px,92vw);background:#191c22;
@@ -1464,19 +2381,39 @@ const CSS = `
 .mmh3p-cardtool:hover{color:#c9cfda;}
 .mmh3p-cardtool.on{color:#e0a94c;}
 .mmh3p-rmtool:hover{color:#e05a5a;}
-/* The two audio sections sit side by side at the foot of the form. */
+/* The two audio sections sit side by side at the foot of the form. Their
+   height is set by the one grip above them (audioGrip), not by a corner grip
+   on each box. */
 .mmh3p-audiopair{display:flex;gap:14px;align-items:flex-start;}
+/* The chip field's own resize:vertical is more specific, hence the match. */
+.mmh3p-audiopair>.mmh3p-sec textarea,
+.mmh3p-audiopair .mmh3p-chipwrap textarea.mmh3p-chiptext{resize:none;}
+.mmh3p-audiograb{flex:0 0 auto;height:12px;margin:-6px 0 4px;cursor:row-resize;
+  display:flex;align-items:center;justify-content:center;touch-action:none;user-select:none;}
+.mmh3p-audiograb::before{content:"";width:44px;height:4px;border-radius:2px;
+  background:#363d4a;border-top:1px solid #4a5263;}
+.mmh3p-audiograb:hover::before,.mmh3p-audiograb.on::before{background:#59637a;width:72px;}
 .mmh3p-audiopair>.mmh3p-sec{flex:1 1 0;min-width:0;margin-bottom:16px;}
-@media (max-width:900px){.mmh3p-audiopair{flex-direction:column;gap:0;}}
+/* Stacks when the column holding it is narrow. This asked the *viewport*
+   before (@media max-width:900px), which is a different question entirely:
+   the fields column can be narrow inside a wide window — the quick editor's
+   keyframe pane takes a share of the width, and the full editor's form sits
+   beside a sidebar — and the pair then stayed side by side and overflowed
+   its own column. Both hosts declare themselves containers below. */
+/* 400px is measured, not guessed: the pair's label rows start overflowing
+   their sections just under 380px at the default text size. */
+@container mmh3p-fields (max-width: 400px){
+  .mmh3p-audiopair{flex-direction:column;gap:0;}
+}
 .mmh3p-chip{display:inline-flex;align-items:center;gap:6px;border-radius:14px;cursor:pointer;
   border:1px solid #363d4a;background:#20242d;color:#c9cfda;font-size:calc(12px * var(--mmh3-fs, 1));
   padding:3px 10px;user-select:none;}
 .mmh3p-chip:hover{border-color:#59637a;background:#262c38;}
 .mmh3p-chip img,.mmh3p-chip video{width:22px;height:22px;object-fit:cover;border-radius:4px;}
-.mmh3p-chip.pic{border-color:#8a6a2c;} .mmh3p-chip.pic b{color:#e0a94c;}
-.mmh3p-chip.vid{border-color:#2c6f81;} .mmh3p-chip.vid b{color:#4cc3e0;}
-.mmh3p-chip.aud{border-color:#5d4a86;} .mmh3p-chip.aud b{color:#b48ce8;}
-.mmh3p-chip.subj{border-color:#3e6b3e;} .mmh3p-chip.subj b{color:#7ec87e;}
+.mmh3p-chip.pic{border-color:#8a6a2c;} .mmh3p-chip.pic b{color:var(--mmh3-tag-pic, #e0a94c);}
+.mmh3p-chip.vid{border-color:#2c6f81;} .mmh3p-chip.vid b{color:var(--mmh3-tag-vid, #4cc3e0);}
+.mmh3p-chip.aud{border-color:#5d4a86;} .mmh3p-chip.aud b{color:var(--mmh3-tag-aud, #b48ce8);}
+.mmh3p-chip.subj{border-color:#3e6b3e;} .mmh3p-chip.subj b{color:var(--mmh3-tag-subj, #7ec87e);}
 .mmh3p-chip b{font-weight:600;}
 .mmh3p-chipnote{font-size:calc(9px * var(--mmh3-fs, 1));font-style:normal;opacity:.75;letter-spacing:.02em;
   border-left:1px solid #4a4260;padding-left:5px;margin-left:1px;}
@@ -1494,6 +2431,9 @@ const CSS = `
   white-space:nowrap;}
 .mmh3p-btn:hover{background:#333b4d;}
 .mmh3p-btn.primary{background:#3f5a86;border-color:#4d6ea6;color:#fff;}
+.mmh3p-btn.off,.mmh3p-btn:disabled{background:#22262e;border-color:#2e3440;
+  color:#5c6472;cursor:not-allowed;}
+.mmh3p-btn.off:hover,.mmh3p-btn:disabled:hover{background:#22262e;}
 .mmh3p-btn.primary:hover{background:#48679a;}
 .mmh3p-btn.ghost{background:none;border-color:transparent;color:#8a93a3;}
 .mmh3p-btn.ghost:hover{color:#e05a5a;}
@@ -1505,15 +2445,47 @@ const CSS = `
 .mmh3p-btn.rowx:hover{background:#3a2020;border-color:#7a3a3a;color:#f0a0a0;}
 .mmh3p-defrow{display:flex;gap:6px;margin-bottom:6px;align-items:flex-start;}
 .mmh3p-defrow textarea{flex:1;min-height:38px;}
+.mmh3p-form .mmh3p-defrow textarea{flex:1 1 auto;min-width:0;}
+.mmh3p-form .mmh3p-defrow input[type=text].mmh3p-defname{width:110px;flex:0 0 110px;min-width:0;align-self:flex-start;}
+.mmh3p-form .mmh3p-defrow input[type=text].mmh3p-defname[hidden]{display:none;}
+.mmh3p-form .mmh3p-defrow input[type=text].mmh3p-defname.mmh3p-defvoice{width:190px;flex:0 0 190px;}
+.mmh3p-spksplit{display:inline-flex;}
+.mmh3p-spksplit .mmh3p-spkmain{border-top-right-radius:0;border-bottom-right-radius:0;}
+.mmh3p-spksplit .mmh3p-spkarrow{border-top-left-radius:0;border-bottom-left-radius:0;border-left:0;padding-left:5px;padding-right:5px;}
+.mmh3p-spkmenu{position:absolute;z-index:10006;min-width:300px;max-width:480px;background:#1b1f27;border:1px solid #3a4252;
+  border-radius:8px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.45);}
+.mmh3p-spkitem{display:block;width:100%;text-align:left;background:none;border:0;border-radius:6px;padding:7px 9px;
+  color:#d7dbe2;cursor:pointer;font-size:calc(12px * var(--mmh3-fs, 1));}
+.mmh3p-spkitem:hover{background:#262c36;}
+.mmh3p-spkitem small{display:block;margin-top:3px;color:#8e97a6;font-family:ui-monospace,monospace;
+  font-size:calc(11px * var(--mmh3-fs, 1));white-space:normal;}
+.mmh3p-spkitem.off{cursor:default;opacity:.6;}
+.mmh3p-spkitem.off:hover{background:none;}
+.mmh3p-chipname{color:#a9b2c2;font-size:calc(10px * var(--mmh3-fs, 1));}
 .mmh3p-minitags{display:flex;gap:4px;flex-wrap:wrap;margin:-2px 0 8px 2px;min-height:14px;}
 .mmh3p-minitag{font-size:calc(10px * var(--mmh3-fs, 1));border-radius:8px;padding:1px 7px;background:#20242d;border:1px solid #363d4a;}
-.mmh3p-minitag.pic{color:#e0a94c;border-color:#8a6a2c;}
-.mmh3p-minitag.vid{color:#4cc3e0;border-color:#2c6f81;}
-.mmh3p-minitag.aud{color:#b48ce8;border-color:#5d4a86;}
-.mmh3p-minitag.subj{color:#7ec87e;border-color:#3e6b3e;}
+.mmh3p-minitag.pic{color:var(--mmh3-tag-pic, #e0a94c);border-color:#8a6a2c;}
+.mmh3p-minitag.vid{color:var(--mmh3-tag-vid, #4cc3e0);border-color:#2c6f81;}
+.mmh3p-minitag.aud{color:var(--mmh3-tag-aud, #b48ce8);border-color:#5d4a86;}
+.mmh3p-minitag.subj{color:var(--mmh3-tag-subj, #7ec87e);border-color:#3e6b3e;}
 .mmh3p-roles{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:-4px 0 10px 2px;}
 .mmh3p-rolelabel{font-size:calc(10px * var(--mmh3-fs, 1));text-transform:uppercase;letter-spacing:.07em;
   color:#6b7484;margin-right:2px;}
+.mmh3p-btn.danger{border-color:#7a4a3a;color:#e0a090;}
+.mmh3p-btn.danger:hover{background:#3a2622;}
+.mmh3p-conceptover{position:fixed;inset:0;z-index:10007;background:rgba(8,10,14,.55);display:flex;
+  align-items:center;justify-content:center;}
+.mmh3p-conceptbox{width:min(440px,92vw);background:#1e222a;border:1px solid #3a4252;border-radius:10px;
+  padding:14px 16px;display:flex;flex-direction:column;gap:9px;color:#d7dbe2;
+  box-shadow:0 24px 64px rgba(0,0,0,.55);font-size:calc(12px * var(--mmh3-fs, 1));}
+.mmh3p-concepthead{font-weight:600;font-size:calc(14px * var(--mmh3-fs, 1));}
+.mmh3p-conceptrow{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.mmh3p-conceptrow span{color:#e692c8;}
+.mmh3p-conceptrow small{color:#8a93a3;}
+.mmh3p-conceptrow select{flex:0 1 220px;}
+.mmh3p-conceptbtns{display:flex;justify-content:flex-end;gap:6px;margin-top:4px;}
+.mmh3p-conceptbox .mmh3p-dim{color:#8a93a3;font-size:calc(11px * var(--mmh3-fs, 1));}
+.mmh3p-conceptbox .mmh3p-inline{display:flex;align-items:center;gap:6px;color:#a9b2c2;}
 .mmh3p-rolechip{font-size:calc(11px * var(--mmh3-fs, 1));border-radius:10px;padding:2px 9px;cursor:pointer;
   background:#1d2029;border:1px solid #3a3050;color:#a99ac4;user-select:none;}
 .mmh3p-rolechip:hover{border-color:#5d4a86;color:#c9b9e6;background:#241f33;}
@@ -1543,20 +2515,20 @@ const CSS = `
    outright swapped — the preview drew a shot blue and a speaker pink while
    the fields drew a shot pink and a speaker blue. The chips are the reference
    now, since that is where the writing actually happens. */
-.mmh3p-t-pic{color:#e0a94c;} .mmh3p-t-vid{color:#4cc3e0;}
-.mmh3p-t-aud{color:#b48ce8;} .mmh3p-t-subj{color:#6fbf73;}
+.mmh3p-t-pic{color:var(--mmh3-tag-pic, #e0a94c);} .mmh3p-t-vid{color:var(--mmh3-tag-vid, #4cc3e0);}
+.mmh3p-t-aud{color:var(--mmh3-tag-aud, #b48ce8);} .mmh3p-t-subj{color:var(--mmh3-tag-subj, #7ec87e);}
 /* Solid, like its chip: a cut marker is the loudest thing in a prompt. Bold
    is safe here — unlike in a field, nothing has to line up under this text. */
-.mmh3p-t-shot{color:#ffe9f4;background:#a34b7d;border-radius:3px;
+.mmh3p-t-shot{color:var(--mmh3-tag-shotink, #ffe9f4);background:var(--mmh3-tag-shot, #a34b7d);border-radius:3px;
   font-weight:600;-webkit-box-decoration-break:clone;box-decoration-break:clone;}
 .mmh3p-t-d{color:#5f7899;}
 .mmh3p-t-lang{color:#9dc0e4;background:rgba(126,167,216,.16);border-radius:3px;}
-.mmh3p-t-spk{color:#7ea7d8;font-weight:600;}
+.mmh3p-t-spk{color:var(--mmh3-tag-spk, #7ea7d8);font-weight:600;}
 /* A tag naming media that isn't loaded, matching .mmh3p-reftag.unknown. The
    preview could not show this at all before — it is a pure string pass with
    no idea what is loaded — so a typo'd tag looked correct right up until the
    prompt ran. */
-.mmh3p-t-unknown{color:#f07070;background:rgba(240,112,112,.16);border-radius:3px;}
+.mmh3p-t-unknown{color:var(--mmh3-tag-unknown, #f07070);background:color-mix(in srgb, var(--mmh3-tag-unknown) 16%, transparent);border-radius:3px;}
 /* N/A marks a section as deliberately empty, so it reads as absent rather
    than as content. No chip equivalent: the fields never paint it. */
 .mmh3p-t-na{color:#6b7484;font-style:italic;}
@@ -1586,7 +2558,11 @@ const CSS = `
 .mmh3p-issues .info{color:#8a93a3;margin:3px 0;}
 .mmh3p-issues .ok{color:#7ec87e;}
 .mmh3p-foot{display:flex;gap:8px;align-items:center;padding:10px 14px;border-top:1px solid #2a2f3a;}
-.mmh3p-foot .stats{font-size:calc(11px * var(--mmh3-fs, 1));color:#6b7484;margin-right:auto;}
+.mmh3p-foot .stats{font-size:calc(11px * var(--mmh3-fs, 1));color:#6b7484;margin-right:auto;
+  /* One line: FL2VA/L2VA add "• length N (Ns)", which wrapped in the narrow
+     preview column and made the footer, and the window's layout, 2px taller
+     in those modes only. The whole line is the tooltip. */
+  min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .mmh3p-summary{width:100%;box-sizing:border-box;background:#181b21;border:1px solid #2b303b;
   border-radius:6px;padding:6px 9px;font-size:calc(11px * var(--mmh3-fs, 1));line-height:1.5;color:#9aa3b2;
   overflow:hidden;cursor:default;display:flex;align-items:center;gap:9px;}
@@ -1597,11 +2573,13 @@ const CSS = `
 .mmh3p-summary.mmh3p-joinabove{border-top-left-radius:0;border-top-right-radius:0;
   border-bottom-left-radius:8px;border-bottom-right-radius:8px;
   background:#191c22;border-color:#2a2f3a;}
-/* Two lines of the prompt, clamped. pre-line keeps the prompt's own breaks, so
-   a short opening line spends line two on the next one instead of padding. */
+/* The prompt, clamped to the node ⚙'s "Prompt bar rows" (--mmh3-barrows, set
+   on the document by medialoader.js; two by default). pre-line keeps the
+   prompt's own breaks, so a short opening line spends the next row on the
+   next one instead of padding. */
 .mmh3p-sumtext{flex:1 1 auto;min-width:0;white-space:pre-line;overflow-wrap:anywhere;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
-  max-height:calc(2 * 1.5em);}
+  display:-webkit-box;-webkit-line-clamp:var(--mmh3-barrows, 2);-webkit-box-orient:vertical;
+  overflow:hidden;max-height:calc(var(--mmh3-barrows, 2) * 1.5em);}
 .mmh3p-sumtext.empty{font-style:italic;color:#6b7484;}
 /* Matches .mmh3p-modebtn at the bar's other end, so the two read as a pair. */
 .mmh3p-sumbtn{flex:0 0 auto;align-self:center;display:inline-flex;align-items:center;
@@ -1611,25 +2589,116 @@ const CSS = `
 .mmh3p-summark{flex:0 0 auto;align-self:center;font-size:calc(12px * var(--mmh3-fs, 1));line-height:1;
   opacity:.85;user-select:none;cursor:pointer;}
 .mmh3p-summark:hover{opacity:1;}
+/* A video dragged over the node's prompt bar, and the dialog it opens
+   (promptstudio.js: add it to the media, or import its Prompt Studio
+   settings). */
+.mmh3p-summary.mmh3p-vdrop{outline:2px dashed #5aa0e0;outline-offset:-3px;background:#16263a;}
+/* The prompt bar's rows grip (barGrip in promptstudio.js), on the bar's top
+   edge. Its negative margins cancel its height, so it takes no room and the
+   layout doesn't shift; hidden while the bar holds T2VA's fields. */
+.mmh3p-nodestack>.mmh3p-bargrip{flex:0 0 auto;height:12px;margin:-6px 0;position:relative;z-index:3;
+  cursor:ns-resize;touch-action:none;display:flex;align-items:center;justify-content:center;}
+.mmh3p-nodestack>.mmh3p-bargrip::before{content:"";width:40px;height:4px;border-radius:2px;
+  background:#3a4252;border:1px solid #191c22;}
+.mmh3p-nodestack>.mmh3p-bargrip:hover::before,.mmh3p-nodestack>.mmh3p-bargrip.on::before{
+  background:#6f86b8;width:64px;}
+.mmh3p-nodestack>.mmh3p-bargrip:has(+ .mmh3p-summary-open){display:none;}
+.mmh3p-vimp-overlay{z-index:10040;}
+.mmh3p-vimp{box-sizing:border-box;width:min(620px,94vw);max-height:86vh;display:flex;flex-direction:column;
+  background:#191c22;color:#d7dbe2;border:1px solid #303642;border-radius:10px;overflow:hidden;
+  box-shadow:0 24px 64px rgba(0,0,0,.55);}
+.mmh3p-vimp-body{padding:14px 16px;overflow-y:auto;display:flex;flex-direction:column;gap:9px;
+  font-size:calc(12px * var(--mmh3-fs, 1));}
+.mmh3p-vimp-detail{display:flex;flex-direction:column;gap:9px;}
+.mmh3p-vimp-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;}
+.mmh3p-vimp-row b{color:#8a93a3;font-weight:600;text-transform:uppercase;letter-spacing:.05em;
+  font-size:calc(10px * var(--mmh3-fs, 1));}
+.mmh3p-vimp-prev{white-space:pre-wrap;background:#12151b;border:1px solid #2a2f3a;border-radius:6px;
+  padding:8px 10px;max-height:9em;overflow:auto;line-height:1.5;color:#c9cfda;}
+.mmh3p-vimp-file{background:#20242d;border:1px solid #363d4a;border-radius:5px;padding:1px 7px;
+  font-family:ui-monospace,monospace;font-size:calc(11px * var(--mmh3-fs, 1));}
+.mmh3p-vimp-file.missing{border-color:#7a3a3a;color:#f0a0a0;text-decoration:line-through;}
+.mmh3p-vimp-file.off{opacity:.55;}
+.mmh3p-vimp-note{color:#8a93a3;line-height:1.45;}
+.mmh3p-vimp-note.warn{color:#e3a64a;}
+.mmh3p-vimp-checks{display:flex;gap:16px;padding-top:2px;}
+.mmh3p-vimp-check{display:inline-flex;align-items:center;gap:6px;cursor:pointer;}
+.mmh3p-vimp .mmh3p-foot{flex-wrap:wrap;}
+/* Quick edit's corner grip (bottom right): three diagonal ticks. */
+.mmh3p-quickgrip{position:absolute;right:1px;bottom:1px;width:16px;height:16px;z-index:2;
+  cursor:nwse-resize;touch-action:none;
+  background:linear-gradient(135deg,transparent 0 45%,#4a5263 45% 52%,transparent 52% 62%,
+    #4a5263 62% 69%,transparent 69% 79%,#4a5263 79% 86%,transparent 86%);}
+.mmh3p-quickgrip:hover{filter:brightness(1.6);}
 /* Quick edit: smaller than the full builder, same chrome. */
 /* 25% off both axes (was 900x780 capped at 92vw/88vh). The viewport caps come
    down with the pixel sizes, or on a small screen the window would still fill
    almost the whole viewport and the reduction would only show on large ones. */
-.mmh3p-quickmodal{box-sizing:border-box;width:min(675px,69vw);height:min(585px,66vh);
+.mmh3p-quickmodal{position:relative;box-sizing:border-box;width:min(900px,88vw);height:min(585px,66vh);
   display:flex;flex-direction:column;background:#191c22;color:#d7dbe2;
   border:1px solid #303642;border-radius:10px;overflow:hidden;
   box-shadow:0 24px 64px rgba(0,0,0,.55);}
 .mmh3p-quickbody{flex:1;min-height:0;overflow-y:auto;padding:14px 16px 18px;}
-.mmh3p-quick{display:flex;flex-direction:column;min-height:100%;}
-/* #46: keyframes on the left, fields on the right. */
+.mmh3p-quick{display:flex;flex-direction:column;min-height:100%;
+  container:mmh3p-fields / inline-size;}
+/* #46: keyframes on the left, fields on the right. The keyframes are what
+   you are writing against, so they get real estate — a proportional column,
+   full body height — rather than the 132px thumbnail strip they used to be.
+   One picture (I2VA/L2VA) fills the column; two (FL2VA) split it evenly,
+   first frame above last. */
 .mmh3p-quickwrap{display:flex;gap:12px;align-items:stretch;min-height:100%;}
 .mmh3p-quickwrap>.mmh3p-quick{flex:1 1 auto;min-width:0;}
-.mmh3p-quickpics{flex:0 0 auto;width:132px;display:flex;flex-direction:column;gap:8px;}
-.mmh3p-quickpic{border:1px solid #2e3440;border-radius:7px;overflow:hidden;
-  background:#12151b;}
-.mmh3p-quickpic .mmh3p-thumb{width:100%;height:80px;object-fit:cover;display:block;
-  background:#0d1015;}
-.mmh3p-quickpic .mmh3p-tagname{display:block;padding:3px 5px;}
+/* Width, flex-direction and each tile's exact size are written inline by
+   keyframePaneLayout() — the pane takes its shape from the pictures rather
+   than fitting them into a fixed column, so nothing is cropped and no
+   letterbox bars are left over. The values here are the pre-measurement
+   fallback, replaced on the first layout pass. */
+/* Top-aligned and sticky rather than centred: the pictures are sized to the
+   visible height, but when the fields run taller (a small window, a large
+   text size) the column they sit beside does too, and centring in that put
+   them low and cut off. Pinned to the top, they stay whole while the fields
+   scroll. When the fields fit, the column is the visible height and the two
+   alignments are the same. */
+.mmh3p-quickpics{flex:0 0 auto;min-width:0;align-self:flex-start;position:sticky;top:0;
+  display:flex;flex-direction:column;gap:8px;
+  /* Two pictures of different shapes give the pane the width of the wider
+     one; centring keeps the narrower under it rather than hard left. */
+  align-items:center;justify-content:center;}
+.mmh3p-quickpic{flex:0 0 auto;min-height:0;position:relative;box-sizing:border-box;
+  border:1px solid #2e3440;border-radius:7px;overflow:hidden;background:#12151b;
+  /* Sizes the crop window below in cqw/cqh — see .mmh3p-quickcrop. */
+  container-type:size;}
+/* contain, not cover: the whole frame, undistorted. Showing what the model
+   actually receives is the point of these. */
+.mmh3p-quickpic>.mmh3p-quickimg{width:100%;height:100%;object-fit:contain;
+  display:block;background:#0d1015;}
+/* A cropped picture is shown through cropFrame()'s offset window, which fills
+   its box by width and leaves the box's own height to do the clipping — so
+   the box has to carry the kept region's aspect ratio for the crop to land
+   exactly. --ar is set per picture in keyframes().
+
+   Container-query units rather than max-width/max-height: clamping one axis
+   with max-* does not re-derive the other, so a box wider than its tile came
+   out stretched. min() against both cq axes is exact containment — measured
+   across 15 tile/aspect combinations. */
+.mmh3p-quickpic>.mmh3p-quickcrop{position:absolute;left:50%;top:50%;
+  transform:translate(-50%,-50%);
+  width:min(100cqw, calc(100cqh * var(--ar)));
+  height:min(100cqh, calc(100cqw / var(--ar)));}
+/* The speaker buttons share the field's header row with + Shot, and there
+   are as many of them as the prompt has speakers — so the group wraps as a
+   unit rather than letting one button strand itself on a line of its own. */
+.mmh3p-quickspk{display:inline-flex;gap:5px;flex-wrap:wrap;
+  align-items:center;}
+/* A picture file dragged over a tile (drop to replace it), and the upload. */
+.mmh3p-quickpic.hot{border-color:#5aa0e0;box-shadow:0 0 0 2px rgba(90,160,224,.45) inset;}
+.mmh3p-quickpic.hot::after{content:"Drop to replace";position:absolute;inset:0;display:flex;
+  align-items:center;justify-content:center;background:rgba(10,20,34,.55);color:#cfe6ff;
+  font-size:calc(13px * var(--mmh3-fs, 1));pointer-events:none;}
+.mmh3p-quickpic.busy{opacity:.55;}
+.mmh3p-quickpic .mmh3p-tagname{position:absolute;left:6px;bottom:6px;
+  padding:2px 7px;border-radius:5px;background:rgba(8,10,14,.78);
+  pointer-events:none;}
 .mmh3p-quick>*{flex:0 0 auto;}
 .mmh3p-quick .mmh3p-sec.mmh3p-grow{flex:1 1 auto;display:flex;flex-direction:column;
   min-height:200px;}
@@ -1638,6 +2707,23 @@ const CSS = `
    bug — no hint lives here yet, but the label shouldn't be squeezable. */
 .mmh3p-quick .mmh3p-sec.mmh3p-grow>label,
 .mmh3p-quick .mmh3p-sec.mmh3p-grow>.hint{flex-shrink:0;}
+/* The audio pair ends the fields: no section margin under it, so its boxes'
+   bottoms line up with the keyframe preview's (the full editor's form does
+   the same for its last pair). */
+.mmh3p-quick>.mmh3p-audiopair:last-child>.mmh3p-sec{margin-bottom:0;}
+/* In the Quick edit window the description gives up its room first. The
+   textarea sits in a chip wrapper, so the grow rule above never reached it
+   and it stayed at its 12 rows (237px): below ~403px the fields scrolled,
+   and the audio boxes ended below the picture instead of level with it.
+   With the wrapper flexing down to 100px (scaled with the text), the
+   fields fit the window's 280px floor at any text size, so the audio
+   boxes always end where the preview does. Not on the node's T2VA bar,
+   which keeps its fixed rows. */
+.mmh3p-quickmodal .mmh3p-quick .mmh3p-sec.mmh3p-grow{min-height:0;}
+.mmh3p-quickmodal .mmh3p-quick .mmh3p-sec.mmh3p-grow>.mmh3p-chipwrap{flex:1 1 0;
+  min-height:calc(100px * var(--mmh3-fs, 1));display:flex;flex-direction:column;}
+.mmh3p-quickmodal .mmh3p-quick .mmh3p-sec.mmh3p-grow>.mmh3p-chipwrap>textarea{
+  flex:1 1 auto;min-height:0;}
 .mmh3p-quick textarea{width:100%;box-sizing:border-box;background:#12151b;
   color:#dde2ea;border:1px solid #2e3440;border-radius:6px;padding:7px 9px;
   font-size:calc(13px * var(--mmh3-fs, 1));font-family:inherit;resize:vertical;line-height:1.5;}
@@ -1646,6 +2732,58 @@ const CSS = `
   letter-spacing:.08em;color:#8a93a3;margin-bottom:5px;}
 /* The node's bar expanded into those fields: it stops being a one-line summary
    and becomes a small scrolling editor. */
+/* The node's stack: media panel above, prompt bar below, in ONE DOM widget.
+   The split is a flex rule rather than two widget heights reconciled in JS,
+   which is what stops them drifting apart — see promptstudio.js's STACK_H.
+   Whichever half is flexible takes the slack, so no arrangement can leave a
+   gap between them. */
+/* overflow stays visible: the panel's dropdowns escape its own box when it
+   is collapsed, and a second clip here would put them straight back. The
+   halves clip their own content already. */
+/* One text size for everything inside the node: the media panel reads
+   --mml-fs (the node ⚙'s Text size, set on the document), while the prompt
+   bar and the RefMods grid read --mmh3-fs, which on the document is the
+   Prompt Builder window's own. Mapped here, so the bar and both views of
+   the panel follow the node's setting, live and on every node. */
+.mmh3p-nodestack{--mmh3-fs:var(--mml-fs, 1);}
+.mmh3p-nodestack{display:flex;flex-direction:column;width:100%;
+  box-sizing:border-box;height:100%;min-height:0;}
+/* Normally the panel takes the room and the bar is a fixed strip under it. */
+.mmh3p-nodestack>.mmlp-panel{flex:1 1 auto;min-height:0;height:auto;}
+.mmh3p-nodestack>.mmh3p-summary{flex:0 0 auto;}
+/* In T2VA's "Used" layout the panel collapses to its toolbar (.mmlp-min) and
+   the bar expands into the fields, so the two swap which one is flexible. The
+   bar then absorbs everything the panel gave up — by construction, not by
+   arithmetic, which is the bug this replaced: the panel's element collapsed
+   while its widget went on reserving the old height. */
+.mmh3p-nodestack>.mmlp-panel.mmlp-min{flex:0 0 auto;}
+/* The ◈ at the left of both toolbars swaps the node's panel between its
+   media and its RefMods. Amber while the RefMods show, like the full-size
+   window's ◈ RefMods button; the count is the node's RefMods picked. */
+.mmh3p-swapbtn{flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;
+  font-size:calc(13px * var(--mml-fs, 1));line-height:1;}
+.mmh3p-swapbtn.on{background:#3a3220 !important;border-color:#c89a3c !important;color:#f0d9a8 !important;}
+.mmh3p-swapcount{font-size:calc(10px * var(--mml-fs, 1));font-family:ui-monospace,monospace;color:#c9cfda;}
+.mmh3p-swapbtn.on .mmh3p-swapcount{color:#f0d9a8;}
+/* The RefMods grid in the node: the stack node's fixed 620px panel would
+   overflow a node sized for the media panel, so it flexes like that one, and
+   squares its bottom corners against the prompt bar the way the media panel
+   does. */
+.mmh3p-nodestack>.mmrp-panel{flex:1 1 auto;height:auto;min-height:0;
+  border-radius:8px 8px 0 0;}
+/* Its toolbar is sized exactly like the media panel's (.mmlp-top), so ◈
+   swaps the panel without the bar, the ◈ or the ⚙ jumping: one control
+   height that scales with the text, the same gap, and the small buttons at
+   the media panel's 11px rather than 10px. */
+.mmh3p-nodestack>.mmrp-panel .mmrp-toolbar{gap:8px;}
+.mmh3p-nodestack>.mmrp-panel .mmrp-toolbar button{height:calc(22px * var(--mmh3-fs, 1));
+  box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;}
+.mmh3p-nodestack>.mmrp-panel .mmrp-toolbar .mmrp-btn.mmrp-sm{padding:3px 9px;
+  font-size:calc(11px * var(--mmh3-fs, 1));}
+/* Both panels set display:flex, which outranks the browser's own rule for
+   the hidden attribute — without this the "hidden" tab would still draw. */
+.mmh3p-nodestack>[hidden]{display:none !important;}
+.mmh3p-nodestack>.mmh3p-summary.mmh3p-summary-open{flex:1 1 auto;min-height:0;}
 .mmh3p-summary.mmh3p-summary-open{display:block;overflow-y:auto;padding:8px 10px;
   cursor:default;}
 .mmh3p-summary.mmh3p-summary-open label{margin:6px 0 3px;}
@@ -1751,6 +2889,9 @@ const CSS = `
 /* Those two sections put the field in a flex row beside an N/A button; the
    wrapper has to claim the space the bare textarea used to. */
 .mmh3p-row .mmh3p-chipwrap{flex:1;min-width:0;}
+/* Subject-definition rows are the same shape: power toggle, field, remove
+   button. The wrapper takes the flex:1 the bare textarea had. */
+.mmh3p-defrow .mmh3p-chipwrap{flex:1;min-width:0;}
 /* Same problem one level up, in the growing sections. The section is a flex
    column whose textarea is meant to absorb all the slack, but the wrapper now
    sits between the two — so the grow has to be handed down through it, or the
@@ -1797,25 +2938,28 @@ const CSS = `
 .mmh3p-chipwrap.plain textarea.mmh3p-chiptext::selection{
   background:rgba(96,140,210,.45);color:#fff;}
 .mmh3p-chipwrap.plain .mmh3p-chipmirror{color:transparent;}
+/* A name suggestion after the caret: grey in both modes, Tab fills it in. */
+.mmh3p-chipmirror .mmh3p-ghost,.mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-ghost{color:#6b7484;}
 .mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-reftag,
 .mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-dblock,
 .mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-dmark,
 .mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-dlang,
+.mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-dtag,
 .mmh3p-chipwrap.plain .mmh3p-chipmirror .mmh3p-dtext{
   color:transparent;background:none;box-shadow:none;}
-.mmh3p-reftag{border-radius:3px;background:rgba(224,169,76,.18);color:#e0a94c;
-  box-shadow:0 0 0 2px rgba(224,169,76,.18), inset 0 0 0 1px rgba(224,169,76,.45);
+.mmh3p-reftag{border-radius:3px;background:color-mix(in srgb, var(--mmh3-tag-pic) 18%, transparent);color:var(--mmh3-tag-pic, #e0a94c);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--mmh3-tag-pic) 18%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--mmh3-tag-pic) 45%, transparent);
   -webkit-box-decoration-break:clone;box-decoration-break:clone;}
-.mmh3p-reftag.vid{background:rgba(76,195,224,.18);color:#4cc3e0;
-  box-shadow:0 0 0 2px rgba(76,195,224,.18), inset 0 0 0 1px rgba(76,195,224,.45);}
-.mmh3p-reftag.aud{background:rgba(180,140,232,.18);color:#b48ce8;
-  box-shadow:0 0 0 2px rgba(180,140,232,.18), inset 0 0 0 1px rgba(180,140,232,.45);}
-.mmh3p-reftag.subj{background:rgba(111,191,115,.18);color:#6fbf73;
-  box-shadow:0 0 0 2px rgba(111,191,115,.18), inset 0 0 0 1px rgba(111,191,115,.45);}
-.mmh3p-reftag.unknown{background:rgba(240,112,112,.16);color:#f07070;
-  box-shadow:0 0 0 2px rgba(240,112,112,.16), inset 0 0 0 1px rgba(240,112,112,.5);}
-.mmh3p-reftag.spk{background:rgba(126,167,216,.16);color:#7ea7d8;
-  box-shadow:0 0 0 2px rgba(126,167,216,.16), inset 0 0 0 1px rgba(126,167,216,.4);}
+.mmh3p-reftag.vid{background:color-mix(in srgb, var(--mmh3-tag-vid) 18%, transparent);color:var(--mmh3-tag-vid, #4cc3e0);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--mmh3-tag-vid) 18%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--mmh3-tag-vid) 45%, transparent);}
+.mmh3p-reftag.aud{background:color-mix(in srgb, var(--mmh3-tag-aud) 18%, transparent);color:var(--mmh3-tag-aud, #b48ce8);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--mmh3-tag-aud) 18%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--mmh3-tag-aud) 45%, transparent);}
+.mmh3p-reftag.subj{background:color-mix(in srgb, var(--mmh3-tag-subj) 18%, transparent);color:var(--mmh3-tag-subj, #7ec87e);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--mmh3-tag-subj) 18%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--mmh3-tag-subj) 45%, transparent);}
+.mmh3p-reftag.unknown{background:color-mix(in srgb, var(--mmh3-tag-unknown) 16%, transparent);color:var(--mmh3-tag-unknown, #f07070);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--mmh3-tag-unknown) 16%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--mmh3-tag-unknown) 50%, transparent);}
+.mmh3p-reftag.spk{background:color-mix(in srgb, var(--mmh3-tag-spk) 16%, transparent);color:var(--mmh3-tag-spk, #7ea7d8);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--mmh3-tag-spk) 16%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--mmh3-tag-spk) 40%, transparent);}
 /* Cut markers are the loudest thing in a prompt, so they're the only SOLID
    chip: every other tag is a translucent tint. The weight does the work, which
    also means the hue doesn't have to compete with audio's violet or the red
@@ -1825,9 +2969,9 @@ const CSS = `
    px of caret drift on that line, or a whole word once the widened line
    wrapped earlier than the real one. The double text-shadow fakes the weight
    without touching a single glyph advance. */
-.mmh3p-reftag.shot{background:#a34b7d;color:#ffe9f4;
+.mmh3p-reftag.shot{background:var(--mmh3-tag-shot, #a34b7d);color:var(--mmh3-tag-shotink, #ffe9f4);
   text-shadow:0.02em 0 currentColor,-0.02em 0 currentColor;
-  box-shadow:0 0 0 2px #a34b7d, inset 0 0 0 1px rgba(255,255,255,.18);}
+  box-shadow:0 0 0 2px var(--mmh3-tag-shot, #a34b7d), inset 0 0 0 1px rgba(255,255,255,.18);}
 /* Spoken lines. The band shows how much of a paragraph is actually speech;
    the markers dim because they're syntax, not words the model will say.
    box-decoration-break keeps the band intact when a line wraps. */
@@ -1839,6 +2983,9 @@ const CSS = `
 .mmh3p-dlang{color:#9dc0e4;background:rgba(126,167,216,.16);border-radius:3px;
   box-shadow:0 0 0 1px rgba(126,167,216,.16);}
 .mmh3p-dtext{color:#e8eef6;}
+.mmh3p-dtag{color:#e692c8;background:rgba(230,146,200,.14);border-radius:3px;
+  box-shadow:0 0 0 1px rgba(230,146,200,.28);
+  -webkit-box-decoration-break:clone;box-decoration-break:clone;}
 .mmh3p-chippeek{position:fixed;z-index:10003;width:220px;background:#1e222a;
   border:1px solid #3a4252;border-radius:9px;overflow:hidden;
   box-shadow:0 16px 40px rgba(0,0,0,.55);pointer-events:none;}
@@ -1856,6 +3003,100 @@ const CSS = `
 .mmh3p-chiptags{display:flex;flex-wrap:wrap;gap:3px;}
 .mmh3p-chiptags .mmh3p-tagname{font-size:calc(9px * var(--mmh3-fs, 1));}
 .mmh3p-chipnone{color:#6b7484;font-style:italic;}
+/* ---- Draft mode ----
+   One class on the modal drives everything: teal chrome for the across-the-
+   room read, a cool field wash for mid-typing, and the banner carrying the
+   actual meaning. Teal is the one hue unclaimed elsewhere in the palette —
+   speaker blue, shot magenta and danger red all stay distinct — and unlike
+   a warm accent it doesn't go muddy at low luminance. Colors only, so the
+   chip mirror never notices. Last in the sheet on purpose. */
+.mmh3p-modal.draft{border-color:#3fb2a8;
+  box-shadow:0 24px 64px rgba(0,0,0,.55), 0 0 0 1px #3fb2a8;}
+.mmh3p-modal.draft .mmh3p-head{background:#15242a;border-bottom-color:#3fb2a8;}
+.mmh3p-modal.draft .mmh3p-form textarea,
+.mmh3p-modal.draft .mmh3p-form input[type=text],
+.mmh3p-modal.draft .mmh3p-form input[type=number],
+.mmh3p-modal.draft .mmh3p-form select{background:#101619;border-color:#24343a;}
+/* Chip fields paint their background on the WRAP — textarea and mirror are
+   both transparent by design — so the wash has to land there. Backgrounds
+   and borders only: colors are layout-neutral, the mirror never notices. */
+.mmh3p-modal.draft .mmh3p-chipwrap{background:#101619;border-color:#24343a;}
+.mmh3p-modal.draft .mmh3p-chipwrap textarea.mmh3p-chiptext{background:transparent;
+  border-color:transparent;}
+.mmh3p-titletag{color:#3fb2a8;font-weight:600;margin-left:8px;
+  font-size:calc(13px * var(--mmh3-fs, 1));}
+.mmh3p-modetoggle.draft{border-color:#3fb2a8;color:#6fd0c6;}
+.mmh3p-draftadmin{display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  padding:5px 6px;}
+.mmh3p-drafthint{flex:1 1 140px;min-width:0;color:#8a93a3;
+  font-size:calc(10px * var(--mmh3-fs, 1));line-height:1.4;}
+.mmh3p-draftslot{flex:0 0 auto;}
+.mmh3p-draftslot:empty{display:none;}
+.mmh3p-draftbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  background:#15242a;border-top:1px solid #3fb2a8;
+  border-bottom:1px solid #3fb2a8;padding:8px 16px;}
+.mmh3p-draftbadge{background:#3fb2a8;color:#06211f;font-weight:700;
+  border-radius:5px;padding:1px 7px;letter-spacing:.06em;
+  font-size:calc(10px * var(--mmh3-fs, 1));}
+.mmh3p-draftmsg{flex:1 1 240px;min-width:0;color:#bfe0dc;
+  font-size:calc(11px * var(--mmh3-fs, 1));line-height:1.45;}
+.mmh3p-draftstatus{color:#3fb2a8;opacity:.75;}
+.mmh3p-mediapeek{width:256px;padding:0;}
+.mmh3p-peeklink{margin-top:5px;padding-top:5px;border-top:1px solid #262c36;
+  color:#8fd3c8;line-height:1.4;font-size:calc(10px * var(--mmh3-fs, 1));}
+.mmh3p-peekgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;
+  padding:6px;background:#12151b;}
+.mmh3p-peekcell{position:relative;aspect-ratio:1;background:#0e1116;
+  border-radius:4px;overflow:hidden;display:flex;align-items:center;
+  justify-content:center;}
+.mmh3p-peekcell img{width:100%;height:100%;object-fit:cover;}
+.mmh3p-peekkind{color:#6b7484;display:flex;align-items:center;
+  justify-content:center;}
+.mmh3p-peekkind .mmh3p-kindicon{width:22px;height:22px;color:#6b7484;}
+.mmh3p-peekname{position:absolute;left:0;right:0;bottom:0;padding:1px 3px;
+  background:rgba(8,10,14,.72);color:#9aa3b2;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;
+  font-size:calc(8px * var(--mmh3-fs, 1));}
+.mmh3p-libmedia{display:inline-flex;align-items:baseline;gap:5px;
+  font-size:calc(10px * var(--mmh3-fs, 1));color:#8fd3c8;
+  background:rgba(63,178,168,.14);border:1px solid rgba(63,178,168,.32);
+  border-radius:5px;padding:1px 7px;max-width:260px;overflow:hidden;
+  white-space:nowrap;cursor:help;}
+.mmh3p-libmedia:hover{background:rgba(63,178,168,.22);}
+.mmh3p-libkind{color:#8fd3c8;flex:0 0 auto;display:inline-flex;
+  align-items:baseline;gap:2px;}
+.mmh3p-kindicon{width:1.05em;height:1.05em;display:block;flex:0 0 auto;
+  color:#5e9c93;}
+.mmh3p-libkind{gap:3px;}
+.mmh3p-libsep{color:#4a7a73;flex:0 0 auto;}
+.mmh3p-libpname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mmh3p-prefitem.off{opacity:.5;}
+.mmh3p-prefitem.off .mmh3p-prefhint{color:#f0c98a;opacity:.85;}
+.mmh3p-linkrow{display:flex;align-items:flex-start;gap:7px;flex-wrap:wrap;
+  margin-top:7px;padding-top:7px;border-top:1px solid #262c36;}
+.mmh3p-linktext{display:flex;flex-direction:column;gap:1px;
+  font-size:calc(11px * var(--mmh3-fs, 1));color:#8a93a3;}
+.mmh3p-linktext b{color:#6fb3a8;font-weight:600;}
+.mmh3p-linknote{color:#6b7484;font-size:calc(10px * var(--mmh3-fs, 1));
+  line-height:1.4;}
+.mmh3p-linkname{flex:1 1 140px;min-width:0;background:#12151b;color:#dde2ea;
+  border:1px solid #2e3440;border-radius:6px;padding:4px 8px;
+  font-size:calc(11px * var(--mmh3-fs, 1));font-family:inherit;}
+.mmh3p-linkname:focus{outline:none;border-color:#4a5568;}
+.mmh3p-linkwarn{display:block;margin-top:5px;color:#f0c98a;}
+.mmh3p-draftdropped{background:#3a2a18;color:#f0c98a;border:1px solid #6b4f26;
+  border-radius:5px;padding:1px 7px;flex:0 0 auto;cursor:help;
+  font-size:calc(10px * var(--mmh3-fs, 1));}
+.mmh3p-draftactions{display:flex;gap:6px;flex:0 0 auto;}
+.mmh3p-commitstrip{background:#132126;border-top:1px solid #3fb2a8;
+  border-bottom:1px solid #3fb2a8;padding:10px 16px;}
+.mmh3p-commitmsg{display:block;color:#bfe0dc;margin-bottom:7px;
+  font-size:calc(12px * var(--mmh3-fs, 1));line-height:1.45;}
+.mmh3p-commitrow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+.mmh3p-commitname{flex:1 1 180px;min-width:0;background:#12151b;
+  color:#dde2ea;border:1px solid #2e3440;border-radius:6px;padding:5px 8px;
+  font-size:calc(12px * var(--mmh3-fs, 1));font-family:inherit;}
+.mmh3p-commitname:focus{outline:none;border-color:#4a5568;}
 `;
 
 let cssInjected = false;
@@ -1865,7 +3106,7 @@ export function injectCSS() {
   cssInjected = true;
 }
 
-function toast(msg, ms = 1800) {
+export function toast(msg, ms = 1800) {
   const t = el("div", { class: "mmh3p-toast" }, msg);
   if (ms > 4000) t.classList.add("bad");
   document.body.append(t);
@@ -1876,12 +3117,140 @@ function toast(msg, ms = 1800) {
 /* Prompt library                                                      */
 /* ------------------------------------------------------------------ */
 
+/* ---------- drafts ----------
+ * Draft mode's scratchpad. Lives on disk (one keyed file, server-side), so
+ * a browser crash loses at most a debounce window. Live is the node; the
+ * draft is the file; nothing here ever touches the prompt library or the
+ * preset store except through the user's own explicit save. */
+
+async function draftApi(path, body) {
+  const resp = await postApi("/minimax_h3_plus/drafts" + path, {
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.error || `request failed (${resp.status})`);
+  return data;
+}
+
+/** Stable serialisation: object key order must not read as "changed". */
+function stableStringify(v) {
+  if (Array.isArray(v)) return "[" + v.map(stableStringify).join(",") + "]";
+  if (v && typeof v === "object") {
+    return "{" + Object.keys(v).sort().map(
+      (k) => JSON.stringify(k) + ":" + stableStringify(v[k])).join(",") + "}";
+  }
+  return JSON.stringify(v);
+}
+
+/** djb2 — cheap content fingerprint for clean/dirty comparisons. Cleanliness
+ *  is always computed from this, never stored as a flag: stored booleans
+ *  drift out of sync, a comparison can't. */
+function hashStr(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
+function stateHash(state) { return hashStr(stableStringify(state)); }
+
+const DRAFT_MEDIA_KINDS = new Set(["picture", "video", "audio"]);
+
+/** Validate a media array that came from disk.
+ *
+ *  This is the only path that writes to the loader's media_state without
+ *  having gone through upload/probe first — commit deep-copies the draft's
+ *  set straight in, and that widget is what nodes.py reads at execution.
+ *  So a malformed item here doesn't just look wrong, it reaches Python.
+ *
+ *  Unknown keys are deliberately KEPT: a newer build may add fields, and
+ *  stripping them would make an older build silently lossy. Returns
+ *  { items, dropped } — the caller must surface `dropped`, because a draft
+ *  quietly losing a reference is the failure this exists to prevent. */
+function validateDraftMedia(raw) {
+  if (!Array.isArray(raw)) return { items: null, dropped: 0 };
+  const seen = new Set();
+  let dropped = 0;
+  const items = [];
+  for (const it of raw) {
+    if (!it || typeof it !== "object" || Array.isArray(it)) { dropped++; continue; }
+    if (!DRAFT_MEDIA_KINDS.has(it.kind)) { dropped++; continue; }
+    if (typeof it.file !== "string" || !it.file.trim()) { dropped++; continue; }
+    const out = { ...it };
+    out.file = it.file.trim();
+    if (typeof out.name !== "string" || !out.name.trim()) {
+      // Fall back to the filename rather than rendering "undefined".
+      out.name = parseAnnotatedPath(out.file).name || out.file;
+    }
+    // live() matches on uid, so a collision lands edits on the wrong item.
+    if (typeof out.uid !== "string" || !out.uid || seen.has(out.uid)) {
+      out.uid = `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+    }
+    seen.add(out.uid);
+    items.push(out);
+  }
+  return { items: items.length ? items : null, dropped };
+}
+
+/** RefMod picks a draft stored — from disk, so unvalidated. Keeps what the
+ *  stack panel can show: a name and at least one channel with a file. */
+function validateDraftRefmods(raw) {
+  if (!Array.isArray(raw)) return { items: null, dropped: 0 };
+  let dropped = 0;
+  const items = [];
+  for (const p of raw) {
+    if (!p || typeof p !== "object" || Array.isArray(p)) { dropped++; continue; }
+    const chan = (c) => (c && typeof c === "object" && typeof c.file === "string" && c.file.trim()) ? { ...c } : null;
+    const visual = chan(p.visual), audio = chan(p.audio);
+    if (!visual && !audio) { dropped++; continue; }
+    const out = { ...p, visual: visual || undefined, audio: audio || undefined };
+    if (typeof out.name !== "string" || !out.name.trim()) out.name = (visual || audio).file;
+    if (typeof out.label !== "string" || !out.label.trim()) out.label = out.name.split("/").pop();
+    items.push(out);
+  }
+  return { items: items.length ? items : null, dropped };
+}
+
+/** The node's draft identity. Properties serialise by NAME in the workflow
+ *  file — unlike widgets, which are positional — so this adds no widget and
+ *  can't shift saved-graph value mapping. Minted once, travels with the
+ *  workflow through save/export/import. */
+function draftIdFor(node) {
+  node.properties = node.properties || {};
+  if (!node.properties.mmh3_draft_id) {
+    node.properties.mmh3_draft_id = "d" + Date.now().toString(36) +
+      Math.random().toString(36).slice(2, 8);
+  }
+  return node.properties.mmh3_draft_id;
+}
+
+/** RefMod presets: a saved stack, kept by the same routes shape. */
+async function refmodPresetApi(path, body) {
+  const resp = await postApi("/minimax_h3_plus/refmod_presets" + path, {
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.error || `request failed (${resp.status})`);
+  return data;
+}
+
+async function presetApi(path, body) {
+  const resp = await postApi("/minimax_h3_plus/presets" + path, {
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.error || `request failed (${resp.status})`);
+  return data;
+}
+
 async function libApi(path, body) {
-  const opts = body
-    ? { method: "POST", body: JSON.stringify(body),
-        headers: { "Content-Type": "application/json" } }
-    : {};
-  const resp = await api.fetchApi("/minimax_h3_plus/prompts" + path, opts);
+  const resp = body
+    ? await postApi("/minimax_h3_plus/prompts" + path, {
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" } })
+    : await api.fetchApi("/minimax_h3_plus/prompts" + path);
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
     const err = new Error(data.error || `request failed (${resp.status})`);
@@ -1921,6 +3290,8 @@ function libMarks(entry) {
 }
 
 class Library {
+  static _peekCache = new Map();
+
   constructor(editor) {
     this.editor = editor;
     this.entries = [];
@@ -1938,6 +3309,7 @@ class Library {
     this.build();
     this.applyPrefs();
     document.body.append(this.overlay);
+    editor._mmh3Lib = this;
     this.refresh();
   }
 
@@ -1978,7 +3350,16 @@ class Library {
           this.searchEl, this.catEl, this.catBtn, this.favEl),
         this.listEl));
 
-    this.escHandler = (e) => { if (e.key === "Escape") this.close(); };
+    // Both overlays listen on window, and this one registered first — so
+    // without this guard Escape closed the editor out from under whatever
+    // was stacked on top of it.
+    this.escHandler = (e) => {
+      if (e.key !== "Escape") return;
+      // A window opened from here owns Escape: the Media Loader, the RefMod
+      // Stack or library, or a crop editor.
+      if (document.querySelector(".mmlp-overlay, .mmrp-overlay, .mmlp-tmover")) return;
+      this.close();
+    };
     window.addEventListener("keydown", this.escHandler);
   }
 
@@ -2041,7 +3422,10 @@ class Library {
 
   close() {
     window.removeEventListener("keydown", this.escHandler);
+    // The peek lives on <body>, so it would outlive the modal that owns it.
+    this.closeMediaPeek();
     this.overlay.remove();
+    if (this.editor?._mmh3Lib === this) this.editor._mmh3Lib = null;
   }
 
   async refresh() {
@@ -2108,6 +3492,124 @@ class Library {
     const fav = el("input", { type: "checkbox" });
     const err = el("span", { class: "mmh3p-saveerr" });
 
+    // Media link. Which of the three states applies is decided by CONTENT,
+    // not by the loader's presetName: that label survives every edit short
+    // of Unload, so it happily claims "beach set" for media that stopped
+    // matching it an hour ago.
+    const linkBox = el("input", { type: "checkbox" });
+    const linkNew = el("input", { type: "text", class: "mmh3p-linkname",
+      placeholder: "new preset name\u2026" });
+    const linkRow = el("label", { class: "mmh3p-linkrow" },
+      el("span", { class: "mmh3p-linktext" }, "checking media\u2026"));
+    const link = { mode: "none", preset: null, digest: null, items: null };
+
+    (async () => {
+      const items = loaderItems(ed.node) || [];
+      if (!items.length) { linkRow.style.display = "none"; return; }
+      let match;
+      try { match = await presetApi("/match", { items }); }
+      catch (e2) { linkRow.style.display = "none"; return; }
+      link.items = items;
+      link.digest = match.digest;
+      const count = `${items.length} reference` +
+        `${items.length === 1 ? "" : "s"}`;
+      if (match.name) {
+        link.mode = "existing";
+        link.preset = match.name;
+        linkBox.checked = true;
+        linkRow.replaceChildren(linkBox,
+          el("span", { class: "mmh3p-linktext" },
+            el("b", {}, "Linked to media \u2014 " + match.name),
+            el("span", { class: "mmh3p-linknote" },
+              `The loaded media (${count}) is saved as this preset. ` +
+              "Loading this prompt will offer to load it too.")));
+      } else {
+        link.mode = "new";
+        linkNew.value = (name.value || "").trim();
+        linkRow.replaceChildren(linkBox,
+          el("span", { class: "mmh3p-linktext" },
+            el("b", {}, "Link to media \u2014 new preset"),
+            el("span", { class: "mmh3p-linknote" },
+              `The loaded media (${count}) isn't saved as a preset yet. ` +
+              "Name it and it will be saved and linked to this prompt.")),
+          linkNew);
+      }
+    })();
+
+    // RefMod link, the same way: decided by what the stack holds (or the
+    // draft's own picks), matched against the saved RefMod presets.
+    const rlinkBox = el("input", { type: "checkbox" });
+    const rlinkNew = el("input", { type: "text", class: "mmh3p-linkname",
+      placeholder: "new preset name\u2026" });
+    const rlinkRow = el("label", { class: "mmh3p-linkrow" },
+      el("span", { class: "mmh3p-linktext" }, "checking RefMods\u2026"));
+    const rlink = { mode: "none", preset: null, digest: null, picks: null };
+
+    (async () => {
+      let picks = [];
+      try {
+        if (ed.bufferMode === "draft") picks = ed.draftRefmodsView() || [];
+        else { const { stack } = refmodStackFor(ed.node); picks = stack ? readStack(stack).picks : []; }
+      } catch (e2) { picks = []; }
+      const live = picks.filter((p) => p && p.on !== false);
+      if (!live.length) { rlinkRow.style.display = "none"; return; }
+      let match;
+      try { match = await refmodPresetApi("/match", { picks }); }
+      catch (e2) { rlinkRow.style.display = "none"; return; }
+      rlink.picks = picks;
+      rlink.digest = match.digest;
+      const count = `${live.length} RefMod${live.length === 1 ? "" : "s"}`;
+      if (match.name) {
+        rlink.mode = "existing";
+        rlink.preset = match.name;
+        rlinkBox.checked = true;
+        rlinkRow.replaceChildren(rlinkBox,
+          el("span", { class: "mmh3p-linktext" },
+            el("b", {}, "Linked to RefMods \u2014 " + match.name),
+            el("span", { class: "mmh3p-linknote" },
+              `The stack (${count}, with weights) is saved as this preset. ` +
+              "Loading this prompt will offer to load it too.")));
+      } else {
+        rlink.mode = "new";
+        rlinkNew.value = (name.value || "").trim();
+        rlinkRow.replaceChildren(rlinkBox,
+          el("span", { class: "mmh3p-linktext" },
+            el("b", {}, "Link to RefMods \u2014 new preset"),
+            el("span", { class: "mmh3p-linknote" },
+              `The stack (${count}, with weights) isn't saved as a preset yet. ` +
+              "Name it and it will be saved and linked to this prompt.")),
+          rlinkNew);
+      }
+    })();
+
+    /** Returns the link fields for the save body — media_preset and
+     *  refmod_preset with their digests — creating a preset first when the
+     *  user asked for a new one. */
+    const resolveLink = async () => {
+      const out = {};
+      if (linkBox.checked && link.mode !== "none") {
+        if (link.mode === "existing") {
+          out.media_preset = link.preset; out.media_digest = link.digest;
+        } else {
+          const pname = linkNew.value.trim();
+          if (!pname) throw new Error("Give the media preset a name, or untick it.");
+          const res = await presetApi("/save", { name: pname, items: link.items });
+          out.media_preset = res.name; out.media_digest = link.digest;
+        }
+      }
+      if (rlinkBox.checked && rlink.mode !== "none") {
+        if (rlink.mode === "existing") {
+          out.refmod_preset = rlink.preset; out.refmod_digest = rlink.digest;
+        } else {
+          const pname = rlinkNew.value.trim();
+          if (!pname) throw new Error("Give the RefMod preset a name, or untick it.");
+          const res = await refmodPresetApi("/save", { name: pname, picks: rlink.picks });
+          out.refmod_preset = res.name; out.refmod_digest = res.digest || rlink.digest;
+        }
+      }
+      return out;
+    };
+
     // Saving under a different name used to be treated as a rename, which
     // DELETED the loaded prompt — "save a variant" quietly ate the original.
     // The ambiguity is now the user's call: "Save as new" never deletes, and
@@ -2116,6 +3618,9 @@ class Library {
       const value = name.value.trim();
       if (!value) { err.textContent = "Give it a name first."; name.focus(); return; }
       const inPlace = ed.libraryId && value === ed.libraryName;
+      let linkFields;
+      try { linkFields = await resolveLink(); }
+      catch (e3) { err.textContent = e3.message; return; }
       const body = {
         name: value,
         category: categoryValue(),
@@ -2124,6 +3629,7 @@ class Library {
         refs: ed.slots.filter((s) => s.tag).length,
         prompt: generate(ed.state),
         state: ed.state,
+        ...linkFields,
       };
       if (rename) { body.rename_from = ed.libraryId; body.rename = true; }
       else if (!inPlace && !overwrite) body.expect_new = true;
@@ -2132,6 +3638,7 @@ class Library {
         ed.libraryId = res.id;
         ed.libraryName = res.name;
         ed.libraryCategory = categoryValue();
+        ed.noteLibraryIdentity();
         this.saveOpen = false;
         toast(`Saved "${res.name}"`);
         this.refresh();
@@ -2179,6 +3686,8 @@ class Library {
         saveBtn, renameBtn,
         el("button", { class: "mmh3p-btn",
           onclick: () => { this.saveOpen = false; this.paint(); } }, "Cancel")),
+      linkRow,
+      rlinkRow,
       err);
   }
 
@@ -2307,7 +3816,18 @@ class Library {
           onclick: () => { this.rowCat = e.id; this.paint(); } },
           e.category || "+ category"),
           ...libMarks(e),
+          e.media_preset
+            ? this.mediaBadge(e.media_preset, e.media_counts)
+            : null,
+          e.refmod_preset
+            ? el("span", { class: "mmh3p-libmedia", title: "Linked RefMod preset: loading this prompt offers to load it too" },
+                el("span", { class: "mmh3p-libkind" }, "\u25c8", e.refmod_count != null ? String(e.refmod_count) : ""),
+                el("span", { class: "mmh3p-libsep" }, "\u00b7"),
+                el("span", { class: "mmh3p-libpname" }, e.refmod_preset))
+            : null,
           el("span", { class: "mmh3p-libage" }, ago(e.updated))),
+        // previewFor(), not a bare .mmh3p-libprev: this fork's library has a
+        // preview-rows setting, and the row count decides how much is shown.
         this.previewFor(e)),
       el("div", { class: "mmh3p-libacts" },
         el("button", { class: "mmh3p-btn primary",
@@ -2352,10 +3872,132 @@ class Library {
       this.editor.libraryId = entry.id;
       this.editor.libraryName = entry.name;
       this.editor.libraryCategory = data.category || "";
+      // Loading = clean against that entry; the active buffer records it.
+      this.editor.noteLibraryIdentity();
+      if (data.media_preset) {
+        this.editor.offerLinkedMedia(data.media_preset, data.media_digest);
+      }
+      if (data.refmod_preset) {
+        this.editor.offerLinkedRefmods(data.refmod_preset, data.refmod_digest);
+      }
       this.editor.render();
       toast(`Loaded "${entry.name}"`);
       this.close();
     } catch (err) { toast(`Load failed: ${err.message}`); }
+  }
+
+  /** The linked-preset badge, with a hover preview of what it holds.
+   *
+   *  The contents are fetched once per preset per session and cached: the
+   *  route probes files it hasn't got metadata for, and a hover shouldn't
+   *  pay that twice. Everything here is read-only — a failed fetch just
+   *  means no preview, never a broken row. */
+  mediaBadge(presetName, counts) {
+    const badge = el("span", { class: "mmh3p-libmedia" });
+    // Kind counts instead of a label: they say "this is media" AND what
+    // media, in the same space. Zero kinds are omitted, so an all-pictures
+    // set reads "3 pictures" rather than padding with empty categories.
+    // Glyphs match the rest of the pack — the loader already counts audio
+    // with the same note, and the media peek marks video with the same
+    // play mark.
+    if (counts) {
+      for (const k of ["picture", "video", "audio"]) {
+        if (!counts[k]) continue;
+        badge.append(el("span", { class: "mmh3p-libkind" },
+          kindIcon(k), String(counts[k])));
+      }
+      if (badge.childElementCount) {
+        badge.append(el("span", { class: "mmh3p-libsep" }, "\u00b7"));
+      }
+    }
+    badge.append(el("span", { class: "mmh3p-libpname" }, presetName));
+    // Deliberately no title attribute anywhere on this badge: the OS
+    // tooltip appears over the preview and hides the thing you hovered for.
+    // The preview says it all instead.
+    let timer = null;
+    const open = async () => {
+      let info = Library._peekCache.get(presetName);
+      if (!info) {
+        try {
+          info = await presetApi("/load", { name: presetName });
+        } catch (e) {
+          info = { missing: null };          // remember the failure too
+        }
+        Library._peekCache.set(presetName, info);
+      }
+      if (!badge.isConnected || badge !== this._peekBadge) return;
+      this.closeMediaPeek();
+      const box = el("div", { class: "mmh3p-peek mmh3p-mediapeek" });
+      if (info.missing === null) {
+        box.append(el("div", { class: "mmh3p-peekmeta" },
+          el("div", { class: "mmh3p-peeksrc" },
+            `\u201c${presetName}\u201d couldn't be read \u2014 it may have ` +
+            "been deleted since this prompt was saved.")));
+      } else {
+        const items = info.items || [];
+        const grid = el("div", { class: "mmh3p-peekgrid" });
+        items.slice(0, 9).forEach((it) => {
+          const url = loaderViewURL(it.file);
+          grid.append(el("div", { class: "mmh3p-peekcell" },
+            it.kind === "picture"
+              ? el("img", { src: url, loading: "lazy" })
+              : el("span", { class: "mmh3p-peekkind" }, kindIcon(it.kind)),
+            el("span", { class: "mmh3p-peekname" }, it.name || it.file)));
+        });
+        const counts = ["picture", "video", "audio"].map((k) => {
+          const n = items.filter((i) => i.kind === k).length;
+          return n ? `${n} ${k}${n === 1 ? "" : "s"}` : null;
+        }).filter(Boolean).join(" \u00b7 ");
+        box.append(grid,
+          el("div", { class: "mmh3p-peekmeta" },
+            el("div", { class: "mmh3p-peekrow" },
+              el("span", { class: "mmh3p-libmedia" },
+                el("span", { class: "mmh3p-libpname" }, presetName)),
+              el("span", { class: "mmh3p-peekcite" },
+                counts || "empty")),
+            info.category
+              ? el("div", { class: "mmh3p-peeksrc" },
+                  "Category: " + info.category)
+              : null,
+            items.length > 9
+              ? el("div", { class: "mmh3p-peeksrc" },
+                  `\u2026 and ${items.length - 9} more`)
+              : null,
+            (info.missing || []).length
+              ? el("div", { class: "mmh3p-peeksrc" },
+                  `\u26a0 ${info.missing.length} file(s) missing`)
+              : null,
+            el("div", { class: "mmh3p-peeklink" },
+              "Linked \u2014 loading this prompt offers to load this media.")));
+      }
+      const r = badge.getBoundingClientRect();
+      box.style.left = `${Math.max(8,
+        Math.min(r.left, window.innerWidth - 268))}px`;
+      // Flip above when there isn't room below, so it never runs off-screen.
+      const below = window.innerHeight - r.bottom;
+      if (below < 220) box.style.bottom = `${window.innerHeight - r.top + 6}px`;
+      else box.style.top = `${r.bottom + 6}px`;
+      box.addEventListener("mouseenter", () => clearTimeout(this._mpClose));
+      box.addEventListener("mouseleave", () => this.closeMediaPeek());
+      document.body.append(box);
+      this._mediaPeek = box;
+    };
+    badge.addEventListener("mouseenter", () => {
+      this._peekBadge = badge;
+      timer = setTimeout(open, 320);
+    });
+    badge.addEventListener("mouseleave", () => {
+      clearTimeout(timer);
+      this._peekBadge = null;
+      this._mpClose = setTimeout(() => this.closeMediaPeek(), 180);
+    });
+    return badge;
+  }
+
+  closeMediaPeek() {
+    clearTimeout(this._mpClose);
+    this._mediaPeek?.remove();
+    this._mediaPeek = null;
   }
 
   async remove(entry) {
@@ -2390,20 +4032,52 @@ class Editor {
     // sidebar is the standard layout, so there's no reason for one node to
     // remember it differently than another.
     this.sidebar = !this.prefs.classicLayout;
+    setNamePrefix(this.prefs.namePrefix);
     this.prefsOpen = false;
+    // Draft mode. "live" edits the node's prompt as ever; "draft" edits a
+    // disk-backed scratch buffer that is never queued or executed. The two
+    // buffers swap wholesale — state, library identity, session baseline —
+    // so neither can bleed into the other.
+    this.bufferMode = "live";
+    this.draftEntry = null;          // the disk entry, once fetched
+    this.commitPending = false;      // commit decision strip showing
+    this.pullPending = false;        // pull-from-Live choice strip showing
+    this.linkOffer = null;           // linked media preset awaiting a yes/no
+    this.draftStale = false;         // media snapshot diverged from loader
+    this._liveHeld = null;           // live session edits parked during draft
     // What the node currently holds, to tell "edited" from "just looked".
     this.openedWith = JSON.stringify(this.state);
     injectCSS();
+    // Same affordance the loader panel has: a handle for console diagnostics.
+    node._mmh3Editor = this;
     this.build();
     this.render();
     document.body.append(this.overlay);
     this.applyScale();
     this.applyHighlight();
+    // Reopen where you left off: if this node's draft was active when the
+    // modal last closed, restore draft mode once the entry arrives.
+    draftApi("/load", { id: draftIdFor(node) }).then((res) => {
+      this.node._mmh3DraftActive = !!res.exists;
+      updateSummary(this.node);
+      if (res.exists) {
+        this.draftEntry = res.draft;
+        if (res.draft.mode === "draft" && this.bufferMode === "live" &&
+            this.overlay.isConnected) {
+          this.enterDraft();
+        }
+      }
+    }).catch(() => { /* drafts unavailable: live mode works as ever */ });
   }
 
   /* ---------- insertion ---------- */
-  /* opts.newline: start the insert on its own line (for block-level items
-     like shot headers), collapsing any trailing whitespace first. */
+  /** Insert a snippet at the caret.
+   *
+   *  opts.newline  — only for [Shot N]; see below.
+   *  opts.wrap     — `text` is an opening tag whose closing half is supplied
+   *                  here. Any selected text is kept and wrapped rather than
+   *                  overwritten; with no selection the caret lands between
+   *                  the two halves, ready to type. */
   insert(text, opts = {}) {
     // opts.target pins the insertion to a specific field, for controls that
     // belong to one section rather than to wherever the caret happens to be.
@@ -2424,10 +4098,21 @@ class Editor {
       pad = before && !/[\s(\u2014]$/.test(before) ? " " : "";
     }
     const after = t.value.slice(end);
-    t.value = before + pad + text + after;
     const base = before.length + pad.length;
-    const dPos = text.indexOf("</d>");
-    t.selectionStart = t.selectionEnd = dPos >= 0 ? base + dPos : base + text.length;
+
+    if (opts.wrap) {
+      const held = t.value.slice(start, end);
+      t.value = before + pad + text + held + opts.wrap + after;
+      // Selection wrapped: leave it selected so it can be re-wrapped or
+      // retyped. Nothing selected: sit between the halves.
+      t.selectionStart = base + text.length;
+      t.selectionEnd = base + text.length + held.length;
+    } else {
+      t.value = before + pad + text + after;
+      const dPos = text.indexOf("</d>");
+      t.selectionStart = t.selectionEnd =
+        dPos >= 0 ? base + dPos : base + text.length;
+    }
     t.focus();
     t.dispatchEvent(new Event("input", { bubbles: true }));
   }
@@ -2473,14 +4158,17 @@ class Editor {
                  "the right and copy manually", 6000);
     }}, "Copy prompt");
     const cancelBtn = el("button", { class: "mmh3p-btn",
-      onclick: () => this.requestClose() }, "Cancel");
-    const saveBtn = el("button", { class: "mmh3p-btn primary", onclick: () => this.save() },
+      title: "Close without giving the node these changes",
+      onclick: () => this.requestClose({ discard: true }) }, "Cancel");
+    const saveBtn = this.saveBtn = el("button",
+      { class: "mmh3p-btn primary", onclick: () => this.save() },
       "Save to node");
 
     const guideBtn = el("button", { class: "mmh3p-btn mmh3p-guidebtn",
-      title: "Open the bundled MiniMax H3 Video Prompt Writing Guide (PDF)",
+      // No longer "(PDF)": 1.6.1 replaced it with a searchable HTML page.
+      title: "Open the bundled MiniMax H3 Video Prompt Writing Guide",
       onclick: () => window.open(
-        new URL("./Video_Prompt_Writing_Guide.pdf", import.meta.url).href,
+        new URL("./video-prompt-writing-guide.html", import.meta.url).href,
         "_blank") }, "\ud83d\udcd6 Guide");
 
     this.overlay = el("div", { class: "mmh3p-overlay",
@@ -2494,34 +4182,54 @@ class Editor {
       el("div", { class: "mmh3p-modal" },
         el("div", { class: "mmh3p-head" },
           el("div", { class: "mmh3p-title" }, "Fantastic H3 Prompt Builder",
+            this.titleTag = el("span", { class: "mmh3p-titletag" }, ""),
             el("small", {}, "guide-conformant output")),
+          // Opens over the top rather than handing over. The editor used to
+          // close itself first, which meant a trip through the
+          // unsaved-changes strip just to glance at the media \u2014 and in draft
+          // mode there is a second reference set to edit, which a handover
+          // could not express at all. Escape belongs to whichever overlay is
+          // on top, and reference tags refresh on close since adding media
+          // renumbers them. First in the row: the media is what the prompt
+          // is written against, and RefMods and the library follow it.
+          el("button", { class: "mmh3p-btn",
+            title: "Open the media loader without leaving the editor",
+            onclick: () => this.openMedia() }, "\u2750 Media Loader"),
+          el("button", { class: "mmh3p-btn",
+            title: "Open the RefMod Stack this prompt's references come from",
+            onclick: () => this.openRefMods() }, "\u25c8 RefMods"),
           el("button", { class: "mmh3p-btn",
             title: "Browse saved prompts",
-            onclick: () => new Library(this) }, "\u2630 Library"),
+            onclick: () => {
+              if (raiseIfOpen(this._mmh3Lib?.overlay)) return;
+              new Library(this);
+            } }, "\u2630 Library"),
+          this.modeToggle = el("button",
+            { class: "mmh3p-btn mmh3p-modetoggle",
+              title: "Switch to the draft scratchpad \u2014 the node keeps "
+                + "the Live prompt",
+              onclick: () => this.toggleDraftMode() }, "Draft \u25b6"),
           el("button", { class: "mmh3p-btn mmh3p-danger",
             title: "Clear every field and start over",
             onclick: () => { this.clearPending = !this.clearPending; this.render(); } },
             "Clear"),
-          this.prefsButton(),
           guideBtn,
           this.modeBar,
-          el("button", { class: "mmh3p-btn",
-            title: "Open the full media loader window",
-            onclick: () => {
-              // Hand over rather than stack: the two are alternate views of
-              // the same node, so one replaces the other. requestClose()
-              // still gets to raise the unsaved-changes prompt \u2014 when it
-              // does it defers instead of closing, and the handover waits
-              // for the user to answer rather than opening over the top.
-              this.requestClose();
-              if (!this.closePending)
-                openLoaderModal(this.node, "MiniMax H3 \u2014 media");
-            } },
-            "\u2750 Media Loader"),
+          // Settings sits immediately left of the close button, matching the
+          // prompt library's header. It used to sit mid-row between Clear and
+          // the guide, which put the one control that isn't about THIS prompt
+          // in among the ones that are.
+          this.prefsButton(),
           el("button", { class: "mmh3p-x",
             onclick: () => this.requestClose() }, "\u2715"),
         ),
         this.modeSends,
+        // Draft status sits OUTSIDE the scrolling form on purpose: most of
+        // the work happens far down in the description fields, and a banner
+        // that scrolls away stops answering "am I editing Live?" exactly
+        // when it matters most. The commit decision lands in the same slot,
+        // so the choice appears where the eye already is.
+        this.draftSlot = el("div", { class: "mmh3p-draftslot" }),
         el("div", { class: "mmh3p-body" + (this.sidebar ? " sidebar" : "") },
           this.railEl,
           this.formEl,
@@ -2546,17 +4254,30 @@ class Editor {
 
     // Right-click on a selection offers to save it. The browser's own menu
     // is only replaced when there IS a selection in one of our fields, and
-    // Copy is included so nothing is taken away.
+    // Copy, Cut, Paste and Remove are included so nothing is taken away.
     this.formEl.addEventListener("contextmenu", (e) => {
       const box = e.target;
       if (!box || typeof box.value !== "string") return;
       const a = box.selectionStart ?? 0;
       const b = box.selectionEnd ?? 0;
+      // On a tag: replace, swap or remove it. A selection reaching beyond
+      // that one tag keeps the phrase menu.
+      const hit = this.tagUnderPointer(e, box);
+      if (hit && (b <= a || (a >= hit.start && b <= hit.end))) {
+        e.preventDefault();
+        this.openTagMenu(e.clientX, e.clientY, box, hit);
+        return;
+      }
       if (b <= a) return;                       // no selection: native menu
       e.preventDefault();
-      this.openCtx(e.clientX, e.clientY, box.value.slice(a, b));
+      this.openCtx(e.clientX, e.clientY, box, a, b);
     });
-    this.formEl.addEventListener("input", () => this.updatePreview());
+    this.formEl.addEventListener("input", () => {
+      this.updatePreview();
+      // Covers every route a speaker marker can arrive by — the buttons
+      // here, a rail drop, or simply typing "(S2)" by hand.
+      this.refreshDialogue();
+    });
     // Dropping a rail card onto a textarea inserts the tag where it lands.
     this.formEl.addEventListener("drop", (e) => {
       const t = e.target;
@@ -2566,7 +4287,22 @@ class Editor {
         this.updatePreview();
       }, 0);
     });
-    this.escHandler = (e) => { if (e.key === "Escape") this.close(); };
+    // Both overlays listen on window, and this one registered first — so
+    // without this guard Escape closed the editor out from under whatever
+    // was stacked on top of it.
+    // Goes through requestClose, not close: Escape used to bypass both
+    // preferences entirely, which made "Off means ✕, Cancel and Escape
+    // discard your edits silently" false — it discarded silently either way.
+    this.escHandler = (e) => {
+      if (e.key !== "Escape") return;
+      // A window opened from here owns Escape: the Media Loader, the RefMod
+      // Stack or library, or a crop editor.
+      if (document.querySelector(".mmlp-overlay, .mmrp-overlay, .mmlp-tmover")) return;
+      if (this._tagMenu) { this.closeTagMenu(); return; }
+      // A strip is already asking a question; Escape shouldn't answer it.
+      if (this.closePending || this.clearPending || this.linkOffer) return;
+      this.requestClose();
+    };
     window.addEventListener("keydown", this.escHandler);
   }
 
@@ -2600,13 +4336,44 @@ class Editor {
 
   /** True when the editor holds something the node hasn't been given. */
   isDirty() {
+    // Draft edits autosave to disk, so they are never "unsaved". What the
+    // close guard protects in draft mode is the parked LIVE session.
+    if (this.bufferMode === "draft") {
+      try {
+        return !!this._liveHeld &&
+          JSON.stringify(this._liveHeld.state) !== this._liveHeld.openedWith;
+      } catch (e) { return false; }
+    }
     try { return JSON.stringify(this.state) !== this.openedWith; }
     catch (e) { return false; }
   }
 
-  /** Close, but ask first if there's unsaved work. */
-  requestClose() {
-    if (!this.prefs.warnUnsaved || !this.isDirty()) { this.close(); return; }
+  /** Close, but ask first if there's unsaved work.
+   *
+   *  With "save to node when closing" on, the ordinary exits just save —
+   *  except in draft mode, where the parked Live session is still at risk
+   *  and a draft must never reach the node by closing. `discard: true` is
+   *  the Cancel button, which means the opposite and always confirms. */
+  requestClose({ discard = false } = {}) {
+    const drafting = this.bufferMode === "draft";
+    if (!discard && this.prefs.saveOnClose && !drafting) {
+      if (this.isDirty()) this.writeNode();
+      this.close();
+      return;
+    }
+    // Cancel is destructive by definition, so it asks whenever there is
+    // something to lose, even if the warning preference is off.
+    const ask = discard ? this.isDirty()
+                        : (this.prefs.warnUnsaved && this.isDirty());
+    if (!ask) {
+      if (discard) this.state = JSON.parse(this.openedWith);
+      this.close();
+      return;
+    }
+    if (drafting) {
+      // The at-risk work is the parked live session; show it, then ask.
+      this.exitDraft();
+    }
     this.closePending = true;
     this.render();
   }
@@ -2677,6 +4444,7 @@ class Editor {
     const scaleReset = el("button", { class: "mmh3p-btn",
       onclick: () => setScale(1, 1, 1) }, "Reset");
 
+    const rows = {};
     const item = (key, label, hint) => {
       const box = el("input", { type: "checkbox", checked: !!this.prefs[key],
         onchange: (e) => {
@@ -2686,13 +4454,74 @@ class Editor {
           if (key === "classicLayout") this.applySidebarPref();
           if (key === "tallWindow") this.applyScale();
           if (key === "hideHints") this.applyHints();
+          // render() notices the change and widens or narrows the window.
+          if (key === "refColumns") this.render();
+          syncPrefDeps();
         } });
-      return el("label", { class: "mmh3p-prefitem" }, box,
-        el("span", {}, el("span", { class: "mmh3p-preflabel" }, label),
-          el("span", { class: "mmh3p-prefhint" }, hint)));
+      const hintEl = el("span", { class: "mmh3p-prefhint" }, hint);
+      const row = el("label", { class: "mmh3p-prefitem" }, box,
+        el("span", {}, el("span", { class: "mmh3p-preflabel" }, label), hintEl));
+      rows[key] = { box, row, hintEl, hint };
+      return row;
+    };
+
+    /** "Warn about unsaved changes" has nothing to say once closing saves,
+     *  so it greys out rather than sitting there implying it still applies.
+     *  The stored value is left alone — untick save-on-close and the warning
+     *  comes back exactly as it was. */
+    const syncPrefDeps = () => {
+      const w = rows.warnUnsaved;
+      if (!w) return;
+      const off = !!this.prefs.saveOnClose;
+      w.box.disabled = off;
+      w.row.classList.toggle("off", off);
+      w.hintEl.textContent = off
+        ? "Not used while closing saves \u2014 except in draft mode, and " +
+          "Cancel still asks before discarding."
+        : w.hint;
     };
     // Shown so a bug report can name the exact build rather than a version
     // number that may have covered several.
+    // Drafts are internal state that outlives code changes, so there has to
+    // be a way to wipe them from the UI rather than by deleting a file.
+    const draftLine = el("span", { class: "mmh3p-drafthint" }, "counting\u2026");
+    const draftRow = el("div", { class: "mmh3p-draftadmin" });
+    const paintDrafts = (count) => {
+      if (!count) {
+        draftLine.textContent = "No saved drafts.";
+        draftRow.replaceChildren(draftLine);
+        return;
+      }
+      draftLine.textContent =
+        `${count} saved draft${count === 1 ? "" : "s"} across all workflows.`;
+      draftRow.replaceChildren(draftLine,
+        el("button", { class: "mmh3p-btn",
+          title: "Discard every saved draft on this machine",
+          onclick: () => {
+            draftRow.replaceChildren(
+              el("span", { class: "mmh3p-drafthint" },
+                "Discard all drafts? This can't be undone."),
+              el("button", { class: "mmh3p-btn mmh3p-danger", onclick: async () => {
+                try {
+                  const res = await draftApi("/clear_all", {});
+                  this.draftEntry = null;
+                  this.node._mmh3DraftActive = false;
+                  updateSummary(this.node);
+                  if (this.bufferMode === "draft") this.exitDraft();
+                  toast(`Cleared ${res.cleared} draft${
+                    res.cleared === 1 ? "" : "s"}`);
+                  paintDrafts(0);
+                } catch (e) { toast(`Couldn't clear drafts: ${e.message}`); }
+              } }, "Discard all"),
+              el("button", { class: "mmh3p-btn",
+                onclick: () => paintDrafts(count) }, "Cancel"));
+          } }, "Clear all"));
+    };
+    api.fetchApi("/minimax_h3_plus/drafts")
+      .then((r) => r.json())
+      .then((d) => paintDrafts(d.count || 0))
+      .catch(() => { draftLine.textContent = "Drafts unavailable."; });
+
     const version = el("div", { class: "mmh3p-prefversion" }, "version \u2026");
     api.fetchApi("/minimax_h3_plus/capabilities")
       .then((r) => r.json())
@@ -2711,6 +4540,9 @@ class Editor {
       item("classicLayout", "Classic top-strip layout",
            "Off (default) keeps reference media in a column down the left " +
            "edge. On puts it back in a strip across the top."),
+      item("refColumns", "Two-column Reference form",
+           "Reference mode: definitions and retention on the left, the " +
+           "description and audio on the right. Widens the window to fit."),
       item("tallWindow", "Full-height window",
            "Fills the screen top to bottom, less a small margin. Window " +
            "size then only sets the width."),
@@ -2720,11 +4552,32 @@ class Editor {
       item("hideHints", "Hide help captions",
            "Moves the explanatory line under each section onto that " +
            "section's hover tooltip. Live readouts stay put."),
+      el("label", { class: "mmh3p-prefitem mmh3p-prefselect" },
+        el("select", { "aria-label": "Subject name prefix",
+          onchange: (e) => {
+            this.prefs.namePrefix = e.target.value;
+            savePrefs(this.prefs);
+            setNamePrefix(this.prefs.namePrefix);
+            this.render();
+          } },
+          NAME_PREFIXES.map((c) => el("option", { value: c, selected: c === this.prefs.namePrefix }, `${c}Name`))),
+        el("span", {},
+          el("span", { class: "mmh3p-preflabel" }, "Subject name prefix"),
+          el("span", { class: "mmh3p-prefhint" },
+            "Typed before a subject's name, it stands for \u201c<Subject N> Name\u201d. " +
+            "Changing it doesn't rewrite shorthand you've already typed."))),
       item("closeOnBackdrop", "Click outside to close",
            "Off means only \u2715, Cancel and Escape close the window."),
+      item("saveOnClose", "Save to node when closing",
+           "\u2715, Escape and clicking outside give the node your changes " +
+           "instead of asking. Cancel still discards, and drafts are never " +
+           "written to the node by closing."),
       item("warnUnsaved", "Warn about unsaved changes",
            "Off means \u2715, Cancel and Escape discard your edits silently."),
+      el("div", { class: "mmh3p-prefsep" }),
+      draftRow,
       version);
+    syncPrefDeps();
     this.prefsMenu = menu;
     // Framed like every other button in the bar. It used to wear .mmh3p-x,
     // the frameless treatment reserved for the close ✕, which left it the one
@@ -2751,6 +4604,9 @@ class Editor {
     this.railEl.replaceChildren();
     this.closePeek();
     this.render();
+    // railExtra (see applyScale()) only applies in sidebar mode, so leaving
+    // classic layout has to give that width back.
+    this.applyScale();
   }
 
   /** Window scale changes the modal's box; text scale zooms its contents. */
@@ -2759,7 +4615,19 @@ class Editor {
     if (!modal) return;
     const w = clampScale(this.prefs.windowScale);
     const t = clampScale(this.prefs.textScale, TEXT_SCALE_MAX);
-    modal.style.width = `min(${Math.round(1240 * w)}px, 95vw)`;
+    const chip = clampScale(this.prefs.chipScale, CHIP_SCALE_MAX);
+    // Bigger chips need a wider rail column (--mmh3-railw in the stylesheet,
+    // same formula), which would otherwise come out of the grid's flexible
+    // middle column — the form shrinking every time this slider moves. Grown
+    // onto the modal's own width instead, so the rail gets the room without
+    // taking it from anything else. 164 is --mmh3-railw's own value at 1x.
+    const railExtra = this.sidebar ? Math.max(0, Math.round(128 * chip + 36) - 164) : 0;
+    // Two columns need a second column's worth of room, added on rather than
+    // taken from the one form column there was. The viewport cap loosens a
+    // little with it; below about 760px of form the columns fold back into
+    // one anyway (see .mmh3p-refcols).
+    const colsExtra = this.refColumns() ? Math.round(REFCOL_EXTRA * w) : 0;
+    modal.style.width = `min(${Math.round(1240 * w) + railExtra + colsExtra}px, ${colsExtra ? 98 : 95}vw)`;
     // Tall mode hands the height to the viewport, so the slider governs
     // width alone — scaling the height as well would immediately clamp back
     // against the same margin and make the slider look broken.
@@ -2771,6 +4639,11 @@ class Editor {
     document.documentElement.style.setProperty("--mmh3-fs", String(t));
     document.documentElement.style.setProperty("--mmh3-chip",
       String(clampScale(this.prefs.chipScale, CHIP_SCALE_MAX)));
+  }
+
+  /** Reference mode drawn as two columns (the preference, in REF only). */
+  refColumns() {
+    return this.state.mode === "REF" && !!this.prefs.refColumns;
   }
 
   /** Show or hide the checks list, remembering the choice. */
@@ -2800,7 +4673,10 @@ class Editor {
           onclick: () => { this.state = JSON.parse(this.openedWith);
             this.closePending = false; this.close(); } }, "Discard"),
         el("button", { class: "mmh3p-btn",
-          onclick: () => { this.closePending = false; this.render(); } },
+          onclick: () => {
+            this.closePending = false;
+            this.render();
+          } },
           "Keep editing")));
   }
 
@@ -2808,17 +4684,23 @@ class Editor {
     this.closePeek();
     this.closeCtx();
     this.hidePhrasePeek();
+    this.hideTagPeek();
     window.removeEventListener("keydown", this.escHandler);
-    // Nothing is carried over. Closing without saving discards the edits —
-    // which is what Cancel says on the tin. Keeping a draft here made the
-    // editor look like it autosaved: reopening showed the changes back even
-    // though the node still held the old prompt, and with the unsaved-changes
-    // warning switched off there was no moment where you chose either way.
+    // The DRAFT buffer flushes to disk with the mode it closed in, so the
+    // editor reopens where you left off. The LIVE buffer carries nothing
+    // over: closing without saving discards live edits — which is what
+    // Cancel says on the tin. Keeping a live draft here made the editor
+    // look like it autosaved: reopening showed changes the node didn't
+    // hold. Draft mode is that idea done right — labeled, tinted, and
+    // never executable.
+    if (this.draftEntry) this.flushDraftSave(this.bufferMode);
     this.node._mmh3Draft = null;
     this.overlay.remove();
   }
 
-  save() {
+  /** Write the active state onto the node's widgets. The one and only path
+   *  by which anything becomes executable. */
+  writeNode() {
     const pw = this.node.widgets?.find((w) => w.name === "prompt_text");
     const sw = this.node.widgets?.find((w) => w.name === "builder_state");
     if (pw) pw.value = generate(this.state);
@@ -2827,12 +4709,889 @@ class Editor {
     this.closePending = false;
     this.openedWith = JSON.stringify(this.state);
     updateSummary(this.node);
+    // A mode changed in here can change the media panel's shape, and with it
+    // whether the node's prompt bar expands and whether the panel is sized to
+    // fit the node — the node's own hooks know, this method does not. The
+    // node's small mode-switcher button already does this on every change;
+    // this is the far more common way a mode actually gets changed, and it
+    // was the one path that skipped it, which is what left the on-node
+    // interface showing the previous mode's layout until something
+    // unrelated (a resize drag, a reload) happened to nudge it.
+    try {
+      this.node._mmlPanel?.render?.();
+      this.node._mmlOnCommit?.();
+    } catch (e) { /* cosmetic */ }
     try {
       this.node.setDirtyCanvas?.(true, true);
       app.graph.setDirtyCanvas(true, true);
     } catch (e) { /* Vue redraws itself */ }
+  }
+
+  save() {
+    // The button is disabled in draft mode; this is the belt to that brace,
+    // since a keyboard shortcut or a stale handler could still land here.
+    if (this.bufferMode === "draft") {
+      toast("This is a draft \u2014 use Commit to Live to put it on the node");
+      return;
+    }
+    this.writeNode();
     toast("Saved to node");
     this.close();
+  }
+
+  /** Open the Media Loader's own modal on top of this editor.
+   *
+   *  It's the same LoaderPanel the node hosts — mounting it in a body
+   *  overlay is all "Open loader…" does — so this needs no new UI, just a
+   *  refresh afterwards: adding or reordering media renumbers the tags this
+   *  editor renders. */
+  /** The RefMods counterpart of openMedia: the stack's own panel in a
+   *  window, with its library and Create a click away. */
+  openRefMods() {
+    let { stack, why } = refmodStackFor(this.node);
+    if (!stack && why === "other") {
+      toast("This prompt's RefMods come from a node that isn't a RefMod Stack, " +
+        "so there's no stack panel to open.", 6000);
+      return;
+    }
+    if (!stack) stack = addRefModStack(this.node, { focus: false });
+    if (!stack) return;
+    // The node's own RefMods: finish any wiring a Text Encode still needs.
+    if (stack === this.node && connectRefModEncoders(this.node))
+      toast("Connected this node's RefMods to RefMod Text Encode");
+    if (this.bufferMode === "draft") { this.openDraftRefMods(stack); return; }
+    openStackModal(stack, { onClose: () => {
+      // The stack may have changed under a parked draft: refresh tags and staleness.
+      this.draftRefmodsStale = this._refmodsDiverged();
+      this.refreshSlots(); this.render();
+    } });
+  }
+
+  /** The same stack panel, pointed at this draft's RefMods instead of the
+   *  node's stack: it edits a stand-in that holds the draft's picks, and
+   *  the real stack is only written when the draft is committed. Copy-on-
+   *  write like the media: looking without changing anything forks nothing. */
+  openDraftRefMods(stack) {
+    if (!this.draftEntry) return;
+    const live = readStack(stack);
+    const start = this.draftRefmodsView() || live.picks;
+    const startKey = stableStringify(start);
+    const stub = {
+      title: "Draft RefMods \u2014 applied to the stack on commit",
+      widgets: [{ name: "stack_state", value: JSON.stringify({ picks: JSON.parse(JSON.stringify(start)), budget: live.budget }) }],
+    };
+    openStackModal(stub, { onClose: () => {
+      const picks = readStack(stub).picks;
+      if (this.draftEntry && (this.draftRefmods() || stableStringify(picks) !== startKey)) {
+        const v = validateDraftRefmods(JSON.parse(JSON.stringify(picks)));
+        this.draftEntry.refmods = v.items || [];
+        if (v.dropped) this.draftDropped = (this.draftDropped || 0) + v.dropped;
+        this.draftRefmodsStale = this._refmodsDiverged();
+        this.flushDraftSave();
+      }
+      this.refreshSlots();
+      this.render();
+    } });
+  }
+
+  openMedia() {
+    // Prompt Studio owns its panel, so the media lives on this very node;
+    // mediaSource() resolves that without caring which shape it is.
+    const loader = mediaSource(this.node)?.owner;
+    if (!loader) { toast("This node has no reference media"); return; }
+    if (this.bufferMode === "draft") { this.openDraftMedia(loader); return; }
+    openLoaderModal(loader, { title: "MiniMax H3 \u2014 media", onClose: () => {
+      // Media may have changed under us: refresh tags.
+      this.draftStale = this._mediaDiverged();
+      this.render();
+    } });
+  }
+
+  /** The same LoaderPanel, pointed at this draft's media instead of the
+   *  node's. Nothing about Live moves while this is open — and because the
+   *  overlay covers the canvas, the node's own panel can't be reached at the
+   *  same time, so the two can never be edited at once. */
+  openDraftMedia(loader) {
+    const store = {
+      // Copy-on-write: until the draft is touched it simply shows Live, so
+      // opening the panel to look at it doesn't fork anything.
+      read: () => this.draftView() || loaderItems(this.node) || [],
+      write: (items) => {
+        if (!this.draftEntry) return;
+        const v = validateDraftMedia(JSON.parse(JSON.stringify(items)));
+        this.draftEntry.media = v.items;
+        if (v.dropped) this.draftDropped = (this.draftDropped || 0) + v.dropped;
+        this.draftStale = this._mediaDiverged();
+        this.flushDraftSave();
+        this.refreshSlots();
+        this.render();
+      },
+    };
+    openLoaderModal(loader, {
+      store,
+      draft: true,
+      storeLabel: "Draft media",
+      note: "Editing this draft's own reference set. The node keeps its "
+        + "Live media until you commit the draft.",
+      onClose: () => {
+        this.draftStale = this._mediaDiverged();
+        this.refreshSlots();
+        this.render();
+      },
+    });
+  }
+
+  /* ---------- draft mode ---------- */
+
+  /** The two buffers swap wholesale. Everything that defines "what am I
+   *  editing" travels together: state, library identity, session baseline. */
+  _snapshotBuffer() {
+    return {
+      state: this.state,
+      libraryId: this.libraryId,
+      libraryName: this.libraryName,
+      libraryCategory: this.libraryCategory,
+      openedWith: this.openedWith,
+      pins: this.pins,
+      autoPin: this.autoPin,
+    };
+  }
+
+  _restoreBuffer(b) {
+    this.state = b.state;
+    this.libraryId = b.libraryId;
+    this.libraryName = b.libraryName;
+    this.libraryCategory = b.libraryCategory;
+    this.openedWith = b.openedWith;
+    this.pins = b.pins || [];
+    this.autoPin = b.autoPin || null;
+  }
+
+  enterDraft() {
+    if (this.bufferMode === "draft") return;
+    // Unsaved live edits are parked in memory, untouched and unwarned —
+    // they're fully reversible, and the close guard still covers the exit.
+    this._liveHeld = this._snapshotBuffer();
+    this.bufferMode = "draft";
+    this.pullPending = false;
+
+    const e = this.draftEntry;
+    if (e && e.state) {
+      // From disk: normalise before it reaches the renderer.
+      e.state = normaliseState(e.state);
+      // Pre-split entries put the auto-frozen snapshot in `media`, which is
+      // now the "applied on commit" field. Demote it: nothing auto-captured
+      // should ever be written back to the loader.
+      if (e.mediaBase === undefined) {
+        e.mediaBase = Array.isArray(e.media) && e.media.length ? e.media : null;
+        e.media = null;
+      }
+      // Both media fields come from disk unvalidated. Repair them here and
+      // remember what had to go, so the banner can say so — a draft that
+      // silently loses a reference is the bug this guards against.
+      const vm = validateDraftMedia(e.media);
+      const vb = validateDraftMedia(e.mediaBase);
+      e.media = vm.items;
+      e.mediaBase = vb.items;
+      // RefMods follow the same two-field split as media. A draft written
+      // before RefMods existed simply has neither, and follows the stack.
+      const vr = validateDraftRefmods(e.refmods);
+      const vrb = validateDraftRefmods(e.refmodsBase);
+      e.refmods = Array.isArray(e.refmods) ? (vr.items || []) : null;
+      e.refmodsBase = vrb.items;
+      this.draftDropped = vm.dropped + vb.dropped + vr.dropped + vrb.dropped;
+      if (this.draftDropped) {
+        console.warn("[MiniMaxH3 PromptBuilder] draft media: discarded " +
+          `${this.draftDropped} unusable item(s)`);
+      }
+      this._restoreBuffer({
+        state: e.state,
+        libraryId: e.savedTo?.libraryId || null,
+        libraryName: e.savedTo?.libraryName || "",
+        libraryCategory: e.savedTo?.libraryCategory || "",
+        openedWith: JSON.stringify(e.state),
+        pins: [], autoPin: null,
+      });
+    } else {
+      // A fresh draft starts blank in the current mode: the use case is
+      // "start on the NEXT prompt", not "fork this one".
+      const mode = this.state.mode;
+      const blank = defaultState();
+      blank.mode = mode;
+      this._restoreBuffer({ state: blank, libraryId: null, libraryName: "",
+        libraryCategory: "", openedWith: JSON.stringify(blank),
+        pins: [], autoPin: null });
+      this.draftEntry = {
+        mode: "draft",
+        state: blank,
+        // TWO fields, because the snapshot was doing two unrelated jobs and
+        // the overlap was destructive.
+        //
+        //   mediaBase - frozen at creation, DISPLAY ONLY. Reference numbers
+        //     are positional and global, so without it, rearranging Live
+        //     media while the draft says <Picture 3> silently retargets
+        //     that tag. Never applied to the loader.
+        //
+        //   media - written only when the draft's own set is edited through
+        //     the media modal. This IS applied on commit.
+        //
+        // Conflated, every draft froze a copy nobody asked for and then
+        // applied it: start a draft, spend an hour improving Live media,
+        // commit, and the loader silently reverted to the old set.
+        //
+        // Empty stays null, never []: [] is truthy, and as `media` it would
+        // have wiped the loader on commit.
+        mediaBase: this._snapshotMedia(),
+        media: null,
+        // The RefMod picks, split the same way: refmodsBase is frozen for
+        // display, refmods is written only through the draft's own stack
+        // panel and applied to the stack on commit ([] = deliberately none).
+        refmodsBase: this._snapshotRefmods(),
+        refmods: null,
+        savedTo: null,
+      };
+    }
+    this.draftStale = this._mediaDiverged();
+    this.draftRefmodsStale = this._refmodsDiverged();
+    this.node._mmh3DraftActive = true;
+    this.draftDropped = this.draftDropped || 0;
+    this.refreshSlots();
+    this.applyDraftChrome();
+    this.scheduleDraftSave();
+    updateSummary(this.node);
+    this.render();
+  }
+
+  exitDraft() {
+    if (this.bufferMode !== "draft") return;
+    this.flushDraftSave("live");
+    this.bufferMode = "live";
+    if (this._liveHeld) this._restoreBuffer(this._liveHeld);
+    this._liveHeld = null;
+    this.commitPending = false;
+    this.pullPending = false;
+    this.refreshSlots();
+    this.applyDraftChrome();
+    this.render();
+  }
+
+  toggleDraftMode() {
+    if (this.bufferMode === "draft") this.exitDraft();
+    else this.enterDraft();
+  }
+
+  /** The draft entry as it should be written to disk right now.
+   *
+   *  Reads draftEntry.state, NEVER this.state: `this.state` is the draft's
+   *  content only while bufferMode is "draft", and flushDraftSave syncs it
+   *  in exactly that case. Reading it unconditionally meant closing the
+   *  modal from Live mode wrote the LIVE prompt over the stored draft —
+   *  the draft looked wiped on reopen. */
+  draftPayload(modeOverride) {
+    if (!this.draftEntry) return null;
+    return {
+      mode: modeOverride || this.bufferMode,
+      state: this.draftEntry.state,
+      media: this.draftEntry.media ?? null,
+      mediaBase: this.draftEntry.mediaBase ?? null,
+      refmods: this.draftEntry.refmods ?? null,
+      refmodsBase: this.draftEntry.refmodsBase ?? null,
+      savedTo: this.draftEntry.savedTo ?? null,
+    };
+  }
+
+  scheduleDraftSave() {
+    if (this.bufferMode !== "draft") return;
+    clearTimeout(this._draftTimer);
+    this._draftTimer = setTimeout(() => this.flushDraftSave(), 1500);
+  }
+
+  flushDraftSave(modeOverride) {
+    clearTimeout(this._draftTimer);
+    if (!this.draftEntry) return;
+    if (this.bufferMode === "draft") {
+      this.draftEntry.state = this.state;
+      this.draftEntry.mode = modeOverride || "draft";
+    } else if (modeOverride) {
+      this.draftEntry.mode = modeOverride;
+    }
+    const payload = this.draftPayload(this.draftEntry.mode);
+    // The no-empty-drafts rule: a pristine blank with no library tie and no
+    // media or RefMods of its own isn't worth a disk entry — or an LRU slot.
+    const blank = defaultState();
+    blank.mode = payload.state.mode;
+    if (!payload.savedTo && !payload.media && !payload.refmods &&
+        stableStringify(payload.state) === stableStringify(blank)) {
+      return;
+    }
+    draftApi("/save", { id: draftIdFor(this.node), draft: payload })
+      .catch(() => { /* offline blip: the buffer is still in memory */ });
+  }
+
+  clearDraft() {
+    clearTimeout(this._draftTimer);
+    draftApi("/clear", { id: draftIdFor(this.node) })
+      .catch(() => { /* worst case the LRU reaps it */ });
+    this.draftEntry = null;
+    this.draftDropped = 0;
+    this.node._mmh3DraftActive = false;
+    updateSummary(this.node);
+    if (this.bufferMode === "draft") {
+      // Start a fresh blank draft in place rather than dumping to live —
+      // "clear" means "new page", not "close the notebook".
+      const held = this._liveHeld;    // keep the parked live session
+      this.bufferMode = "live";       // let enterDraft do its full setup
+      this.enterDraft();
+      this._liveHeld = held;
+    }
+    this.render();
+  }
+
+  /** True when the buffer matches its last library save exactly. Always
+   *  computed, never stored — stored flags drift, comparisons can't. */
+  cleanSince(savedTo, state) {
+    return !!(savedTo && savedTo.hash && savedTo.hash === stateHash(state));
+  }
+
+  /** Called by the Library after a successful save or load, so the active
+   *  buffer remembers what it's clean against. */
+  noteLibraryIdentity() {
+    const rec = {
+      libraryId: this.libraryId,
+      libraryName: this.libraryName,
+      libraryCategory: this.libraryCategory,
+      hash: stateHash(this.state),
+    };
+    if (this.bufferMode === "draft") {
+      if (this.draftEntry) {
+        this.draftEntry.savedTo = rec;
+        this.flushDraftSave();
+      }
+    } else {
+      this.node.properties = this.node.properties || {};
+      this.node.properties.mmh3_live_saved = rec;
+    }
+    this.applyDraftChrome();
+  }
+
+  /** The loader's current set, or null when there's nothing worth freezing. */
+  _snapshotMedia() {
+    const items = loaderItems(this.node);
+    return (Array.isArray(items) && items.length) ? items : null;
+  }
+
+  /** The picks of the stack this prompt's RefMods come from, or null. */
+  _snapshotRefmods() {
+    const { stack } = refmodStackFor(this.node);
+    if (!stack) return null;
+    const picks = readStack(stack).picks;
+    return picks.length ? JSON.parse(JSON.stringify(picks)) : null;
+  }
+
+  /** RefMods the draft OWNS — edited through its own stack panel, applied to
+   *  the stack on commit. Null = never edited (follows the stack); [] = the
+   *  draft deliberately has none, which does clear the stack on commit. */
+  draftRefmods() {
+    const r = this.draftEntry?.refmods;
+    return Array.isArray(r) ? r : null;
+  }
+
+  /** What the draft DISPLAYS for RefMods: its own set, else the frozen
+   *  base, else null (the stack itself). Display only. */
+  draftRefmodsView() {
+    if (!this.draftEntry) return null;
+    const own = this.draftRefmods();
+    if (own) return own;
+    const b = this.draftEntry.refmodsBase;
+    return (Array.isArray(b) && b.length) ? b : null;
+  }
+
+  /** True when the stack has moved on from the picks this draft froze. */
+  _refmodsDiverged() {
+    if (this.draftRefmods()) return false;
+    const b = this.draftEntry?.refmodsBase;
+    if (!Array.isArray(b) || !b.length) return false;
+    const { stack } = refmodStackFor(this.node);
+    if (!stack) return true;                  // stack unwired since creation
+    const strip = (picks) => picks.map(({ missing, ...p }) => p);
+    return stableStringify(strip(b)) !== stableStringify(strip(readStack(stack).picks));
+  }
+
+  /** Media the draft OWNS — edited deliberately, and applied on commit.
+   *  Null means the draft has never been given media of its own. Always go
+   *  through this: a bare `.media` check treats [] as a real set. */
+  draftMedia() {
+    const m = this.draftEntry?.media;
+    return (Array.isArray(m) && m.length) ? m : null;
+  }
+
+  /** What the draft DISPLAYS: its own set if it has one, else the frozen
+   *  base, else whatever the node currently holds. Display only — commit
+   *  never reads this. */
+  draftView() {
+    if (!this.draftEntry) return null;
+    const own = this.draftMedia();
+    if (own) return own;
+    const b = this.draftEntry.mediaBase;
+    return (Array.isArray(b) && b.length) ? b : null;
+  }
+
+  /** True when the frozen base no longer matches the node — i.e. the tags
+   *  this draft was written against describe a set the loader has moved on
+   *  from. Only meaningful while the draft has no media of its own. */
+  _mediaDiverged() {
+    if (this.draftMedia()) return false;      // own set: nothing to compare
+    const b = this.draftEntry?.mediaBase;
+    if (!Array.isArray(b) || !b.length) return false;
+    const now = loaderItems(this.node);
+    if (!now) return true;                    // loader unwired since creation
+    return stableStringify(b) !== stableStringify(now);
+  }
+
+  refreshSlots() {
+    if (this.bufferMode !== "draft") { this.slots = getRefSlots(this.node); return; }
+    // A draft stands in for the loader's items and the stack's picks where it
+    // has its own (or frozen) copies; the wiring itself is always live.
+    const snap = this.draftView(), picks = this.draftRefmodsView();
+    this.slots = getRefSlots(this.node, {
+      media: snap || undefined, mediaLabel: this.draftMedia() ? "Draft media" : "Media Loader",
+      picks: picks || undefined, picksLabel: this.draftRefmods() ? "Draft RefMods" : "RefMod Stack",
+    }) || getRefSlots(this.node);
+  }
+
+  /** A loaded prompt named a media preset. Never apply it silently: it
+   *  replaces whatever is in the loader, and reference numbering is
+   *  positional, so a preset edited since linking can retarget the tags in
+   *  the prompt that just loaded. */
+  async offerLinkedMedia(presetName, savedDigest) {
+    let info = null;
+    try {
+      info = await presetApi("/load", { name: presetName });
+    } catch (e) {
+      toast(`This prompt is linked to media preset \u201c${presetName}\u201d, ` +
+        "which no longer exists.", 7000);
+      return;
+    }
+    this.linkOffer = {
+      name: presetName,
+      items: info.items || [],
+      missing: info.missing || [],
+      changed: !!(savedDigest && info.digest && savedDigest !== info.digest),
+    };
+    this.render();
+  }
+
+  async offerLinkedRefmods(presetName, savedDigest) {
+    let info = null;
+    try {
+      info = await refmodPresetApi("/load", { name: presetName });
+    } catch (e) {
+      toast(`This prompt is linked to RefMod preset \u201c${presetName}\u201d, which no longer exists.`, 7000);
+      return;
+    }
+    this.refmodOffer = {
+      name: presetName,
+      picks: info.picks || [],
+      missing: info.missing || [],
+      changed: !!(savedDigest && info.digest && savedDigest !== info.digest),
+    };
+    this.render();
+  }
+
+  refmodLinkStrip() {
+    const o = this.refmodOffer;
+    if (!o) return null;
+    const drafting = this.bufferMode === "draft";
+    let current = 0;
+    try {
+      if (drafting) current = (this.draftRefmodsView() || []).length;
+      else { const { stack } = refmodStackFor(this.node); current = stack ? readStack(stack).picks.length : 0; }
+    } catch (e) { current = 0; }
+    const target = drafting ? "this draft's RefMods" : "the RefMod Stack";
+    const n = o.picks.filter((p) => p.on !== false).length;
+    return el("div", { class: "mmh3p-commitstrip" },
+      el("span", { class: "mmh3p-commitmsg" },
+        `This prompt is linked to RefMod preset \u201c${o.name}\u201d ` +
+        `(${n} RefMod${n === 1 ? "" : "s"}, with weights). ` +
+        `Loading it replaces ${current} in ${target}.`,
+        o.changed
+          ? el("span", { class: "mmh3p-linkwarn" },
+              " \u26a0 That preset has changed since this prompt was saved, " +
+              "so its labels may no longer line up with the tags in the text.")
+          : null,
+        o.missing.length
+          ? el("span", { class: "mmh3p-linkwarn" },
+              ` \u26a0 ${o.missing.length} file(s) in the preset are missing from the library.`)
+          : null),
+      el("div", { class: "mmh3p-commitrow" },
+        el("button", { class: "mmh3p-btn primary",
+          onclick: () => this.applyLinkedRefmods() }, "Load the RefMods too"),
+        el("button", { class: "mmh3p-btn",
+          onclick: () => { this.refmodOffer = null; this.render(); } },
+          "Prompt only")));
+  }
+
+  applyLinkedRefmods() {
+    const o = this.refmodOffer;
+    this.refmodOffer = null;
+    if (!o) return;
+    const picks = JSON.parse(JSON.stringify(o.picks));
+    if (this.bufferMode === "draft") {
+      // The draft takes the set as its own; it reaches the stack on commit.
+      if (this.draftEntry) {
+        const v = validateDraftRefmods(picks);
+        this.draftEntry.refmods = v.items || [];
+        if (v.dropped) this.draftDropped = (this.draftDropped || 0) + v.dropped;
+        this.draftRefmodsStale = this._refmodsDiverged();
+        this.flushDraftSave();
+      }
+    } else {
+      this._applyRefmodSnapshot(picks);
+    }
+    this.refreshSlots();
+    this.render();
+    toast(`Loaded RefMod preset \u201c${o.name}\u201d`);
+  }
+
+  linkStrip() {
+    const o = this.linkOffer;
+    if (!o) return null;
+    const drafting = this.bufferMode === "draft";
+    const currentCount = drafting
+      ? (this.draftView() || []).length
+      : (loaderItems(this.node) || []).length;
+    const target = drafting ? "this draft's media" : "the Media Loader";
+    return el("div", { class: "mmh3p-commitstrip" },
+      el("span", { class: "mmh3p-commitmsg" },
+        `This prompt is linked to media preset \u201c${o.name}\u201d ` +
+        `(${o.items.length} reference${o.items.length === 1 ? "" : "s"}). ` +
+        `Loading it replaces ${currentCount} in ${target}.`,
+        o.changed
+          ? el("span", { class: "mmh3p-linkwarn" },
+              " \u26a0 That preset has changed since this prompt was saved, " +
+              "so its reference numbers may no longer line up with the tags " +
+              "in the text.")
+          : null,
+        o.missing.length
+          ? el("span", { class: "mmh3p-linkwarn" },
+              ` \u26a0 ${o.missing.length} file(s) in the preset are missing ` +
+              "and will be skipped.")
+          : null),
+      el("div", { class: "mmh3p-commitrow" },
+        el("button", { class: "mmh3p-btn primary",
+          onclick: () => this.applyLinkedMedia() }, "Load the media too"),
+        el("button", { class: "mmh3p-btn",
+          onclick: () => { this.linkOffer = null; this.render(); } },
+          "Prompt only")));
+  }
+
+  applyLinkedMedia() {
+    const o = this.linkOffer;
+    this.linkOffer = null;
+    if (!o) return;
+    if (this.bufferMode === "draft") {
+      // Never touch the executable node from inside a draft: the draft takes
+      // the set as its own, and it reaches the loader only on commit.
+      if (this.draftEntry) {
+        const v = validateDraftMedia(JSON.parse(JSON.stringify(o.items)));
+        this.draftEntry.media = v.items;
+        if (v.dropped) this.draftDropped = (this.draftDropped || 0) + v.dropped;
+        this.draftStale = this._mediaDiverged();
+        this.flushDraftSave();
+      }
+    } else {
+      this._applyMediaSnapshot(o.items);
+    }
+    this.refreshSlots();
+    this.render();
+    toast(`Loaded media preset \u201c${o.name}\u201d`);
+  }
+
+  /** Copy the Live prompt into the draft.
+   *
+   *  "setup" keeps the scaffolding that costs real effort — mode, duration,
+   *  subject definitions, style, retention markers — and blanks the
+   *  per-shot writing, which is the shape of chaining one shot to the next.
+   *  "all" is a straight fork, for working up a variant.
+   *
+   *  Live is never touched: this reads the parked live buffer (or the node
+   *  when there isn't one) and writes only the draft. */
+  pullFromLive(scope) {
+    const srcState = this._liveHeld?.state ?? loadState(this.node);
+    const next = normaliseState(JSON.parse(JSON.stringify(srcState)));
+    if (scope === "setup") {
+      const d = defaultState();
+      next.imd = d.imd;
+      next.soundscape = d.soundscape;
+      next.ref.summaryText = d.ref.summaryText;
+      next.ref.detail = d.ref.detail;
+      next.ref.soundscape = d.ref.soundscape;
+    }
+    this.state = next;
+    this.openedWith = JSON.stringify(next);
+    this.pins = [];
+    this.autoPin = null;
+    if (this.draftEntry) {
+      // The pulled text's tags are numbered against the node's media as it
+      // is now, so re-freeze the display base to match. A media set the
+      // draft OWNS is left alone — that was a deliberate choice.
+      this.draftEntry.mediaBase = this._snapshotMedia();
+      this.draftStale = this._mediaDiverged();
+      if (!this.draftRefmods()) {
+        this.draftEntry.refmodsBase = this._snapshotRefmods();
+        this.draftRefmodsStale = this._refmodsDiverged();
+      }
+    }
+    this.pullPending = false;
+    this.flushDraftSave();
+    this.refreshSlots();
+    this.render();
+    toast(scope === "setup"
+      ? "Pulled the cast and setup from Live"
+      : "Pulled the Live prompt into this draft");
+  }
+
+  pullStrip() {
+    if (!this.pullPending) return null;
+    const blank = (() => {
+      const d = defaultState(); d.mode = this.state.mode;
+      return stableStringify(this.state) === stableStringify(d);
+    })();
+    return el("div", { class: "mmh3p-commitstrip" },
+      el("span", { class: "mmh3p-commitmsg" },
+        blank
+          ? "Copy the Live prompt into this draft."
+          : "Copy the Live prompt into this draft, replacing what's here. " +
+            "Live itself is not changed."),
+      el("div", { class: "mmh3p-commitrow" },
+        el("button", { class: "mmh3p-btn primary",
+          title: "Keep the mode, duration, subjects, style and retention " +
+            "markers; leave the description fields empty for the next shot",
+          onclick: () => this.pullFromLive("setup") }, "Cast and setup only"),
+        el("button", { class: "mmh3p-btn",
+          title: "Copy the whole Live prompt, description included",
+          onclick: () => this.pullFromLive("all") }, "Everything"),
+        el("button", { class: "mmh3p-btn",
+          onclick: () => { this.pullPending = false; this.render(); } },
+          "Cancel")));
+  }
+
+  /** Commit: the single doorway from draft to executable. */
+  commitDraft() {
+    const liveState = this._liveHeld?.state ?? loadState(this.node);
+    const liveSaved = this.node.properties?.mmh3_live_saved;
+    const b = defaultState();
+    b.mode = liveState.mode;
+    const liveBlank = stableStringify(liveState) === stableStringify(b);
+    // The only genuinely destructive edge in the whole feature: live being
+    // displaced while unfiled. Everything else is recoverable by design.
+    if (!liveBlank && !this.cleanSince(liveSaved, liveState)) {
+      this.commitPending = "guard";
+      this.render();
+      return;
+    }
+    this._doCommit();
+  }
+
+  _doCommit() {
+    const committed = this.state;
+    // Only a set the draft OWNS is applied. The frozen base is display-only:
+    // applying it would revert any media work done on Live while drafting.
+    const media = this.draftMedia();
+    const refmods = this.draftRefmods();
+    // Draft becomes live: adopt its state and library identity as the live
+    // buffer, write the node, apply the media snapshot through the same
+    // front door presets use, and consume the draft entry.
+    this.bufferMode = "live";
+    this._liveHeld = null;
+    this.commitPending = false;
+    this.pullPending = false;
+    this.state = committed;
+    this.writeNode();
+    if (media) this._applyMediaSnapshot(media);
+    if (refmods) this._applyRefmodSnapshot(refmods);
+    clearTimeout(this._draftTimer);
+    draftApi("/clear", { id: draftIdFor(this.node) }).catch(() => {});
+    this.draftEntry = null;
+    this.draftDropped = 0;
+    this.node._mmh3DraftActive = false;
+    updateSummary(this.node);
+    this.refreshSlots();
+    this.applyDraftChrome();
+    toast("Draft committed to Live");
+    this.render();
+  }
+
+  /** Write a draft's picks into the stack this prompt's RefMods come from,
+   *  keeping the stack's own token budget. */
+  _applyRefmodSnapshot(picks) {
+    try {
+      const { stack } = refmodStackFor(this.node);
+      if (!stack) { toast("The draft's RefMods had nowhere to go \u2014 use \u25c8 RefMods first", 5000); return; }
+      const w = stack.widgets?.find((x) => x.name === "stack_state");
+      if (!w) return;
+      w.value = JSON.stringify({ picks: JSON.parse(JSON.stringify(picks)), budget: readStack(stack).budget });
+      stack._mmrPanel?.reload();
+      stack.setDirtyCanvas?.(true, true);
+    } catch (e) { console.error("[MiniMaxH3 PromptBuilder] applying draft RefMods failed:", e); }
+  }
+
+  _applyMediaSnapshot(items) {
+    // Same shape as presets/load on the loader panel: replace the items
+    // array and let the panel's own commit() do everything else. The
+    // panel stays single-buffered and mode-ignorant.
+    try {
+      // Whichever node actually owns the media — this one in Prompt Studio,
+      // a wired loader otherwise.
+      const loader = mediaSource(this.node)?.owner;
+      if (!loader) return;
+      const panel = loader._mmlPanel || loader._mmlPanels?.[0];
+      if (panel) {
+        panel.items = JSON.parse(JSON.stringify(items));
+        panel.presetName = "";
+        panel.commit();
+      } else {
+        const w = loader.widgets?.find((x) => x.name === "media_state");
+        if (w) w.value = JSON.stringify(items);
+      }
+    } catch (e) {
+      console.error("[MiniMaxH3 PromptBuilder] draft media apply failed:", e);
+      toast("Draft media couldn't be applied to the loader \u2014 see console");
+    }
+  }
+
+  applyDraftChrome() {
+    const modal = this.overlay?.querySelector(".mmh3p-modal");
+    if (!modal) return;
+    const drafting = this.bufferMode === "draft";
+    modal.classList.toggle("draft", drafting);
+    if (this.modeToggle) {
+      this.modeToggle.textContent = drafting ? "\u25c0 Live" : "Draft \u25b6";
+      this.modeToggle.title = drafting
+        ? "Back to the Live prompt (the one on the node)"
+        : "Switch to the draft scratchpad \u2014 the node keeps the Live prompt";
+      this.modeToggle.classList.toggle("draft", drafting);
+    }
+    if (this.titleTag) this.titleTag.textContent = drafting ? "\u2014 Draft" : "";
+    if (this.saveBtn) {
+      // Nothing in a draft can reach the node except through Commit, so the
+      // one button that writes the node must not look available here.
+      // Disabled rather than relabelled: the commit action already lives in
+      // the banner above, and two doors to it invites clicking the wrong one.
+      this.saveBtn.disabled = drafting;
+      this.saveBtn.classList.toggle("off", drafting);
+      this.saveBtn.title = drafting
+        ? "Drafts can't be saved to the node \u2014 use Commit to Live above"
+        : "";
+    }
+  }
+
+  draftBar() {
+    if (this.bufferMode !== "draft") return null;
+    const saved = this.draftEntry?.savedTo;
+    const clean = this.cleanSince(saved, this.state);
+    const status = saved
+      ? (clean ? `saved to library as \u201c${saved.libraryName}\u201d`
+               : `edited since it was saved as \u201c${saved.libraryName}\u201d`)
+      : "not in the library";
+    return el("div", { class: "mmh3p-draftbar" },
+      el("span", { class: "mmh3p-draftbadge" }, "DRAFT"),
+      this.draftDropped
+        ? el("span", { class: "mmh3p-draftdropped",
+            title: "Items that were missing a file or had an unknown type. " +
+              "See the browser console for details." },
+            `\u26a0 ${this.draftDropped} unusable reference item` +
+            `${this.draftDropped === 1 ? "" : "s"} discarded`)
+        : null,
+      el("span", { class: "mmh3p-draftmsg" },
+        "The node still holds the Live prompt. Nothing here is queued or " +
+        "executed until you commit it to Live.",
+        el("span", { class: "mmh3p-draftstatus" },
+          ` \u2014 ${status}` +
+          (this.draftMedia()
+            ? " \u00b7 has its own media, applied on commit"
+            : (this.draftStale
+              ? " \u00b7 showing media as of when this draft was started; " +
+                "the loader has changed since"
+              : " \u00b7 following the node's media")) +
+          (this.draftRefmods()
+            ? " \u00b7 has its own RefMods, applied to the stack on commit"
+            : (this._refmodsDiverged()
+              ? " \u00b7 showing RefMods as of when this draft was started; " +
+                "the stack has changed since"
+              : (this.draftEntry?.refmodsBase ? " \u00b7 following the stack's RefMods" : ""))))),
+      el("div", { class: "mmh3p-draftactions" },
+        el("button", { class: "mmh3p-btn",
+          title: "Copy the Live prompt into this draft \u2014 " +
+            "Live itself isn't changed",
+          onclick: () => { this.pullPending = true; this.render(); } },
+          "\u21e3 Pull from Live"),
+        el("button", { class: "mmh3p-btn primary",
+          title: "Overwrite the Live prompt with this draft",
+          onclick: () => this.commitDraft() }, "Commit to Live"),
+        el("button", { class: "mmh3p-btn",
+          title: "Throw this draft away and start a blank one",
+          onclick: () => this.clearDraft() }, "Clear draft")));
+  }
+
+  commitStrip() {
+    if (this.commitPending !== "guard") return null;
+    const liveState = this._liveHeld?.state ?? loadState(this.node);
+    const nameInput = el("input", { type: "text", class: "mmh3p-commitname",
+      placeholder: "name for the Live prompt\u2026",
+      value: this._liveHeld?.libraryName || "" });
+    const err = el("span", { class: "mmh3p-saveerr" });
+    const saveLive = async (expectNew) => {
+      const value = nameInput.value.trim();
+      if (!value) { err.textContent = "Give it a name first."; return; }
+      const body = {
+        name: value,
+        category: this._liveHeld?.libraryCategory || "",
+        favorite: false,
+        mode: liveState.mode,
+        refs: 0,
+        prompt: generate(liveState),
+        state: liveState,
+      };
+      if (expectNew) body.expect_new = true;
+      const res = await libApi("/save", body);
+      this.node.properties = this.node.properties || {};
+      this.node.properties.mmh3_live_saved = {
+        libraryId: res.id, libraryName: res.name,
+        libraryCategory: body.category,
+        hash: stateHash(liveState),
+      };
+      toast(`Live prompt saved as \u201c${res.name}\u201d`);
+      this._doCommit();
+    };
+    return el("div", { class: "mmh3p-commitstrip" },
+      el("span", { class: "mmh3p-commitmsg" },
+        "The Live prompt has work that isn't in the library. Committing " +
+        "this draft will overwrite it."),
+      el("div", { class: "mmh3p-commitrow" },
+        nameInput,
+        el("button", { class: "mmh3p-btn primary",
+          onclick: async () => {
+            try {
+              await saveLive(nameInput.value.trim() !==
+                (this._liveHeld?.libraryName || ""));
+            } catch (e2) {
+              if (e2.exists) {
+                err.replaceChildren(
+                  `\u201c${nameInput.value.trim()}\u201d already exists. `,
+                  el("button", { class: "mmh3p-btn", onclick: async () => {
+                    try { await saveLive(false); }
+                    catch (e3) { err.textContent = e3.message; }
+                  } }, "Overwrite it"));
+              } else err.textContent = e2.message;
+            }
+          } }, "Save Live to library, then commit"),
+        el("button", { class: "mmh3p-btn mmh3p-danger",
+          onclick: () => this._doCommit() }, "Overwrite Live"),
+        el("button", { class: "mmh3p-btn",
+          onclick: () => { this.commitPending = false; this.render(); } },
+          "Cancel")),
+      err);
   }
 
   /* ---------- shared UI pieces ---------- */
@@ -2856,6 +5615,8 @@ class Editor {
     const { wrap, paint } = chipField(box, {
       slotFor: (t) => this.slotFor(t),
       subjectInfo: (t) => this.subjectInfo(t),
+      names: () => subjectNames(this.state),
+      nameSuggestion: (b) => nameSuggestionFor(b, this.state),
       highlightTags: this.prefs?.highlightTags,
       onHover: (e, mirror) => this.chipHover(e, mirror),
       onLeave: () => this.chipLeave(),
@@ -2868,10 +5629,9 @@ class Editor {
   /** What a <Subject N> chip should show: the first picture its definition
    *  cites, plus every media tag that line mentions. */
   subjectInfo(tag) {
-    const defs = this.state?.ref?.subjectDefs || [];
-    const line = defs.find((d) => !d.off &&
-      (d.text || "").trim().startsWith(tag));
+    const line = subjectLine(this.state, tag);
     if (!line) return null;
+    const defs = this.state?.ref?.subjectDefs || [];
     const tags = [...new Set((line.text.match(TAG_RE) || [])
       .filter((t) => t !== tag))];
 
@@ -2896,7 +5656,7 @@ class Editor {
     const slot = tags.map((t) => this.slotFor(t))
       .find((sl) => sl && sl.preview?.url && sl.preview.type === "img")
       || tags.map((t) => this.slotFor(t)).find((sl) => sl && sl.preview?.url);
-    return { slot, tags, voices, speakers, line };
+    return { slot, tags, voices, speakers, line, name: (line.name || "").trim() };
   }
 
   slotFor(tag) {
@@ -2918,6 +5678,17 @@ class Editor {
     this.chipLeave();
     const tag = hit.dataset.tag;
     let slot = null, subject = null;
+    if (tag.startsWith(NAME_PREFIX) && !tag.startsWith("<")) {
+      // The shorthand shows the subject it stands for.
+      const named = lookupName(subjectNames(this.state), tag.slice(1));
+      if (!named) return;
+      subject = this.subjectInfo(named.tag);
+      if (!subject) return;
+      slot = subject.slot;
+      this._chipOpenFor = tag;
+      this._chipTimer = setTimeout(() => this.openChipPeek(hit, slot, named.tag, subject), 180);
+      return;
+    }
     if (tag.startsWith("<Subject")) {
       subject = this.subjectInfo(tag);
       if (!subject) return;                  // undefined subject: nothing to show
@@ -2979,6 +5750,7 @@ class Editor {
       ? el("div", { class: "mmh3p-chippeekcap col" },
           el("span", { class: "mmh3p-chiprow" },
             el("span", { class: "mmh3p-tagname subj" }, tag),
+            subject.name ? el("span", { class: "mmh3p-chipname" }, subject.name) : null,
             subject.speakers.length
               ? el("span", { class: "mmh3p-chipspk" }, subject.speakers.join(" "))
               : null),
@@ -3029,7 +5801,10 @@ class Editor {
       const w = canvas.width, h = canvas.height;
       const ctx = canvas.getContext("2d");
       ctx.clearRect(0, 0, w, h);
-      ctx.fillStyle = "#b48ce8";
+      // Canvas cannot read a CSS variable, so the audio hue comes from
+      // the same exported palette the stylesheets are built from —
+      // otherwise this waveform is the one surface that can drift.
+      ctx.fillStyle = TAG_COLORS.aud;
       const n = peaks.length;
       for (let x = 0; x < w; x++) {
         const v = peaks[Math.floor((x / w) * n)] || 0;
@@ -3063,6 +5838,8 @@ class Editor {
 
   /** Whether the current mode can use this reference at all. */
   usable(slot) {
+    // Text Encode has no per-mode caps: whatever the stack sends, it labels.
+    if (this.slots?.refmod) return true;
     const cap = MODE_CAPACITY[this.state.mode] || {};
     return (cap[slot.kind] || 0) >= slot.idx;
   }
@@ -3126,6 +5903,243 @@ class Editor {
     return node;
   }
 
+  /* --- draft definitions from RefMods ------------------------------ */
+
+  /** One definition line and one retention entry per RefMod in the stack,
+   *  worded from the concept saved in the library (a person, a place, a
+   *  style, a voice…). Names and descriptions are the user's own notes and
+   *  never go into the prompt. Loose loader media is left alone: nothing is known
+   *  about it. A RefMod whose concept was never set is asked about first,
+   *  and the answer can be written back to the library so it isn't asked
+   *  again. Labels that already have a line are skipped. */
+  async draftFromRefmods() {
+    const r = this.state.ref;
+    // These three are read with .some()/.push()/.includes() throughout, and a
+    // state that reached us from somewhere other than normaliseState() — a
+    // loaded library prompt, a draft buffer — can be missing one. That is a
+    // TypeError in an async handler, which is invisible: hence the guard here
+    // as well as the reporting one on the button.
+    if (!Array.isArray(r.subjectDefs)) r.subjectDefs = [];
+    if (!Array.isArray(r.retention)) r.retention = [];
+    if (!Array.isArray(r.summaryTypes)) r.summaryTypes = [];
+    const slots = (this.slots || []).filter((s) => s.refmod && s.tag);
+    if (!slots.length) {
+      // Say which of the two cases it is: no stack at all reads very
+      // differently from a stack that is wired but empty.
+      const { stack } = refmodStackFor(this.node);
+      toast(stack === this.node
+        ? "No RefMods picked yet — add some on the node's RefMods tab, or with ◈ RefMods"
+        : stack
+        ? "The RefMod Stack is connected but has no RefMods in it — open it and pick some"
+        : "No RefMods are connected — use ◈ RefMods to add some", 5000);
+      return;
+    }
+    let library = [];
+    try {
+      const resp = await api.fetchApi("/minimax_h3_plus/refmods", { cache: "no-store" });
+      library = (await resp.json()).items || [];
+    } catch (e) { /* the concept picker covers the gap */ }
+    const infoOf = (file) => {
+      const it = library.find((x) => x.visual?.file === file || x.audio?.file === file);
+      const nm = String(it?.subject_name || "").trim();
+      return { concept: it?.concept || "generic", subjectName: /^[A-Za-z][\w-]{0,39}$/.test(nm) ? nm : "",
+        appearance: oneLine(it?.appearance), voiceDesc: oneLine(it?.voice_description), retained: oneLine(it?.retained_attributes) };
+    };
+    // Group each RefMod's look and voice; a voice-only RefMod has no look.
+    const mods = [];
+    for (const s of slots) {
+      const file = s.slotName.replace(/^refmod:/, "");
+      let m = mods.find((x) => x.uid === s.refmod.uid);
+      if (!m) { m = { uid: s.refmod.uid, name: s.refmod.name, ...infoOf(file) }; mods.push(m); }
+      if (s.refmod.role === "voice") m.voice = s; else m.look = s;
+      // The concept is written to the half it describes: the look's file,
+      // or the voice's when the RefMod is a voice only.
+      if (s.refmod.role !== "voice" || !m.file) m.file = file;
+    }
+    // A RefMod's saved subject name goes on its subject line when that line
+    // has no name of its own yet — including lines drafted before the name
+    // was set in the library. A name you typed is never replaced.
+    const nameLines = (dry = false) => {
+      let named = 0;
+      for (const m of mods) {
+        if (m.subjectName && m.look) {
+          const line = r.subjectDefs.find((d) => !(d.name || "").trim() && /^\s*<Subject \d+>/.test(d.text || "")
+            && (d.text || "").includes(m.look.tag));
+          if (line) { if (!dry) line.name = m.subjectName; named++; }
+        }
+        // A saved voice description fills the voice box on the RefMod's voice line.
+        if (m.voiceDesc && m.voice) {
+          const line = r.subjectDefs.find((d) => !oneLine(d.voice) && voiceBinding(d.text)
+            && (d.text || "").includes(m.voice.tag));
+          if (line) { if (!dry) line.voice = m.voiceDesc; named++; }
+        }
+      }
+      return named;
+    };
+    let how = null;
+    {
+      const citedNow = (tag) => r.subjectDefs.some((d) => (d.text || "").includes(tag));
+      const nothingNew = !mods.some((m) => (m.look && !citedNow(m.look.tag)) || (m.voice && !citedNow(m.voice.tag)));
+      if (nothingNew) {
+        // Every RefMod already has a line: nothing to add, but the two
+        // sections can still be drafted fresh, or blank names filled.
+        how = await this.askOverwrite({ complete: true, names: nameLines(true) });
+        if (!how) return;
+        if (how === "keep") {
+          const named = nameLines();
+          this.render();
+          toast(`Filled ${named} name or voice box${named === 1 ? "" : "es"} from the library`, 4000);
+          return;
+        }
+      }
+    }
+    // Existing lines: add to them, or start the two sections over.
+    const hasText = r.subjectDefs.some((d) => (d.text || "").trim()) || r.retention.some((x) => x.label);
+    if (hasText && !how) {
+      how = await this.askOverwrite();
+      if (!how) return;
+    }
+    if (how === "replace") { r.subjectDefs = []; r.retention = []; }
+    const defText = () => r.subjectDefs.map((d) => d.text).join("\n");
+    const cited = (tag) => defText().includes(tag);
+    const pending = mods.filter((m) => (m.look && !cited(m.look.tag)) || (m.voice && !cited(m.voice.tag)));
+    if (!pending.length) { toast("Every RefMod already has a definition line", 3000); return; }
+
+    // Ask about the ones the library can't describe.
+    const unknown = pending.filter((m) => m.look ? !VISUAL_CONCEPTS.includes(m.concept)
+                                            : !AUDIO_CONCEPTS.includes(m.concept));
+    if (unknown.length) {
+      const answers = await this.askConcepts(unknown);
+      if (!answers) return;                       // cancelled
+      for (const m of unknown) m.concept = answers.choice[m.uid];
+      if (answers.remember) {
+        for (const m of unknown) {
+          try {
+            await postApi("/minimax_h3_plus/refmods/meta", { headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ files: [m.file], concept_type: m.concept }) });
+          } catch (e) { /* the draft still goes ahead */ }
+        }
+      }
+    }
+
+    const usedSpeakers = () => new Set([...defText().matchAll(/\(S(\d+)\)/g)].map((x) => +x[1]));
+    const nextSpeaker = () => { const u = usedSpeakers(); let i = 1; while (u.has(i)) i++; return `S${i}`; };
+    const nextSubject = () => {
+      const n = [...defText().matchAll(/<Subject (\d+)>/g)].map((x) => +x[1]);
+      return `<Subject ${Math.max(0, ...n) + 1}>`;
+    };
+    const ensureRet = (label, marker, note) => {
+      if (r.retention.some((x) => x.label === label)) return;
+      r.retention.push({ label, context: "", marker, note });
+    };
+    const ensureTask = (t) => { if (!r.summaryTypes.includes(t)) r.summaryTypes.push(t); };
+    let added = 0;
+    for (const m of pending) {
+      let subj = null;
+      if (m.look && !cited(m.look.tag)) {
+        const spec = REFMOD_CONCEPTS[m.concept] || REFMOD_CONCEPTS.identity;
+        subj = spec.subject ? nextSubject() : null;
+        const ctx = { subj, tag: m.look.tag };
+        let text = spec.text(ctx);
+        // A saved appearance goes straight into a subject's line, where it can be edited.
+        const looks = m.appearance.replace(/^with\s+/i, "");
+        if (spec.subject && looks) text = text.replace(/\.\s*$/, "") + `, with ${looks}.`;
+        r.subjectDefs.push({ text, role: null });
+        // Saved retained attributes close the retention note, as their own sentence.
+        let note = spec.note(ctx);
+        if (spec.subject && m.retained) note = `${note} ${m.retained.charAt(0).toUpperCase()}${m.retained.slice(1)}.`;
+        ensureRet(subj || m.look.tag, spec.marker, note);
+        ensureTask(spec.task);
+        added++;
+      } else if (m.look) {
+        // The look is already defined: reuse its subject for the voice.
+        const line = r.subjectDefs.find((d) => d.text.includes(m.look.tag));
+        subj = (line?.text.match(/<Subject \d+>/) || [null])[0];
+      }
+      if (m.voice && !cited(m.voice.tag)) {
+        const vc = m.look ? (m.concept === "singing" ? "singing" : "voice") : m.concept;
+        const spec = REFMOD_CONCEPTS[vc] || REFMOD_CONCEPTS.voice;
+        if (spec.speaker && !subj) {
+          // A voice with no look of its own still needs someone to belong to.
+          subj = nextSubject();
+          r.subjectDefs.push({ text: spec.speaker({ subj, tag: m.voice.tag }), role: null, name: m.subjectName || "" });
+          ensureRet(subj, "fully_preserved", `${subj}'s identity is retained.`);
+        }
+        const ctx = { subj: subj || "<Subject 1>", tag: m.voice.tag, sx: nextSpeaker() };
+        r.subjectDefs.push({ text: spec.text(ctx), role: vc === "voice" ? "timbre" : null,
+          voice: vc === "voice" ? (m.voiceDesc || "") : "" });
+        ensureRet(m.voice.tag, spec.marker, spec.note(ctx));
+        ensureTask(spec.task);
+        added++;
+      }
+    }
+    nameLines();                                  // saved names onto the lines just written
+    this.render();
+    toast(`Drafted ${added} definition line${added === 1 ? "" : "s"} and their retention entries \u2014 read them over`, 5000);
+  }
+
+  /** Lines already exist: resolves to "add", "replace" or null (cancelled).
+   *  With `complete`, every RefMod already has a line, so there is nothing to
+   *  add: it offers "replace", and "keep" (fill `names` blank name boxes)
+   *  when there are names to fill. */
+  askOverwrite({ complete = false, names = 0 } = {}) {
+    return new Promise((resolve) => {
+      const close = (result) => { window.removeEventListener("keydown", onKey); box.remove(); resolve(result); };
+      const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(null); } };
+      const box = el("div", { class: "mmh3p-conceptover", onmousedown: (e) => { if (e.target === box) close(null); } },
+        el("div", { class: "mmh3p-conceptbox", role: "dialog", "aria-label": "Definitions already exist" },
+          el("div", { class: "mmh3p-concepthead" },
+            complete ? "Every RefMod already has a definition" : "You already have definitions"),
+          el("div", { class: "mmh3p-dim" },
+            complete
+              ? "Start over clears ALL of subject_definitions and retention_analysis, including lines for other media, " +
+                "and drafts them fresh from the RefMods." +
+                (names ? ` Fill names and voices keeps your lines and fills ${names} empty name or voice ` +
+                         `box${names === 1 ? "" : "es"} with what's saved in the library.` : "")
+              : "Add missing keeps every line you have and drafts only the RefMods that don't have one yet. " +
+                "Start over clears ALL of subject_definitions and retention_analysis, including lines for other media, " +
+                "and drafts them fresh from the RefMods."),
+          el("div", { class: "mmh3p-conceptbtns" },
+            el("button", { class: "mmh3p-btn", onclick: () => close(null) }, "Cancel"),
+            el("button", { class: "mmh3p-btn danger", onclick: () => close("replace") }, "Start over"),
+            !complete ? el("button", { class: "mmh3p-btn primary", onclick: () => close("add") }, "Add missing")
+              : names ? el("button", { class: "mmh3p-btn primary", onclick: () => close("keep") }, "Fill names and voices")
+              : null)));
+      window.addEventListener("keydown", onKey);
+      document.body.append(box);
+    });
+  }
+
+  /** A small dialog over the editor: what is each of these RefMods? Resolves
+   *  to { choice: {uid: concept}, remember } or null when cancelled. */
+  askConcepts(mods) {
+    return new Promise((resolve) => {
+      const choice = {};
+      const rows = mods.map((m) => {
+        const options = m.look ? VISUAL_CONCEPTS : AUDIO_CONCEPTS;
+        choice[m.uid] = options[0];
+        return el("label", { class: "mmh3p-conceptrow" },
+          el("span", {}, `\u25c8 ${m.name}`, el("small", {}, m.look ? " (look)" : " (voice)")),
+          el("select", { onchange: (e) => { choice[m.uid] = e.target.value; } },
+            options.map((c) => el("option", { value: c }, CONCEPT_LABEL[c] || c))));
+      });
+      const remember = el("input", { type: "checkbox", checked: true });
+      const close = (result) => { window.removeEventListener("keydown", onKey); box.remove(); resolve(result); };
+      const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(null); } };
+      const box = el("div", { class: "mmh3p-conceptover", onmousedown: (e) => { if (e.target === box) close(null); } },
+        el("div", { class: "mmh3p-conceptbox", role: "dialog", "aria-label": "What are these RefMods?" },
+          el("div", { class: "mmh3p-concepthead" }, "What are these RefMods?"),
+          el("div", { class: "mmh3p-dim" }, "The library has no concept saved for them, and the wording depends on it."),
+          ...rows,
+          el("label", { class: "mmh3p-inline" }, remember, " Save the answers to the library so this isn't asked again"),
+          el("div", { class: "mmh3p-conceptbtns" },
+            el("button", { class: "mmh3p-btn", onclick: () => close(null) }, "Cancel"),
+            el("button", { class: "mmh3p-btn primary", onclick: () => close({ choice, remember: remember.checked }) }, "Draft"))));
+      window.addEventListener("keydown", onKey);
+      document.body.append(box);
+    });
+  }
+
   /* --- hover peek ------------------------------------------------- */
 
   peekFor(card, s) {
@@ -3156,14 +6170,24 @@ class Editor {
               style: { width: "100%", height: "28px" } }))
         : el("img", { src: s.preview?.url, class: "mmh3p-peekmedia" });
     const cites = this.citationCount(s.tag);
+    // A RefMod gets upstream's header and its own details line: which RefMod
+    // and which half of it, the whole label range its copies take, and the
+    // weight/cost rather than the generic source.
+    const r = s.refmod;
     box.append(peekCrop(media, s.item?.crop),
       el("div", { class: "mmh3p-peekmeta" },
+        r ? el("div", { class: "mmh3p-peekrefmod" },
+              el("span", {}, `\u25c8 RefMod \u00b7 ${r.name}`),
+              el("span", {}, r.role)) : null,
         el("div", { class: "mmh3p-peekrow" },
-          el("span", { class: `mmh3p-tagname ${s.cls}` }, s.tag),
+          el("span", { class: `mmh3p-tagname ${s.cls}` }, s.range || s.tag),
           el("span", { class: "mmh3p-peekcite" + (cites ? "" : " zero") },
             cites ? `cited ${cites}\u00d7` : "not cited")),
         el("div", { class: "mmh3p-peeksrc" },
-          s.source + (s.note ? ` \u2022 ${s.note.replace(/[<>]/g, "")}` : ""))));
+          r ? [r.weight, r.tokens ? `${r.tokens.toLocaleString("en-US")} tokens` : "",
+               r.pair ? `${r.pair.role} is ${r.pair.tag}` : "", r.draft ? "draft copy" : ""]
+                .filter(Boolean).join(" \u2022 ")
+            : s.source + (s.note ? ` \u2022 ${s.note.replace(/[<>]/g, "")}` : ""))));
 
     box.addEventListener("mouseenter", () => clearTimeout(this._peekClose));
     box.addEventListener("mouseleave", () => this.closePeek());
@@ -3304,6 +6328,12 @@ class Editor {
     return tile;
   }
 
+  /** The loader clip marked for editing, if any. */
+  editItem() {
+    const items = (this.bufferMode === "draft" ? this.draftView() : null) || loaderItems(this.node) || [];
+    return items.find((i) => i && i.edit && i.mask && i.enabled !== false) || null;
+  }
+
   refChips() {
     // Rebuilt every render, so the lookup is rebuilt with it rather than
     // holding elements that are no longer in the document.
@@ -3311,9 +6341,28 @@ class Editor {
     const live = this.slots.filter((s) => s.tag);
     const tile = this.dropTile();
     if (!live.length) {
+      // In draft mode, say which set came up empty: the draft's own frozen
+      // snapshot, or the node's live references. "No media" with no source
+      // named is unactionable when two sources are possible.
+      const snap = this.bufferMode === "draft" ? this.draftView() : null;
+      if (snap) {
+        return [tile, el("span", { class: "hint keep" },
+          `This draft's frozen media snapshot holds ${snap.length} `
+          + `item${snap.length === 1 ? "" : "s"}, but none of them produce a `
+          + "reference tag \u2014 they may all be switched off. Commit or clear "
+          + "the draft to go back to the node's own media.")].filter(Boolean);
+      }
+      if (this.slots?.refmod) {
+        return el("span", { class: "mmh3p-refmodnone",
+          title: "The RefMod Stack connected to this prompt isn't sending anything yet." },
+          "No RefMods loaded");
+      }
       return [tile, el("span", { class: "hint keep" },
         "No reference media on this node yet \u2014 add some in the panel on the "
-        + "node, or with the + tile here.")].filter(Boolean);
+        + "node, or with the + tile here."
+        + (this.bufferMode === "draft"
+          ? " (This draft has no snapshot of its own, so it follows the node.)"
+          : ""))].filter(Boolean);
     }
     const cards = live.map((s) => {
       const ok = this.usable(s);
@@ -3347,21 +6396,73 @@ class Editor {
         el("div", { class: "mmh3p-cardbar" },
           el("span", { class: `mmh3p-tagname ${s.cls}` }, `${s.kind} ${s.idx}`),
           this.cardTools(s)),
-        s.note && s.note !== "standalone"
+        // Upstream's: a RefMod picked with copies says how many, and that
+        // citing the first label covers them all.
+        s.copies?.length
+          ? el("span", { class: "mmh3p-cardnote",
+              title: `${s.range} \u2014 ${s.copies.length} extra ` +
+                     `${s.copies.length === 1 ? "copy" : "copies"}; citing ${s.tag} is enough` },
+              `\u00d7${s.copies.length + 1}`)
+          // "voice" is how a RefMod's voice channel is marked, not a paired
+          // soundtrack — without this every RefMod voice read "♪→V".
+          : s.note && s.note !== "standalone" && s.note !== "voice"
           ? el("span", { class: "mmh3p-cardnote" },
               "\u266a\u2192V" + (s.note.match(/\d+/) || [""])[0])
           : null);
       if (s.item && s.panel) this.railReorder(card, s);
+      if (s.edit && s.kind === "Video") {
+        const it = this.editItem();
+        const thumb = card.querySelector("video.mmh3p-thumb");
+        const sprite = it?.mask_info?.sprite;
+        if (thumb && sprite && overlayOn()) {
+          const wrap = el("div", { class: "mmh3p-editthumb" });
+          thumb.replaceWith(wrap);
+          wrap.append(thumb);
+          maskOverlay(thumb, wrap, sprite, "contain", { append: true, look: itemLook(it), onMissing: () => card.append(
+            el("span", { class: "mmh3p-maskmissing", title: "This clip's mask files are missing: mask it again in " +
+              "the Media Loader, or clear its mask. The next run stops with an error until you do." }, "\u26a0")) })
+            .mirror(!!it.mirror);
+        }
+        card.classList.add("mmh3p-editsrc");
+        card.title = `${s.tag} is the clip being edited: only its masked area is regenerated. Cite it the way ` +
+          `H3's editing prompts do: "${s.tag} is the source video for the target video edit." and ` +
+          `"The target video is an edited version of ${s.tag}."`;
+        card.append(el("span", { class: "mmh3p-cardbadge mmh3p-editbadge" }, "\u25d0"));
+      }
+      if (s.refmod) {
+        card.classList.add("refmod");
+        card.append(el("span", { class: "mmh3p-cardbadge", title: `From the RefMod \u201c${s.refmod.name}\u201d` }, "\u25c8"));
+        if (s.refmod.role === "voice" && s.preview?.type === "img")
+          card.append(el("span", { class: "mmh3p-cardvoice" }, "\u266a"));
+      }
       if (ok) this.peekFor(card, s);
       // Lets a tag hovered in a text field open this card's own preview
       // rather than a separate one — see the railPeek preference.
       this._cardFor.set(s.tag, { card, slot: s });
       return card;
     });
-    // Trailing "+" tile. dropTile() returns null once the mode has no room
-    // left \u2014 roomLeft() gates on the mode's own per-kind ceiling, the loader's
-    // capacity check and the total \u2014 so it shows only when it is relevant.
-    return tile ? [...cards, tile] : cards;
+    // Trailing "+" tile. dropTile() returns null once the mode has no
+    // room left, so it shows only when it is relevant.
+    // Only worth sorting into groups when RefMods are in the mix: then each
+    // RefMod's look and voice sit together under its name, and the loader's
+    // media under its own.
+    if (!live.some((s) => s.refmod))
+      return tile ? [...cards, tile] : cards;
+    const keyOf = (s) => (s.refmod ? `r:${s.refmod.uid}:${s.refmod.name}` : `m:${(s.source || "").split(" \u2022 ")[0]}`);
+    const out = [];
+    live.forEach((s, i) => {
+      const key = keyOf(s);
+      const last = out[out.length - 1];
+      if (last && last.key === key) { last.cards.push(cards[i]); return; }
+      out.push({ key, s, cards: [cards[i]] });
+    });
+    const groups = out.map((g) => el("div", { class: "mmh3p-cardgroup" + (g.s.refmod ? " refmod" : "") },
+      el("div", { class: "mmh3p-cardgroupcards" }, ...g.cards),
+      el("div", { class: "mmh3p-cardstrip",
+        title: g.s.refmod ? `RefMod \u201c${g.s.refmod.name}\u201d${g.s.refmod.draft ? " (this draft's copy)" : ""}` : g.s.source },
+        g.s.refmod ? `\u25c8 ${g.s.refmod.name}`
+          : (/^draft/i.test(g.s.source || "") ? "Draft media" : (g.s.slotName || "").startsWith("loader:") ? "Media" : "Connected"))));
+    return tile ? [...groups, tile] : groups;
   }
 
   /** The node tile's own per-clip controls, on the editor's rail: the trim /
@@ -3386,12 +6487,13 @@ class Editor {
         // button uses, so the two can't disagree.
         class: "mmh3p-cardtool" + (s.item.trim || hasCrop(s.item) || s.item.rotate
           || s.item.mirror || s.item.resize ? " on" : ""),
-        title: still ? "Crop, rotate or mirror this picture"
+        title: still ? (this.state.mode === "REF" ? "Crop, rotate, mirror or mask this picture"
+                                                 : "Crop, rotate or mirror this picture")
                      : "Trim this clip, or crop the frame",
         onclick: (e) => {
           e.stopPropagation();
           this.closePeek();
-          const modal = new TrimModal(s.panel, s.item);
+          const modal = openPictureEditor(s.panel, s.item, { masking: this.state.mode === "REF" });
           // Every exit runs through close(), so wrapping the instance's copy
           // catches Apply, Cancel and Escape alike.
           const shut = modal.close.bind(modal);
@@ -3542,8 +6644,98 @@ class Editor {
         ? el("div", { class: "mmh3p-subjrow" }, extraChips) : null,
       el("div", { class: "mmh3p-tools" },
         timeIn, shotBtn, camMove, camAmp, camSpd, camBtn, styleSel),
-      this.dialogueRow(lang),
+      // The handle is this fork's: refreshDialogue() swaps this one row in
+      // place as speakers are added, rather than re-rendering the form.
+      this.dialogueSlot = el("div", { class: "mmh3p-dialogslot" },
+        this.dialogueEl = this.dialogueRow(lang)),
+      this.tagRow(),
       this.phraseRow());
+  }
+
+  /* --- delivery tags: community findings, inserted inside <d> -------- */
+
+  /** The tag picker row. Deliberately its own row rather than an extension of
+   *  the dialogue row: that one already grows with every speaker, and 24 tags
+   *  need a picker, not buttons. Sits directly under dialogue because these
+   *  tags belong inside <d>, and insert() parks the caret before </d>. */
+  tagRow() {
+    const groups = [...new Set(DELIVERY_TAGS.map((t) => t.group))];
+    this.tagGroup = this.tagGroup || groups[0];
+
+    this.tagGroupEl = el("select", { class: "mmh3p-phrasecat",
+      title: "Filter delivery tags by kind",
+      onchange: () => { this.tagGroup = this.tagGroupEl.value;
+        this.drawTags(); } });
+    this.tagEl = el("select", { class: "mmh3p-phrasesel",
+      onchange: () => this.showTagPeek(),
+      onmouseenter: () => this.showTagPeek(),
+      onmouseleave: () => this.hideTagPeek(),
+      onmousedown: () => this.hideTagPeek(),
+      onblur: () => this.hideTagPeek() });
+
+    this.tagBar = el("div", { class: "mmh3p-tools mmh3p-phraserow" },
+      el("span", { class: "mmh3p-toollabel" }, "Delivery:"),
+      this.tagGroupEl, this.tagEl,
+      el("button", { class: "mmh3p-btn",
+        title: "Insert the selected tag at the caret. Tags belong inside a " +
+               "<d> block \u2014 insert a dialogue line first.",
+        onclick: () => this.insertTag() }, "insert"));
+    this.drawTags();
+    return this.tagBar;
+  }
+
+  selectedTag() {
+    return DELIVERY_TAGS.find((t) => t.tag === this.tagEl?.value) || null;
+  }
+
+  drawTags() {
+    if (!this.tagGroupEl) return;
+    this.hideTagPeek();
+    const groups = [...new Set(DELIVERY_TAGS.map((t) => t.group))];
+    this.tagGroupEl.replaceChildren(...groups.map((g) =>
+      el("option", { value: g, selected: g === this.tagGroup }, g)));
+    const list = DELIVERY_TAGS.filter((t) => t.group === this.tagGroup);
+    this.tagEl.replaceChildren(...list.map((t) =>
+      el("option", { value: t.tag, title: t.what },
+        `${t.tag}\u2002\u2014\u2002${t.what.split(".")[0]}`)));
+  }
+
+  insertTag() {
+    const t = this.selectedTag();
+    if (!t) return;
+    if (t.wrap) {
+      const close = `</${t.tag.slice(1)}`;      // <whisper> -> </whisper>
+      this.insert(t.tag, { wrap: close });
+    } else {
+      this.insert(t.tag);
+    }
+  }
+
+  /** Show the example on hover: the picker only has room for the tag and a
+   *  few words, and the example is what tells you how it reads in a line. */
+  showTagPeek() {
+    this.hideTagPeek();
+    const t = this.selectedTag();
+    if (!t) return;
+    const box = el("div", { class: "mmh3p-phrasepeek" },
+      el("div", { class: "mmh3p-phrasepeekhead" },
+        el("span", {}, t.tag),
+        el("span", { class: "mmh3p-phrasepeekcat" }, t.group)),
+      el("div", { class: "mmh3p-phrasepeektext" }, ...deliverySpans(t.ex)),
+      el("div", { class: "mmh3p-tagpeekwhat" }, t.what));
+    document.body.append(box);
+    const r = this.tagEl.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    box.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - b.width - 8))}px`;
+    box.style.top = r.top - b.height - 6 >= 8
+      ? `${r.top - b.height - 6}px`
+      : `${r.bottom + 6}px`;
+    this._tagPeek = box;
+  }
+
+  hideTagPeek() {
+    this._tagPeek?.remove();
+    this._tagPeek = null;
   }
 
   /* --- phrases: reusable fragments, saved server-side ---------------- */
@@ -3601,7 +6793,11 @@ class Editor {
         // has no flexible control, so it needs a growing spacer of its own.
         el("span", { class: "mmh3p-toolgrow" }),
         el("button", { class: "mmh3p-btn mmh3p-danger",
-          onclick: () => this.confirmDeletePhrase() }, "Delete"),
+          // Async, so the same silent-rejection trap as Draft from RefMods.
+          onclick: () => this.confirmDeletePhrase().catch((e) => {
+            console.error("[MiniMaxH3 PromptBuilder] deleting the phrase failed:", e);
+            toast(`Couldn't delete the phrase: ${e?.message || e}`, 6000);
+          }) }, "Delete"),
         el("button", { class: "mmh3p-btn",
           onclick: () => { this.phraseConfirm = null; this.drawPhraseBar(); } },
           "Cancel"));
@@ -3699,8 +6895,9 @@ class Editor {
     this._ctxMenu = null;
   }
 
-  openCtx(x, y, text) {
+  openCtx(x, y, box, a, b) {
     this.closeCtx();
+    const text = box.value.slice(a, b);
     const item = (label, fn) => el("div", { class: "mmh3p-ctxitem",
       onclick: () => { this.closeCtx(); fn(); } }, label);
     const menu = el("div", { class: "mmh3p-ctxmenu" },
@@ -3708,7 +6905,20 @@ class Editor {
       item("Copy", async () => {
         const ok = await copyText(text);
         if (!ok) toast("Couldn't reach the clipboard", 4000);
-      }));
+      }),
+      item("Cut", async () => {
+        if (await copyText(text)) editField(box, a, b, "");
+        else toast("Couldn't reach the clipboard", 4000);
+      }),
+      item("Paste", async () => {
+        // Pages may only read the clipboard on https or localhost, and the
+        // browser can ask first; Ctrl+V works everywhere.
+        let clip = "";
+        try { clip = await navigator.clipboard.readText(); } catch (e) { /* not allowed here */ }
+        if (clip) editField(box, a, b, clip);
+        else toast("Couldn't read text from the clipboard \u2014 press Ctrl+V instead", 4500);
+      }),
+      item("Remove", () => editField(box, a, b, "")));
     document.body.append(menu);
     // Keep it on screen when the click lands near an edge.
     const r = menu.getBoundingClientRect();
@@ -3797,8 +7007,7 @@ class Editor {
   async savePhrase(entry) {
     if (!entry.name) { toast("Give the phrase a name", 3500); return; }
     try {
-      const resp = await api.fetchApi("/minimax_h3_plus/phrases/save", {
-        method: "POST",
+      const resp = await postApi("/minimax_h3_plus/phrases/save", {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(entry),
       });
@@ -3826,8 +7035,7 @@ class Editor {
     this.drawPhraseBar();
     if (!p) return;
     try {
-      const resp = await api.fetchApi("/minimax_h3_plus/phrases/delete", {
-        method: "POST",
+      const resp = await postApi("/minimax_h3_plus/phrases/delete", {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: p.id }),
       });
@@ -3838,6 +7046,27 @@ class Editor {
     } catch (e) {
       toast(`Couldn't delete the phrase: ${e.message}`, 5000);
     }
+  }
+
+  /** Rebuild just the dialogue row when the speakers in the prompt change.
+   *
+   *  The buttons are derived from the prompt text, so inserting "(S1)" should
+   *  immediately offer "+ (S2)". It didn't: the row is built by toolBar()
+   *  during render(), and insert() deliberately never re-renders — a full
+   *  render rebuilds every field and drops the caret mid-sentence. So the
+   *  new speaker only appeared after Save to node and reopening, which is
+   *  two round trips to learn something the editor already knew.
+   *
+   *  Swapping the one row keeps the caret where it is. The language select
+   *  is carried across rather than rebuilt, so a repaint can't silently
+   *  reset a chosen language back to the default. */
+  refreshDialogue() {
+    if (!this.dialogueEl?.isConnected) return;
+    if (this.usedSpeakers().join(",") === this._spkKey) return;
+    const next = this.dialogueRow(this._langSel
+      || el("select", {}, LANGS.map((l) => el("option", { value: l }, l))));
+    this.dialogueEl.replaceWith(next);
+    this.dialogueEl = next;
   }
 
   /** Speaker IDs already used in the prompt, in numeric order. */
@@ -3854,9 +7083,341 @@ class Editor {
    *  the next unused ID, a voiceover toggle, and the two continuity markers.
    *  Speaker IDs follow the target video's speaking order, so offering a
    *  fixed S1-S4 would invent numbers the prompt has no use for. */
+  /** Rebuild ONLY the dialogue row.
+   *
+   *  insert() can't call render(): a full rebuild replaces the textareas and
+   *  throws away the caret it just placed inside <d>…</d>. So the speaker
+   *  buttons, the pair button and the voiceover state all went stale the
+   *  moment they mattered — you clicked "+ (S1)" and the row kept offering
+   *  "+ (S1)" until some unrelated event forced a render. Swapping just this
+   *  row leaves the focused field untouched. */
+  refreshDialogueRow() {
+    if (!this.dialogueSlot?.isConnected || !this.dialogueLang) return;
+    try {
+      this.dialogueSlot.replaceChildren(this.dialogueRow(this.dialogueLang));
+    } catch (err) {
+      console.error("[MiniMaxH3 PromptBuilder] dialogue row refresh failed:", err);
+    }
+  }
+
+  /* --- right-click a tag: replace, swap or remove ------------------- */
+
+  /** Reference mode: each voice-timbre line ties a speaker ID to its
+   *  subject, that subject's name, the audio tag and, when filled in, a
+   *  description of the voice. { S1: { audio, subj, sx, name, voice } } */
+  speakerBindings() {
+    const binds = {};
+    if (this.state.mode !== "REF") return binds;
+    const names = subjectNames(this.state);
+    for (const d of this.state.ref?.subjectDefs || []) {
+      const b = !d.off && voiceBinding(d.text);
+      if (!b || binds[b.sx]) continue;
+      const named = b.subj ? Object.values(names).find((n) => n.tag === b.subj) : null;
+      binds[b.sx] = { ...b, name: named ? named.name : "", voice: oneLine(d.voice) };
+    }
+    return binds;
+  }
+
+  /** Every string in this mode's prompt a tag can sit in. */
+  tagTexts() {
+    const st = this.state, out = [];
+    const add = (obj, key, where = "") => { if (obj && typeof obj[key] === "string") out.push({ obj, key, where }); };
+    if (st.mode === "REF") {
+      const r = st.ref;
+      (r.subjectDefs || []).forEach((d) => add(d, "text", "def"));
+      ["summaryText", "styleLine", "detail", "soundscape", "music"].forEach((k) => add(r, k));
+      (r.retention || []).forEach((row) => { add(row, "label", "label"); add(row, "context"); add(row, "note"); });
+    } else {
+      ["imd", "soundscape", "music"].forEach((k) => add(st, k));
+    }
+    return out;
+  }
+
+  /** The tag under a right-click: read off the painted chips where the
+   *  field has them, else from where the click put the caret. */
+  tagUnderPointer(e, box) {
+    const toks = tagTokens(box.value);
+    if (!toks.length) return null;
+    const mirror = box.closest(".mmh3p-chipwrap")?.querySelector(".mmh3p-chipmirror");
+    if (mirror) {
+      const chips = [...mirror.querySelectorAll(".mmh3p-reftag[data-tag]")];
+      const hit = chips.find((c) => {
+        const r = c.getBoundingClientRect();
+        return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      });
+      if (!hit) return null;
+      const same = toks.filter((t) => sameTok(t.tok, hit.dataset.tag));
+      const k = chips.filter((c) => sameTok(c.dataset.tag, hit.dataset.tag)).indexOf(hit);
+      return same[Math.max(0, Math.min(k, same.length - 1))] || null;
+    }
+    const a = box.selectionStart ?? -1, b = box.selectionEnd ?? a;
+    if (a < 0) return null;
+    return toks.find((t) => a >= t.start && a <= t.end && b <= t.end) || null;
+  }
+
+  /** Nothing in the prompt cites it. A subject's own definition line and a
+   *  retention label don't count as citing it. */
+  tagUnused(tok, texts = this.tagTexts()) {
+    for (const t of texts) {
+      if (t.where === "label" || (isSpk(tok) && t.where === "def")) continue;
+      const v = t.obj[t.key] || "";
+      let n = countTok(v, tok);
+      if (t.where === "def" && tok.startsWith("<Subject") && v.trim().startsWith(tok)) n -= 1;
+      if (n > 0) return false;
+    }
+    return true;
+  }
+
+  /** Other tags of the same kind, unused ones first. */
+  tagChoices(tok) {
+    const cls = tagClass(tok), texts = this.tagTexts(), list = [];
+    if (cls === "Name") {
+      for (const n of Object.values(subjectNames(this.state)))
+        list.push({ tok: NAME_PREFIX + n.name, sub: n.tag, slot: this.subjectInfo(n.tag)?.slot || null, initial: n.name[0] });
+    } else if (cls === "Subject") {
+      const seen = new Set();
+      for (const d of this.state.ref?.subjectDefs || []) {
+        const m = (d.text || "").match(/^\s*(<Subject \d+>)/);
+        if (!m || seen.has(m[1])) continue;
+        seen.add(m[1]);
+        const nm = (d.name || "").trim();
+        list.push({ tok: m[1], sub: nm || "no name", slot: this.subjectInfo(m[1])?.slot || null, initial: nm ? nm[0] : "S" });
+      }
+    } else if (cls === "Speaker") {
+      // Voice lines say who each speaker is; group tags only offer groups.
+      const single = spkIds(tok).length === 1, bindings = {}, names = subjectNames(this.state);
+      for (const d of this.state.ref?.subjectDefs || []) {
+        const b = !d.off && voiceBinding(d.text);
+        if (b && !bindings[b.sx]) bindings[b.sx] = b;
+      }
+      const seen = new Map();
+      for (const t of texts) for (const k of tagTokens(t.obj[t.key] || "")) {
+        if (!isSpk(k.tok)) continue;
+        const ids = spkIds(k.tok);
+        if (single && ids.length !== 1) continue;
+        if (!seen.has(spkTok(ids))) seen.set(spkTok(ids), ids);
+      }
+      if (single) Object.keys(bindings).forEach((sx) => { if (!seen.has(`(${sx})`)) seen.set(`(${sx})`, [sx]); });
+      for (const [norm, ids] of seen) {
+        const b = ids.length === 1 ? bindings[ids[0]] : null;
+        const named = b?.subj ? Object.values(names).find((n) => n.tag === b.subj) : null;
+        list.push({ tok: norm, sub: ids.length > 1 ? "speaking together" : (named ? named.name : b?.subj || "no voice line"),
+          slot: b?.subj ? this.subjectInfo(b.subj)?.slot || null : null, initial: ids.join("+") });
+      }
+      if (single) {
+        const used = new Set([...seen.values()].flat());
+        let i = 1;
+        while (used.has(`S${i}`)) i++;
+        list.push({ tok: `(S${i})`, sub: "new speaker", slot: null, initial: `S${i}`, fresh: true });
+      }
+    } else {
+      for (const s of this.slots || []) {
+        if (!s.tag || !s.tag.startsWith(`<${cls} `)) continue;
+        const src = s.refmod?.name || String(s.source || "").split("•").pop().trim() || s.note || "";
+        list.push({ tok: s.tag, sub: src, slot: s, initial: cls.slice(0, 3).toUpperCase() });
+      }
+    }
+    return list.filter((o) => !sameTok(o.tok, tok))
+      .map((o) => ({ ...o, unused: !o.fresh && this.tagUnused(o.tok, texts) }))
+      .sort((a, b) => b.unused - a.unused);
+  }
+
+  /** Carry out a choice from the tag menu; returns what happened. */
+  applyTagEdit(box, hit, scope, mode, target) {
+    const tok = hit.tok;
+    const swap = mode === "swap" && target != null && scope !== "this";
+    const named = tagClass(tok) === "Name" ? lookupName(subjectNames(this.state), tok.slice(1)) : null;
+    const back = named ? NAME_PREFIX + named.name : isSpk(tok) ? spkTok(spkIds(tok)) : tok;
+    const verb = target == null ? "Removed" : swap ? "Swapped" : "Replaced";
+    const what = target == null ? back : swap ? `${back} and ${target}` : `${back} with ${target}`;
+    // A speaker's name and voice clause go with its ID — except when swapping
+    // IDs everywhere, which renumbers the voice lines too and changes nobody.
+    const oneSpk = isSpk(tok) && spkIds(tok).length === 1 && (target == null || spkIds(target).length === 1);
+    const ctx = oneSpk && !(scope === "all" && swap) ? { bindings: this.speakerBindings(), prefix: NAME_PREFIX } : null;
+    if (scope === "this") {
+      if (ctx) {
+        const v = box.value;
+        let s0 = hit.start, e0 = hit.end;
+        const pre = v.slice(0, s0).match(new RegExp(`${reEsc(NAME_PREFIX)}[A-Za-z][\\w-]* $`));
+        if (pre) s0 -= pre[0].length;
+        const post = v.slice(e0).match(/^, in the [^<\n]+? referenced from <Audio \d+>,/);
+        if (post) e0 += post[0].length;
+        const text = rewriteTokens(v.slice(s0, e0), tok, target, false, back, ctx);
+        const r = text === "" ? tidyRange(v, s0, e0) : { start: s0, end: e0 };
+        editField(box, r.start, r.end, text);
+      } else {
+        const r = target == null ? tidyRange(box.value, hit.start, hit.end) : hit;
+        editField(box, r.start, r.end, target ?? "");
+      }
+      this.lastFocus = box;
+      return `${verb} ${what}`;
+    }
+    if (scope === "field") {
+      const v = box.value, n = countTok(v, tok) + (swap ? countTok(v, target) : 0);
+      editField(box, 0, v.length, rewriteTokens(v, tok, target, swap, back, ctx));
+      this.lastFocus = box;
+      return `${verb} ${what} in this field (${n})`;
+    }
+    let n = 0, dropped = 0;
+    const r = this.state.ref;
+    if (target == null && tok.startsWith("<") && this.state.mode === "REF") {
+      // Removing a label everywhere takes the lines that define it too, or
+      // they'd be left reading "is the man in…".
+      const before = r.subjectDefs.length + r.retention.length;
+      r.subjectDefs = r.subjectDefs.filter((d) => !(d.text || "").trim().startsWith(tok));
+      r.retention = r.retention.filter((row) => row.label !== tok);
+      dropped = before - r.subjectDefs.length - r.retention.length;
+    }
+    for (const t of this.tagTexts()) {
+      const v = t.obj[t.key] || "";
+      const c = countTok(v, tok) + (swap ? countTok(v, target) : 0);
+      if (!c) continue;
+      n += c;
+      t.obj[t.key] = rewriteTokens(v, tok, target, swap, back, ctx);
+    }
+    this.render();
+    return `${verb} ${what} everywhere (${n})` +
+      (dropped ? ` and deleted ${dropped} line${dropped === 1 ? "" : "s"} defining it` : "");
+  }
+
+  /** The tag menu: other tags of the same kind to put in its place, how
+   *  far the change reaches, and Remove. */
+  openTagMenu(x, y, box, hit) {
+    this.closeTagMenu();
+    this.chipLeave();
+    this.closeCtx();
+    const tok = hit.tok, cls = tagClass(tok);
+    const st = { scope: "this", mode: "replace" };
+    const host = this.overlay.querySelector(".mmh3p-modal") || document.body;
+    const menu = el("div", { class: "mmh3p-tagpick", role: "dialog", "aria-label": `Replace ${tok}` });
+    const chipCls = cls === "Name" || cls === "Subject" ? "subj" : cls === "Speaker" ? "spk" : (this.slotFor(tok)?.cls || "unknown");
+    const thumb = (o) => {
+      const wrap = el("span", { class: "mmh3p-tagpickthumb" });
+      if (o.slot?.preview?.url) wrap.append(this.mediaThumb(o.slot));
+      else wrap.append(o.initial || "?");
+      if (o.unused || o.fresh) wrap.append(el("span", { class: "mmh3p-tagpickun",
+        title: o.fresh ? "The next speaker ID not used anywhere yet" : "Nothing in the prompt cites this yet" }, o.fresh ? "new" : "unused"));
+      return wrap;
+    };
+    const place = () => {
+      const pr = (menu.offsetParent || document.body).getBoundingClientRect();
+      const w = menu.offsetWidth, h = menu.offsetHeight;
+      let left = x - pr.left, top = y - pr.top + 8;
+      left = Math.max(8, Math.min(left, pr.width - w - 8));
+      if (top + h > pr.height - 8) top = Math.max(8, y - pr.top - h - 8);
+      menu.style.left = `${left}px`;
+      menu.style.top = `${top}px`;
+    };
+    const paint = () => {
+      const texts = this.tagTexts();
+      const inField = countTok(box.value, tok);
+      const everywhere = texts.reduce((n, t) => n + countTok(t.obj[t.key] || "", tok), 0);
+      const choices = this.tagChoices(tok);
+      const seg = (key, val, label, disabled = false, title = "") => el("button", {
+        type: "button", class: st[key] === val ? "on" : "", disabled, title,
+        onclick: (e) => { e.stopPropagation(); st[key] = val; if (st.scope === "this") st.mode = "replace"; paint(); },
+      }, label);
+      const go = (target) => {
+        const msg = this.applyTagEdit(box, hit, st.scope, st.mode, target);
+        this.closeTagMenu();
+        toast(msg, 3500);
+      };
+      let note = st.mode === "swap" ? "Swap exchanges both tags" : "Unused tags first";
+      if (st.scope === "all" && tok.startsWith("<") && this.state.mode === "REF") {
+        const r = this.state.ref;
+        const lines = r.subjectDefs.filter((d) => (d.text || "").trim().startsWith(tok)).length +
+          r.retention.filter((row) => row.label === tok).length;
+        if (lines) note = `Remove also deletes the ${lines} line${lines === 1 ? "" : "s"} defining it`;
+      }
+      menu.replaceChildren(
+        el("div", { class: "mmh3p-tagpickhead" },
+          el("span", { class: `mmh3p-reftag ${chipCls} mmh3p-tagpicktag` }, tok),
+          el("span", { class: "mmh3p-tagpicknote" }, TAG_CLASS_LABEL[cls]),
+          el("span", { class: "mmh3p-tagpickgrow" }),
+          el("button", { type: "button", class: "mmh3p-btn ghost", title: "Close", onclick: () => this.closeTagMenu() }, "✕")),
+        el("div", { class: "mmh3p-tagpickrow" },
+          el("span", { class: "mmh3p-tagpicklbl" }, "Apply to"),
+          el("span", { class: "mmh3p-tagseg" },
+            seg("scope", "this", "This tag"),
+            seg("scope", "field", `Field (${inField})`),
+            seg("scope", "all", `Everywhere (${everywhere})`))),
+        el("div", { class: "mmh3p-tagpickrow" },
+          el("span", { class: "mmh3p-tagpicklbl" }, "Action"),
+          el("span", { class: "mmh3p-tagseg" },
+            seg("mode", "replace", "Replace"),
+            seg("mode", "swap", "Swap", st.scope === "this",
+              st.scope === "this" ? "Swap needs Field or Everywhere — on one tag it's the same as Replace"
+                : "Exchange the two tags"))),
+        choices.length
+          ? el("div", { class: "mmh3p-tagpickgrid" }, choices.map((o) => el("button", {
+              type: "button", class: "mmh3p-tagpickopt",
+              title: `${st.mode === "swap" && st.scope !== "this" ? "Swap with" : "Replace with"} ${o.tok}`,
+              onclick: () => go(o.tok) },
+              thumb(o),
+              el("span", { class: "mmh3p-tagpicknm" }, o.tok),
+              el("span", { class: "mmh3p-tagpicksub" }, o.sub))))
+          : el("div", { class: "mmh3p-tagpicknone" }, `No other ${TAG_CLASS_LABEL[cls]} to put in its place.`),
+        el("div", { class: "mmh3p-tagpickfoot" },
+          el("button", { type: "button", class: "mmh3p-btn danger", onclick: () => go(null) }, "Remove"),
+          el("span", { class: "mmh3p-tagpicknote" }, note)));
+      place();
+    };
+    host.append(menu);
+    paint();
+    const onDown = (e) => { if (!menu.contains(e.target)) this.closeTagMenu(); };
+    const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); this.closeTagMenu(); } };
+    document.addEventListener("mousedown", onDown, true);
+    window.addEventListener("keydown", onKey, true);
+    this._tagMenu = { menu, onDown, onKey };
+  }
+
+  closeTagMenu() {
+    const m = this._tagMenu;
+    if (!m) return;
+    m.menu.remove();
+    document.removeEventListener("mousedown", m.onDown, true);
+    window.removeEventListener("keydown", m.onKey, true);
+    this._tagMenu = null;
+  }
+
+  /** The speaker button's menu: a plain line, or one that names the voice.
+   *  Kept inside the editor, so a click in it doesn't count as outside. */
+  openSpeakerMenu(anchor, id, b, line, pick) {
+    this._spkMenu?.close();
+    const host = anchor.closest(".mmh3p-modal") || document.body;
+    let menu;
+    const close = () => {
+      menu?.remove();
+      document.removeEventListener("mousedown", onDown, true);
+      window.removeEventListener("keydown", onKey, true);
+      this._spkMenu = null;
+    };
+    const onDown = (e) => { if (!menu.contains(e.target) && !anchor.contains(e.target)) close(); };
+    const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); close(); } };
+    const item = (label, text, enabled, onpick) => el("button", {
+      class: "mmh3p-spkitem" + (enabled ? "" : " off"), type: "button",
+      onclick: (e) => { e.stopPropagation(); if (!enabled) return; close(); onpick(); },
+    }, el("b", {}, label), el("small", {}, text));
+    menu = el("div", { class: "mmh3p-spkmenu", role: "menu" },
+      item(`Just (${id})`, line(id, false), true, () => pick(false)),
+      item(`(${id}) with voice`, b.voice ? line(id, true) : `Fill in the voice box on the ${b.audio} line first`,
+        !!b.voice, () => pick(true)));
+    host.append(menu);
+    const pr = (menu.offsetParent || document.body).getBoundingClientRect();
+    const ar = anchor.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(ar.left - pr.left, pr.width - menu.offsetWidth - 8))}px`;
+    menu.style.top = `${ar.bottom - pr.top + 4}px`;
+    document.addEventListener("mousedown", onDown, true);
+    window.addEventListener("keydown", onKey, true);
+    this._spkMenu = { close };
+  }
+
   dialogueRow(lang) {
+    this.dialogueLang = lang;          // reused by refreshDialogueRow()
     const used = this.usedSpeakers();
     const next = `S${used.length ? Math.max(...used.map((s) => +s.slice(1))) + 1 : 1}`;
+    this._spkKey = used.join(",");
+    this._langSel = lang;
 
     const vo = el("button", {
       class: "mmh3p-btn" + (this.voiceover ? " primary" : ""),
@@ -3866,10 +7427,15 @@ class Editor {
       onclick: () => { this.voiceover = !this.voiceover; this.render(); },
     }, "\u{1F399} voiceover");
 
-    const line = (id) => {
+    const binds = this.speakerBindings();
+
+    const line = (id, withVoice = false) => {
+      const b = binds[id];
+      const who = b?.name ? `${NAME_PREFIX}${b.name} ` : "";
+      const how = withVoice && b?.voice ? `, in the ${noArticle(b.voice)} referenced from ${b.audio},` : "";
       const said = this.voiceover
-        ? `(${id}) says in an off-screen voiceover: `
-        : `(${id}) says: `;
+        ? `${who}(${id})${how} says in an off-screen voiceover: `
+        : `${who}(${id})${how} says: `;
       const tail = this.voiceover
         ? " while their lips remain completely closed."
         : "";
@@ -3879,13 +7445,34 @@ class Editor {
       return `${said}<d>[${lang.value}] </d>${tail}`;
     };
 
-    const spkBtn = (id, isNew) => el("button", {
-      class: "mmh3p-btn" + (isNew ? " ghost" : ""),
-      title: isNew
-        ? `Add ${id} \u2014 the next speaker in the video's speaking order`
-        : `Insert a line for ${id}`,
-      onclick: () => this.insert(line(id)),
-    }, isNew ? `+ (${id})` : `(${id})`);
+    const spkBtn = (id, isNew) => {
+      const b = !isNew && binds[id];
+      if (!b) return el("button", {
+        class: "mmh3p-btn" + (isNew ? " ghost" : ""),
+        title: isNew
+          ? `Add ${id} \u2014 the next speaker in the video's speaking order`
+          : `Insert a line for ${id}`,
+        onclick: () => this.insert(line(id)),
+      }, isNew ? `+ (${id})` : `(${id})`);
+      // A split button: the main part repeats this speaker's last choice,
+      // the arrow offers a plain line or one that names the voice. Each
+      // speaker remembers its own choice, saved with the prompt.
+      const picks = this.state.ref.voicePick || {};
+      const withVoice = picks[id] !== false && !!b.voice;
+      const pick = (voice) => {
+        this.state.ref.voicePick = { ...(this.state.ref.voicePick || {}), [id]: voice };
+        this.insert(line(id, voice));
+        this.refreshDialogueRow();
+      };
+      const arrow = el("button", { class: "mmh3p-btn mmh3p-spkarrow", title: `Line options for ${id}`,
+        "aria-label": `Line options for ${id}`,
+        onclick: (e) => { e.stopPropagation(); this.openSpeakerMenu(arrow, id, b, line, pick); } }, "\u25be");
+      return el("span", { class: "mmh3p-spksplit" },
+        el("button", { class: "mmh3p-btn mmh3p-spkmain",
+          title: withVoice ? `Insert a line for ${id} in the voice from ${b.audio}` : `Insert a line for ${id}`,
+          onclick: () => this.insert(line(id, withVoice)) }, withVoice ? `(${id}) + voice` : `(${id})`),
+        arrow);
+    };
 
     const pair = used.length >= 2
       ? el("button", { class: "mmh3p-btn",
@@ -3953,9 +7540,32 @@ class Editor {
 
   /* ---------- mode renderers ---------- */
 
+  /** Guarded so a bad state can't leave a half-built form.
+   *
+   *  The media loader learned this the hard way (see "render failed" in its
+   *  console output): a throw partway through a build leaves stale tiles and
+   *  dead buttons with nothing on screen to explain it. Same shape here —
+   *  an unbuilt chipbar reads as "my media disappeared". */
   render() {
+    try {
+      this._render();
+    } catch (err) {
+      console.error("[MiniMaxH3 PromptBuilder] render failed:", err);
+      toast("The editor hit an error while drawing \u2014 " +
+        "see the browser console (F12).", 8000);
+    }
+  }
+
+  _render() {
     this._citeText = null;
     const scroll = this.formEl.scrollTop;
+    // Each column scrolls on its own, so each keeps its own place too.
+    const colScroll = [...this.formEl.querySelectorAll(".mmh3p-refcols, .mmh3p-refcol")].map((c) => c.scrollTop);
+    const cols = this.refColumns();
+    this.formEl.classList.toggle("refcols", cols);
+    // Only when it changes: applyScale() also rewrites the height and the
+    // document's text size, which every keystroke's render needn't touch.
+    if (cols !== this._colsWide) { this._colsWide = cols; this.applyScale(); }
     [...this.modeBar.children].forEach((b, i) =>
       b.classList.toggle("on", MODES[i].id === this.state.mode));
     this._slotMap = null;                 // slots may have changed
@@ -3963,7 +7573,17 @@ class Editor {
     this.modeSends.textContent = MODE_SENDS[this.state.mode] || "";
     this.modeSends.classList.toggle("gated", this.state.mode !== "REF");
     this.formEl.replaceChildren();
-    this.slots = getRefSlots(this.node);
+    this.refreshSlots();
+    // Fill the status slot BEFORE the form. If a form build throws, the
+    // guard catches it — but the draft banner is the one thing that must
+    // survive, because it's what tells you the node isn't holding what
+    // you're looking at. Drawing it last made it the first casualty.
+    this.draftSlot.replaceChildren(
+      this.linkOffer ? this.linkStrip()
+        : this.refmodOffer ? this.refmodLinkStrip()
+        : this.commitPending === "guard" ? this.commitStrip()
+        : this.pullPending ? this.pullStrip()
+        : (this.bufferMode === "draft" ? this.draftBar() : null) || "");
     if (this.state.mode === "REF") this.renderRef();
     else this.renderBase();
     if (this.closePending) {
@@ -3972,8 +7592,12 @@ class Editor {
     } else if (this.clearPending) {
       this.formEl.prepend(this.clearStrip());
       this.formEl.scrollTop = 0;
-    } else this.formEl.scrollTop = scroll;
+    } else {
+      this.formEl.scrollTop = scroll;
+      this.formEl.querySelectorAll(".mmh3p-refcols, .mmh3p-refcol").forEach((c, i) => { c.scrollTop = colScroll[i] || 0; });
+    }
     this.applyHints();
+    this.applyDraftChrome();
     this.updatePreview();
   }
 
@@ -4053,7 +7677,7 @@ class Editor {
       "1\u20134 sentences: ambience, physical action sounds, non-verbal human sounds.");
     const musicTa = this.ta(s, "music", 3,
       "1\u20133 sentences: instrumentation, tempo, rhythm, dynamics. No abstract mood words.");
-    f.append(el("div", { class: "mmh3p-audiopair" },
+    f.append(audioGrip([soundTa, musicTa]), el("div", { class: "mmh3p-audiopair" },
       el("div", { class: "mmh3p-sec" },
         this.secLabel("overall_soundscape", null, this.naButton(s, "soundscape")),
         soundTa),
@@ -4081,15 +7705,35 @@ class Editor {
     const subjChips = () => {
       const defText = r.subjectDefs.map((d) => d.text).join("\n");
       const ns = [...new Set([...defText.matchAll(/<Subject (\d+)>/g)].map((m) => m[1]))];
-      return ns.map((n) => el("span", {
-        class: "mmh3p-chip subj", title: `Insert <Subject ${n}>`,
-        onclick: () => this.insert(`<Subject ${n}>`),
-      }, el("b", {}, `Subject ${n}`)));
+      const names = subjectNames(this.state);
+      const nameOf = (n) => Object.values(names).find((v) => v.tag === `<Subject ${n}>`)?.name;
+      return ns.flatMap((n) => {
+        const nm = nameOf(n);
+        const chips = [el("span", {
+          class: "mmh3p-chip subj", title: `Insert <Subject ${n}>`,
+          onclick: () => this.insert(`<Subject ${n}>`),
+        }, el("b", {}, `Subject ${n}`), nm ? el("span", { class: "mmh3p-chipname" }, nm) : null)];
+        if (nm) chips.push(el("span", {
+          class: "mmh3p-chip subj", title: `Insert ${NAME_PREFIX}${nm} \u2014 becomes "<Subject ${n}> ${nm}" in the prompt`,
+          onclick: () => this.insert(`${NAME_PREFIX}${nm}`),
+        }, el("b", {}, `${NAME_PREFIX}${nm}`)));
+        return chips;
+      });
     };
     const subjChipWrap = el("span", { style: { display: "contents" } });
     this._paintSubjChips = () => subjChipWrap.replaceChildren(...subjChips());
     this._paintSubjChips();
     f.append(this.toolBar([subjChipWrap]));
+    // Two columns (⚙): definitions and retention on the left, the description and
+    // audio on the right, each column scrolling on its own. The chip bar
+    // above stays full width, since it inserts into whichever field has
+    // focus. Off, both sides are the form itself, as before.
+    let left = f, right = f;
+    if (this.refColumns()) {
+      left = el("div", { class: "mmh3p-refcol left" });
+      right = el("div", { class: "mmh3p-refcol right" });
+      f.append(el("div", { class: "mmh3p-refcols" }, left, right));
+    }
 
     /* subject_definitions -------------------------------------------- */
     const defsWrap = el("div");
@@ -4187,10 +7831,31 @@ class Editor {
         };
         const ta = el("textarea", { rows: 2, value: d.text,
           placeholder: "<Subject 1> is the ... in <Picture 1>, with ...",
-          oninput: (e) => { d.text = e.target.value; d.role = null; paintMini(); } });
+          oninput: (e) => { d.text = e.target.value; d.role = null; paintMini(); nameIn.hidden = !/^\s*<Subject \d+>/.test(d.text); voiceIn.hidden = !voiceBinding(d.text); } });
+        // A name rides on a <Subject N> line: the prompt adds "Their name
+        // is X." and !X anywhere else becomes "<Subject N> X".
+        const nameIn = el("input", { class: "mmh3p-defname", type: "text", value: d.name || "",
+          placeholder: "name", title: "Optional name for this subject. The prompt adds \u201cTheir name is \u2026\u201d " +
+            "to the line and \u201cIt is \u2026's voice\u201d to the subject's voice line, and typing " +
+            `${NAME_PREFIX}Name in any field stands for \u201c<Subject N> Name\u201d.`,
+          hidden: !/^\s*<Subject \d+>/.test(d.text || ""),
+          oninput: (e) => { keepNameChars(e); d.name = e.target.value.trim(); this._paintSubjChips?.(); this.updatePreview(); } });
+        // A voice description rides on a voice-timbre line: the prompt adds
+        // "It is a …", and the speaker button can put it into a spoken line.
+        const voiceIn = el("input", { class: "mmh3p-defname mmh3p-defvoice", type: "text", value: d.voice || "",
+          placeholder: "voice, like low and husky", title: "Optional description of this voice. The prompt adds " +
+            "“It is a …” to the line (“It is Name's voice: …” when its subject has a name), and the speaker " +
+            "button can insert it into a spoken line.",
+          hidden: !voiceBinding(d.text || ""),
+          oninput: (e) => { d.voice = e.target.value; this.updatePreview(); this.refreshDialogueRow(); } });
         paintMini();
+        // Chip-wrapped like every other prompt field. This is where subjects
+        // are actually written, and it was the one field left painting them
+        // as plain text — while the mini-tags directly underneath it were
+        // already colour-coded, so the same line was coloured twice over and
+        // plain once.
         const row = el("div", { class: "mmh3p-defrow" + (d.off ? " off" : "") },
-          this.rowPower(d, drawDefs), ta,
+          this.rowPower(d, drawDefs), this.chipField(ta), nameIn, voiceIn,
           el("button", { class: "mmh3p-btn rowx", title: "Remove line",
             onclick: () => { r.subjectDefs.splice(i, 1); drawDefs(); this.updatePreview(); },
           }, "\u2715"));
@@ -4205,7 +7870,7 @@ class Editor {
       if (t) { t.focus(); t.selectionStart = t.selectionEnd = t.value.length; this.lastFocus = t; }
       this.updatePreview();
     };
-    f.append(el("div", { class: "mmh3p-sec" },
+    left.append(el("div", { class: "mmh3p-sec" },
       this.secLabel("subject_definitions"),
       defsWrap,
       el("div", { class: "mmh3p-tools" },
@@ -4216,7 +7881,18 @@ class Editor {
         el("button", { class: "mmh3p-btn",
           onclick: () => addDef(`<Video ${nextTagN("Video")}> is `) }, "+ Video line"),
         el("button", { class: "mmh3p-btn",
-          onclick: () => addDef(`<Audio ${nextTagN("Audio")}> is `) }, "+ Audio line")),
+          onclick: () => addDef(`<Audio ${nextTagN("Audio")}> is `) }, "+ Audio line"),
+        el("button", { class: "mmh3p-btn", title: "Write a definition and a retention entry for each " +
+            "RefMod in the stack, from what the library knows about it. With lines already here you " +
+            "choose whether to add the missing ones or start over.",
+          // draftFromRefmods() is async, so an exception inside it becomes an
+          // unhandled rejection: the button does nothing at all, with no toast
+          // and nothing on screen to say why. Report it instead \u2014 a failure
+          // the user can see and quote is worth far more than a silent no-op.
+          onclick: () => this.draftFromRefmods().catch((e) => {
+            console.error("[MiniMaxH3 PromptBuilder] Draft from RefMods failed:", e);
+            toast(`Draft from RefMods failed: ${e?.message || e}`, 6000);
+          }) }, "\u25c8 Draft from RefMods")),
       el("span", { class: "hint" },
         "One line per tracked item. Focus a line, then click media chips above to assign " +
         "references to that subject. Audio lines show role chips underneath \u2014 pick one " +
@@ -4225,7 +7901,7 @@ class Editor {
         "storyboards; otherwise cite the picture inside the subject.")));
 
     /* summary --------------------------------------------------------- */
-    f.append(el("div", { class: "mmh3p-sec" },
+    left.append(el("div", { class: "mmh3p-sec" },
       el("label", {}, "summary"),
       el("div", { class: "mmh3p-ttypes" }, TASK_TYPES.map((t) =>
         el("label", {},
@@ -4340,7 +8016,7 @@ class Editor {
             drawRet(); this.updatePreview();
             if (!added) toast("Every defined label already has an entry", 2600);
           } }, "Auto-fill from labels");
-    f.append(el("div", { class: "mmh3p-sec" },
+    left.append(el("div", { class: "mmh3p-sec" },
       this.secLabel("retention_analysis", null, addEntryBtn, autoFillBtn),
       retWrap,
       el("span", { class: "hint" },
@@ -4366,12 +8042,12 @@ class Editor {
     // picker may write.
     const detailFields = [styleWrap, detTa]
       .map((w) => w.querySelector("textarea")).filter(Boolean);
-    f.append(el("div", { class: "mmh3p-sec" },
+    right.append(el("div", { class: "mmh3p-sec" },
       el("label", { class: "act" },
         "detailed_description \u2014 style opening (before [Shot 1])",
         el("span", { class: "mmh3p-secact" }, this.styleSelect(detailFields))),
       styleWrap));
-    f.append(el("div", { class: "mmh3p-sec mmh3p-grow" },
+    right.append(el("div", { class: "mmh3p-sec mmh3p-grow" },
       el("label", {}, "detailed_description \u2014 shots"),
       detTa, wcSpan));
 
@@ -4382,7 +8058,7 @@ class Editor {
     const refMusicTa = this.ta(r, "music", 3,
       "Audience-only score. If reused: \"<Audio 2> is directly reused as the complete " +
       "audience-only score.\"");
-    f.append(el("div", { class: "mmh3p-audiopair" },
+    right.append(audioGrip([refSoundTa, refMusicTa]), el("div", { class: "mmh3p-audiopair" },
       el("div", { class: "mmh3p-sec" },
         this.secLabel("overall_soundscape", null, this.naButton(r, "soundscape")),
         refSoundTa),
@@ -4438,6 +8114,8 @@ class Editor {
   }
 
   updatePreview() {
+    this.scheduleDraftSave();      // no-op outside draft mode
+    this.refreshDialogueRow();     // speaker buttons follow the text
     this._paintSubjChips?.();
     const text = generate(this.state);
     this._citeText = text;
@@ -4456,8 +8134,19 @@ class Editor {
 
     const rank = { error: 0, warn: 1, info: 2 };
     const icon = { error: "\u26d4 ", warn: "\u26a0 ", info: "\u2139 " };
-    const issues = validate(this.state, this.slots)
-      .sort((a, b) => rank[a.level] - rank[b.level]);
+    const issues = validate(this.state, this.slots);
+    if (this.state.mode === "REF") {
+      const edit = this.editItem();
+      if (!edit && this.state.ref.summaryTypes.includes("video editing"))
+        issues.push({ level: "warn", msg: "\u201cvideo editing\u201d is ticked but no clip has a mask, so the whole " +
+          "video will be regenerated. Mask the clip in the Media Loader (right-click \u2192 Mask for editing)." });
+      const cost = edit ? Math.round(refTokenEstimate(edit)) : 0;
+      if (cost > 30000)
+        issues.push({ level: "warn", msg: `Citing the clip being edited adds about ${cost.toLocaleString()} ` +
+          "reference tokens to every sampling step. Trim it, or turn on crop to mask in its mask settings to cite only " +
+          "the area around the mask." });
+    }
+    issues.sort((a, b) => rank[a.level] - rank[b.level]);
     this.issuesEl.replaceChildren(...(issues.length
       ? issues.map((i) => el("div", { class: i.level }, icon[i.level] + i.msg))
       : [el("div", { class: "ok" }, "\u2713 No issues found")]));
@@ -4485,6 +8174,7 @@ class Editor {
       }
     }
     this.statsEl.textContent = stats;
+    this.statsEl.title = stats;
   }
 }
 
@@ -4502,8 +8192,151 @@ export function hideWidget(node, name) {
   if (w.element) w.element.style.display = "none";
 }
 
+/** A saved draft should show on the node without opening the editor — one
+ *  light POST per node per workflow load. Mints no id: a node that never
+ *  drafted has no `mmh3_draft_id` property and is skipped outright. */
+export function restoreDraftFlag(node) {
+  const id = node.properties?.mmh3_draft_id;
+  if (!id) return;
+  draftApi("/load", { id })
+    .then((res) => {
+      node._mmh3DraftActive = !!res.exists;
+      if (res.exists) updateSummary(node);
+    })
+    .catch(() => { /* the flag is cosmetic; the draft itself is on disk */ });
+}
+
+/** The one place this file links two nodes. */
+function wire(from, outSlot, to, inSlot) {
+  return linkNodes(from, outSlot, to, inSlot);
+}
+
+function redraw(node) {
+  try {
+    node.setDirtyCanvas?.(true, true);
+    app.graph.setDirtyCanvas(true, true);
+  } catch (e) { /* Vue redraws itself */ }
+}
+
+/** Pass this builder's media on to a Text Encode whose references input is
+ *  empty, when the builder has a Media Loader. Returns true if it wired. */
+function feedEncoderMedia(node, enc) {
+  const refIn = (node.inputs || []).findIndex((i) => i.name === "references");
+  const refOut = (node.outputs || []).findIndex((o) => o.name === "references");
+  const ri = (enc.inputs || []).findIndex((i) => i.name === "references");
+  if (refIn < 0 || refOut < 0 || ri < 0) return false;
+  if (node.inputs[refIn].link == null || enc.inputs[ri].link != null) return false;
+  wire(node, refOut, enc, ri);
+  return true;
+}
+
+/** Wire a RefMod Stack into this builder's mods input. Focuses the stack
+ *  already there; otherwise adopts one already feeding a RefMod Text Encode
+ *  this prompt drives, or creates a new one beside the node and passes the
+ *  builder's mods output on to any such Text Encode whose mods input is
+ *  empty. Returns the stack, or null. */
+/** Prompt Studio holds its own RefMods, so there is no stack to add — only
+ *  the wiring to finish: its mods output into any RefMod Text Encode its
+ *  prompt feeds whose mods input is empty, and its media on to the same
+ *  encoders. Returns how many connections it made. */
+function connectRefModEncoders(node) {
+  const outIdx = (node.outputs || []).findIndex((o) => o.name === "mods");
+  if (outIdx < 0) return 0;
+  let made = 0;
+  for (const enc of encodersOf(node)) {
+    const mi = (enc.inputs || []).findIndex((i) => i.name === "mods");
+    if (mi >= 0 && enc.inputs[mi].link == null) { wire(node, outIdx, enc, mi); made++; }
+    if (feedEncoderMedia(node, enc)) made++;
+  }
+  if (made) redraw(node);
+  return made;
+}
+
+function addRefModStack(node, { focus = true } = {}) {
+  const inIdx = (node.inputs || []).findIndex((i) => i.name === "mods");
+  const outIdx = (node.outputs || []).findIndex((o) => o.name === "mods");
+  if (inIdx < 0 || outIdx < 0) {
+    toast("This Prompt Builder has no mods input \u2014 restart ComfyUI and reload the page", 6000);
+    return null;
+  }
+  // Its own RefMods tab is the stack; never add a second node for it.
+  if (holdsOwnStack(node)) {
+    if (connectRefModEncoders(node))
+      toast("Connected this node's RefMods to RefMod Text Encode");
+    return node;
+  }
+
+  if (node.inputs[inIdx].link != null) {
+    const { stack } = refmodStackFor(node);
+    // An older workflow may have the stack but not the media wire: finish it.
+    const fed = encodersOf(node).filter((enc) => feedEncoderMedia(node, enc)).length;
+    if (fed) redraw(node);
+    if (stack && focus && !safeCanvasFocus(stack))
+      openStackModal(stack, { onClose: () => updateSummary(node) });
+    if (!stack) toast("Something other than a RefMod Stack is on this node's mods input");
+    else if (focus) toast(fed ? "RefMod Stack already connected \u2014 wired this node's media on to RefMod Text Encode too"
+                              : "A RefMod Stack is already connected");
+    return stack;
+  }
+
+  const encoders = outputTargets(node, promptOutIdx(node)).filter((n) => ENCODE_NAMES.has(n?.type));
+  const modsInput = (enc) => (enc.inputs || []).findIndex((i) => i.name === "mods");
+  for (const enc of encoders) {
+    const mi = modsInput(enc);
+    const head = mi >= 0 && enc.inputs[mi].link != null ? originNode(enc, mi) : null;
+    if (STACK_NAMES.has(head?.type)) {
+      wire(head, 0, node, inIdx);     // slot 0 is the stack's mods bundle
+      feedEncoderMedia(node, enc);
+      redraw(node);
+      toast("Connected the RefMod Stack that already feeds RefMod Text Encode");
+      return head;
+    }
+  }
+
+  let stack = null;
+  try {
+    stack = LiteGraph.createNode(STACK_NAME);
+  } catch (e) { stack = null; }
+  if (!stack) {
+    // The stack node is the original pack's; this pack installs none.
+    toast("RefMod Stack is the original Fantastic H3 pack's node \u2014 install " +
+          "ComfyUI-Fantastic-MiniMaxH3-PromptBuilder alongside this pack", 6000);
+    return null;
+  }
+  app.graph.add(stack);
+  try {
+    // Left of the builder like the Media Loader, below it when one is there.
+    const refIdx = (node.inputs || []).findIndex((i) => i.name === "references");
+    const loader = refIdx >= 0 && node.inputs[refIdx].link != null ? originNode(node, refIdx) : null;
+    const x = node.pos[0] - ((stack.size?.[0] || 560) + 60);
+    const y = loader ? loader.pos[1] + (loader.size?.[1] || 400) + 60 : node.pos[1];
+    stack.pos = [x, y];
+  } catch (e) { /* let the renderer place it */ }
+  wire(stack, 0, node, inIdx);
+  let fed = 0;
+  for (const enc of encoders) {
+    const mi = modsInput(enc);
+    if (mi >= 0 && enc.inputs[mi].link == null) { wire(node, outIdx, enc, mi); fed++; }
+    feedEncoderMedia(node, enc);
+  }
+  redraw(node);
+  toast(fed
+    ? "RefMod Stack added and connected \u2014 its bundle goes on to RefMod Text Encode"
+    : "RefMod Stack added and connected. Wire this node's mods output into " +
+      "RefMod Text Encode's mods input.", 6000);
+  return stack;
+}
+
 export function openEditor(node) {
   try {
+    // One editor per node. Every route in — double-clicking the node, the
+    // prompt bar's scroll, the quick editor's "full editor" button, and the
+    // media loader's Prompt Builder button — used to build an unconditional
+    // second one. The loader route was the easy one to hit: the loader opens
+    // OVER the editor, so handing back from it left the original still up
+    // underneath and stacked a fresh copy on top. Two editors on one node
+    // then disagree about state, and whichever you save last silently wins.
+    if (raiseIfOpen(node._mmh3Editor?.overlay)) return;
     new Editor(node);
   } catch (err) {
     console.error("[MiniMaxH3 PromptBuilder] failed to open editor:", err);
@@ -4536,6 +8369,10 @@ export function promptFields(node) {
    *  fields so you can see what you are writing against. Reference mode has no
    *  keyframes and T2VA no pictures, so both get nothing and the fields take
    *  the full width. */
+  // Filled in by keyframes(); relayout() is handed back to the caller so the
+  // pane can be re-measured whenever the window it sits in changes size.
+  let relayoutPics = () => {};
+  let widthToFillHeight = null;
   const keyframes = () => {
     if (isRef) return null;
     const cap = MODE_CAPACITY[state.mode]?.Picture || 0;
@@ -4545,11 +8382,130 @@ export function promptFields(node) {
       pics = getRefSlots(node).filter((sl) => sl.kind === "Picture").slice(0, cap);
     } catch (e) { return null; }
     if (!pics.length) return null;
-    return el("div", { class: "mmh3p-quickpics" },
-      ...pics.map((sl) => el("div", { class: "mmh3p-quickpic" },
-        cropFrame(el("img", { class: "mmh3p-thumb", src: sl.preview?.url }),
-          sl.item?.crop),
-        el("span", { class: `mmh3p-tagname ${sl.cls}` }, sl.tag))));
+
+    /** Draw one slot's picture into its tile. Separate from the tile so a
+     *  replacement dropped on it can be drawn into the same tile. */
+    const fill = (entry, sl) => {
+      entry.sl = sl;
+      const img = el("img", { class: "mmh3p-quickimg", src: sl.preview?.url });
+      let view = img;
+      if (hasCrop(sl.item)) {
+        // cropFrame() gives back a window onto the kept region. It fills that
+        // window by width and lets the window's height clip, so the window
+        // needs the region's own aspect for the crop to land right — the CSS
+        // reads it from --ar. The tile is sized to that same aspect below, so
+        // the two agree and nothing is cropped a second time.
+        view = cropFrame(img, sl.item.crop);
+        view.classList.add("mmh3p-quickcrop");
+        view.style.setProperty("--ar", String(shownAspect(sl.item) || 1));
+      }
+      entry.tile.replaceChildren(view,
+        el("span", { class: `mmh3p-tagname ${sl.cls}` }, sl.tag));
+      entry.ar = shownAspect(sl.item);
+      // Older saves never recorded their dimensions. The picture itself knows
+      // them once it loads, so take them from there and lay out again — the
+      // crop fractions still apply on top.
+      if (!entry.ar) {
+        img.addEventListener("load", () => {
+          const w = img.naturalWidth, h = img.naturalHeight;
+          if (!w || !h) return;
+          entry.ar = shownAspect({ ...sl.item, width: w, height: h })
+            || (w / h);
+          if (view !== img) view.style.setProperty("--ar", String(entry.ar));
+          relayoutPics();
+          entry.tile.dispatchEvent(new CustomEvent("mmh3p-picschanged", { bubbles: true }));
+        }, { once: true });
+      }
+    };
+
+    /** Drop a picture file on a tile to replace that picture. The panel that
+     *  owns the slot does the swap (replaceWithFile, as dropping on its own
+     *  tile does), so the slot keeps its place and tag and the node saves;
+     *  the tile is then redrawn from the fresh slot, and the window told so
+     *  it can re-fit a picture of a different shape. */
+    const dropTarget = (entry, i) => {
+      const tile = entry.tile;
+      const files = (e) => e.dataTransfer?.types?.includes("Files");
+      tile.addEventListener("dragover", (e) => {
+        if (!files(e) || !entry.sl?.panel) return;
+        e.preventDefault(); e.stopPropagation();
+        e.dataTransfer.dropEffect = "copy";
+        tile.classList.add("hot");
+      });
+      tile.addEventListener("dragleave", () => tile.classList.remove("hot"));
+      tile.addEventListener("drop", async (e) => {
+        if (!files(e)) return;
+        e.preventDefault(); e.stopPropagation();
+        tile.classList.remove("hot");
+        const sl = entry.sl, file = e.dataTransfer.files?.[0];
+        if (!file || !sl?.panel) return;
+        if (!/^image\//.test(file.type) && !/\.(png|jpe?g|webp|gif|bmp|tiff?|avif)$/i.test(file.name)) {
+          toast(`${file.name} isn't a picture — drop an image to replace ${sl.tag}`, 6000);
+          return;
+        }
+        tile.classList.add("busy");
+        try {
+          await sl.panel.replaceWithFile(sl.item, [file]);
+        } finally { tile.classList.remove("busy"); }
+        let fresh = null;
+        try { fresh = getRefSlots(node).filter((s) => s.kind === "Picture").slice(0, cap)[i]; } catch (err) { /* keep the old one */ }
+        if (!fresh || fresh.item === sl.item) {
+          toast(`Couldn't replace ${sl.tag} — see the node's media panel`, 6000);
+          return;
+        }
+        fill(entry, fresh);
+        relayoutPics();
+        tile.dispatchEvent(new CustomEvent("mmh3p-picschanged", { bubbles: true }));
+        toast(`${fresh.tag} is now ${fresh.item.name}`);
+      });
+    };
+
+    const entries = pics.map((sl, i) => {
+      const entry = { tile: el("div", { class: "mmh3p-quickpic",
+        title: sl.panel ? "Drop a picture here to replace this one" : "" }) };
+      fill(entry, sl);
+      dropTarget(entry, i);
+      return entry;
+    });
+
+    const pane = el("div", { class: "mmh3p-quickpics" },
+      ...entries.map((e) => e.tile));
+
+    // The width this pane would need to stand `h` pixels tall, laid out in a
+    // single row — the arrangement that makes the pictures largest once width
+    // stops being the binding constraint. The caller uses it to decide how
+    // wide the WINDOW has to be, rather than squeezing the fields.
+    widthToFillHeight = (h) => entries.reduce(
+      (t, e) => t + (Number(e.ar) > 0 ? Number(e.ar) : 16 / 9) * h, 0)
+      + PANE_GAP * (entries.length - 1);
+
+    relayoutPics = () => {
+      // Measured off the scroll container, whose size comes from the window
+      // rather than from what is in it — measuring the pane's own parent
+      // instead would feed the pane's width back into its own input.
+      const body = pane.parentElement?.parentElement;
+      if (!body) return;
+      let pad = { top: 0, bottom: 0, left: 0, right: 0 };
+      try {
+        const cs = getComputedStyle(body);
+        pad = { top: parseFloat(cs.paddingTop) || 0,
+                bottom: parseFloat(cs.paddingBottom) || 0,
+                left: parseFloat(cs.paddingLeft) || 0,
+                right: parseFloat(cs.paddingRight) || 0 };
+      } catch (e) { /* measured as zero padding */ }
+      const out = keyframePaneLayout(entries, {
+        width: (body.clientWidth || 0) - pad.left - pad.right,
+        height: (body.clientHeight || 0) - pad.top - pad.bottom,
+      });
+      if (!out) return;
+      pane.style.flexDirection = out.dir;
+      pane.style.width = `${Math.round(out.paneW)}px`;
+      entries.forEach((e, i) => {
+        e.tile.style.width = `${Math.round(out.sizes[i][0])}px`;
+        e.tile.style.height = `${Math.round(out.sizes[i][1])}px`;
+      });
+    };
+    return pane;
   };
   // Same colour coding as the full editor, minus what only it has room for
   // (hover-preview thumbnails). Slots computed once and reused across every
@@ -4561,14 +8517,21 @@ export function promptFields(node) {
   };
   const highlightTags = loadPrefs().highlightTags;
 
+  // Same answer the full editor gives, so a subject is the same colour in
+  // both windows. Only the truthiness is used for painting; the full editor's
+  // own subjectInfo() adds the hover-preview detail only it has room for.
+  const subjectFor = (tag) => subjectLine(state, tag);
+
   const field = (label, obj, key, rows, placeholder, cls, extra) => {
     const t = el("textarea", {
       rows, placeholder, value: obj[key] ?? "",
       oninput: (e) => { obj[key] = e.target.value; },
     });
-    const { wrap } = chipField(t, { slotFor, highlightTags });
+    const { wrap } = chipField(t, { slotFor, subjectInfo: subjectFor, names: () => subjectNames(state),
+      nameSuggestion: (b) => nameSuggestionFor(b, state), highlightTags });
     const labelEl = extra
       ? el("label", { class: "act" }, label,
+          // extra() may hand back one control or several; el() flattens.
           el("span", { class: "mmh3p-secact" }, extra(t)))
       : el("label", {}, label);
     root.append(el("div", { class: "mmh3p-sec" + (cls ? ` ${cls}` : "") },
@@ -4595,16 +8558,105 @@ export function promptFields(node) {
       t.focus();
     } }, "+ Shot");
 
+  /** The full editor's "add speaker" button, trimmed to what this window can
+   *  support. Speaker IDs follow the video's speaking order, so the number
+   *  offered is the next one this field hasn't used — the full editor derives
+   *  it the same way, just from the whole prompt rather than one field.
+   *
+   *  The language select defaults to English (LANGS[0]) and is carried on the
+   *  button's own row rather than assumed, because the marker it writes has
+   *  to name a language and guessing wrong is worse than one more control. */
+  /** Speakers already used in this field, in numeric order. The same scan
+   *  the full editor runs over the whole prompt, kept local here because a
+   *  quick-edit field is the only text this window has. */
+  const spkIds = (t) => {
+    const used = new Set();
+    for (const m of (t.value || "").matchAll(/\((S\d+(?:\s*,\s*S\d+)*)\)/g)) {
+      for (const id of m[1].split(",")) used.add(id.trim());
+    }
+    return [...used].sort((a, b) => (+a.slice(1)) - (+b.slice(1)));
+  };
+
+  /** The full editor's dialogue buttons, trimmed to what this window needs.
+   *
+   *  Progressive, exactly as the full editor is: one button per speaker
+   *  already in the text, plus the next unused ID. So a two-speaker scene
+   *  ends up with (S1), (S2) and + (S3) — you re-use a speaker by clicking
+   *  their own button, not by counting.
+   *
+   *  No language picker. Lines go out as English, which is LANGS[0] and the
+   *  full editor's own default; anything else is a word to change in the
+   *  text, and a dropdown for it costs more header room than this window has.
+   *
+   *  Rebuilt on every edit rather than relabelled, since the button COUNT
+   *  changes as speakers are added — which is the behaviour being matched. */
+  const spkControl = (t) => {
+    const row = el("span", { class: "mmh3p-quickspk" });
+
+    const insert = (id) => {
+      const val = t.value || "";
+      // Deliberately NOT on its own line: the model reads a line break as a
+      // shot boundary, so only [Shot N] may introduce one. Dialogue joins
+      // the description it belongs to. Same rule as the full editor.
+      const text = `(${id}) says: <d>[${LANGS[0]}] </d>`;
+      const pos = t.selectionStart ?? val.length;
+      const before = val.slice(0, pos), after = val.slice(pos);
+      const pad = before && !/[\s(\u2014]$/.test(before) ? " " : "";
+      t.value = before + pad + text + after;
+      // Land the caret inside the <d> block, where the words go — the same
+      // place the full editor's insert() puts it.
+      const dPos = text.indexOf("</d>");
+      t.selectionStart = t.selectionEnd = before.length + pad.length + dPos;
+      t.dispatchEvent(new Event("input", { bubbles: true }));
+      t.focus();
+    };
+
+    const paint = () => {
+      const used = spkIds(t);
+      const next = `S${used.length
+        ? Math.max(...used.map((x) => +x.slice(1))) + 1 : 1}`;
+      const btn = (id, isNew) => el("button", {
+        class: "mmh3p-btn" + (isNew ? " ghost" : ""),
+        title: isNew
+          ? `Add ${id} \u2014 the next speaker in the video's speaking order`
+          : `Insert a line for ${id}`,
+        onclick: () => insert(id),
+      }, isNew ? `+ (${id})` : `(${id})`);
+      // .filter(Boolean), because replaceChildren is not el(): el() drops a
+      // null child, replaceChildren stringifies it — so the pair button's
+      // absence rendered as the literal text "null" beside the buttons
+      // whenever there were fewer than two speakers, which is the state the
+      // row opens in.
+      row.replaceChildren(...[
+        ...used.map((id) => btn(id, false)),
+        btn(next, true),
+        // Two speakers vocalising together, same as the full editor offers
+        // once there are two to pair.
+        used.length >= 2
+          ? el("button", { class: "mmh3p-btn",
+              title: "Two speakers vocalising together",
+              onclick: () => insert(`${used[0]},${used[1]}`) },
+              `(${used[0]},${used[1]})`)
+          : null,
+      ].filter(Boolean));
+    };
+    t.addEventListener("input", paint);
+    paint();
+    return row;
+  };
+
   if (isRef) {
     // Reference mode writes detailed_description instead: its style opening
     // and its shots, the two halves the generator joins.
     field("detailed_description — style opening", target, "styleLine", 2,
       "The target video is in a realistic multi-camera sitcom style…");
     field("detailed_description — shots", target, "detail", 10,
-      "[Shot 1] A medium shot establishes <Subject 1>, …", "mmh3p-grow");
+      "[Shot 1] A medium shot establishes <Subject 1>, …", "mmh3p-grow",
+      (t) => [shotBtn(t), spkControl(t)]);
   } else {
     field("integrated_multimodal_description", state, "imd", 10,
-      "[Shot 1] Live-action, cinematic, …", "mmh3p-grow", shotBtn);
+      "[Shot 1] Live-action, cinematic, …", "mmh3p-grow",
+      (t) => [shotBtn(t), spkControl(t)]);
   }
 
   const pair = el("div", { class: "mmh3p-audiopair" });
@@ -4625,7 +8677,8 @@ export function promptFields(node) {
         t.dispatchEvent(new Event("input", { bubbles: true }));
       },
     }, "N/A");
-    const { wrap } = chipField(t, { slotFor, highlightTags });
+    const { wrap } = chipField(t, { slotFor, subjectInfo: subjectFor, names: () => subjectNames(state),
+      nameSuggestion: (b) => nameSuggestionFor(b, state), highlightTags });
     pair.append(el("div", { class: "mmh3p-sec" },
       el("label", { class: "act" }, label,
         el("span", { class: "mmh3p-secact" }, na)),
@@ -4639,7 +8692,7 @@ export function promptFields(node) {
   // Named so a caller can open straight into one of them — the node bar's
   // 🔊/🎵 marks do exactly that.
   const fieldFor = { soundscape: soundTa, music: musicTa };
-  root.append(pair);
+  root.append(audioGrip([soundTa, musicTa]), pair);
   linkHeights(soundTa, musicTa);
 
   const save = () => {
@@ -4657,7 +8710,8 @@ export function promptFields(node) {
   // any of the .mmh3p-quick rules the fields themselves rely on.
   const pics = keyframes();
   const shell = pics ? el("div", { class: "mmh3p-quickwrap" }, pics, root) : root;
-  return { root: shell, save, state, fieldFor };
+  return { root: shell, save, state, fieldFor, relayoutPics,
+           widthToFillHeight: (h) => widthToFillHeight?.(h) || 0 };
 }
 
 /** The quick-edit window, opened by clicking the node's prompt bar. The bar's
@@ -4665,12 +8719,103 @@ export function promptFields(node) {
  *
  *  `focusKey` names a field to open into ("soundscape" / "music"), used by
  *  the bar's 🔊/🎵 marks so clicking one lands on the section it stands for. */
+/** The quick editor's own settings: how big this window is, and how it
+ *  splits between the keyframe pane and the fields. Deliberately just these
+ *  two — the editor's own preferences live on its cog and would be noise
+ *  here, the same call the Prompt Library's settings make.
+ *
+ *  `onApply` re-lays-out the window; the sliders are not live for the same
+ *  reason the other windows' are not — resizing moves the menu out from under
+ *  the pointer mid-drag. */
+function quickPrefsButton(onApply) {
+  const prefs = loadPrefs();
+  // textScale is the pack's own text-size pref, shared with the full editor
+  // rather than given a quick-edit twin. It resolves to one global custom
+  // property (--mmh3-fs on documentElement), so two prefs writing it would
+  // fight and whichever window opened last would win — and "text size" reads
+  // as one setting anyway. Window size stays per-window, since the two
+  // windows are genuinely different sizes.
+  const pending = { quickScale: prefs.quickScale,
+                    textScale: prefs.textScale };
+  const inputs = {}, outs = {};
+  const maxFor = (k) => k === "textScale" ? TEXT_SCALE_MAX : SCALE_MAX;
+  const dirty = () => applyBtn.classList.toggle("primary",
+    pending.quickScale !== prefs.quickScale
+    || pending.textScale !== prefs.textScale);
+
+  const slider = (key, label) => {
+    const out = el("input", { type: "number", class: "mmh3p-scaleval",
+      min: String(Math.round(SCALE_MIN * 100)),
+      max: String(Math.round(maxFor(key) * 100)), step: "5",
+      value: String(Math.round(pending[key] * 100)),
+      onchange: (e) => {
+        pending[key] = clampScale(Number(e.target.value) / 100,
+          maxFor(key));
+        const shown = Math.round(pending[key] * 100);
+        e.target.value = String(shown); inputs[key].value = String(shown);
+        dirty();
+      },
+      onkeydown: (e) => { if (e.key === "Enter") { e.stopPropagation();
+        e.target.blur(); } } });
+    const input = el("input", { type: "range", class: "mmh3p-scalerange",
+      min: String(Math.round(SCALE_MIN * 100)),
+      max: String(Math.round(maxFor(key) * 100)), step: "5",
+      value: String(Math.round(pending[key] * 100)),
+      oninput: (e) => {
+        pending[key] = clampScale(Number(e.target.value) / 100,
+          maxFor(key));
+        out.value = String(Math.round(pending[key] * 100));
+        dirty();
+      } });
+    inputs[key] = input; outs[key] = out;
+    return el("label", { class: "mmh3p-scalerow" },
+      el("span", { class: "mmh3p-scalelabel" }, label), input, out,
+      el("span", { class: "mmh3p-scalepct" }, "%"));
+  };
+
+  const set = (w, t) => {
+    // The window's ⚙ size takes over again from a size dragged at its corner.
+    const sized = w !== prefs.quickScale;
+    prefs.quickScale = w; prefs.textScale = t;
+    pending.quickScale = w; pending.textScale = t;
+    for (const [k, v] of [["quickScale", w], ["textScale", t]]) {
+      inputs[k].value = String(Math.round(v * 100));
+      outs[k].value = String(Math.round(v * 100));
+    }
+    savePrefs(prefs);
+    onApply({ sized });
+    applyBtn.classList.remove("primary");
+  };
+  const applyBtn = el("button", { class: "mmh3p-btn",
+    onclick: () => set(pending.quickScale, pending.textScale) }, "Apply");
+  const resetBtn = el("button", { class: "mmh3p-btn",
+    onclick: () => set(1, 1) }, "Reset");
+
+  const menu = el("div", { class: "mmh3p-prefmenu" },
+    slider("quickScale", "Window size"),
+    slider("textScale", "Text size"),
+    el("div", { class: "mmh3p-scalefoot" }, resetBtn, applyBtn));
+  const cog = el("button", { class: "mmh3p-btn", title: "Quick edit settings",
+    onclick: (e) => {
+      e.stopPropagation();
+      const open = !menu.classList.contains("on");
+      menu.classList.toggle("on", open);
+      cog.classList.toggle("on", open);
+    } }, "\u2699");
+  return el("span", { class: "mmh3p-prefwrap" }, cog, menu);
+}
+
 export function openQuickEdit(node, focusKey = null) {
   injectCSS();
+  if (raiseIfOpen(node._mmh3Quick)) return;
+  // The full editor and the quick editor are two views of the same prompt,
+  // so a second view of it is the same hazard as a second editor.
+  if (raiseIfOpen(node._mmh3Editor?.overlay)) return;
   const fields = promptFields(node);
   const mode = fields.state.mode;
   const close = () => {
     overlay.remove();
+    node._mmh3Quick = null;      // or reopening finds a stale, dead overlay
     window.removeEventListener("keydown", esc);
   };
   const esc = (e) => { if (e.key === "Escape") close(); };
@@ -4679,16 +8824,21 @@ export function openQuickEdit(node, focusKey = null) {
     onmousedown: (e) => { if (e.target === overlay) close(); },
   },
     el("div", { class: "mmh3p-quickmodal" },
-      el("div", { class: "mmh3p-head" },
+      el("div", { class: "mmh3p-head mmh3p-quickhead" },
         el("div", { class: "mmh3p-title" }, "Quick edit",
           el("small", {}, mode === "REF" ? "Full-reference" : mode)),
-        el("button", { class: "mmh3p-btn mmh3p-pushright",
+        el("button", { class: "mmh3p-btn",
           title: "Open the full Prompt Builder, keeping what you have typed",
           // Save first: the full editor reads the node's widgets, so without
           // this everything typed here since opening was dropped on the way.
           onclick: () => { fields.save(); close(); openEditor(node); } },
           "📜 Prompt Builder"),
-        el("button", { class: "mmh3p-x", onclick: close }, "✕")),
+        el("div", { class: "mmh3p-quickends" },
+          quickPrefsButton(({ sized } = {}) => {
+            if (sized) saveQuickHeight(0);
+            applyQuickScale();
+          }),
+          el("button", { class: "mmh3p-x", onclick: close }, "✕"))),
       el("div", { class: "mmh3p-quickbody" }, fields.root),
       el("div", { class: "mmh3p-foot" },
         el("span", { class: "stats" },
@@ -4699,6 +8849,160 @@ export function openQuickEdit(node, focusKey = null) {
         } }, "Save to node"))));
   window.addEventListener("keydown", esc);
   document.body.append(overlay);
+  node._mmh3Quick = overlay;
+  // Window size is a preference rather than a fixed box, so it is applied
+  // here and re-applied whenever the setting changes. The pane follows,
+  // since its own size is measured against this window.
+  const applyQuickScale = () => {
+    const box = overlay.querySelector(".mmh3p-quickmodal");
+    if (!box) return;
+    const p = loadPrefs();
+    const w = clampScale(p.quickScale);
+    box.style.width = `min(${Math.round(900 * w)}px, 88vw)`;
+    box.style.height = `min(${Math.round(585 * w)}px, 66vh)`;
+    // Text size, applied the same way the full editor applies it — on the
+    // document, because --mmh3-fs is a single global custom property. Until
+    // now only the full editor ever wrote it, so opening the quick editor
+    // without having opened the full one first left the stored text size
+    // unapplied: the setting existed and this window ignored it.
+    try {
+      document.documentElement.style.setProperty(
+        "--mmh3-fs", String(clampScale(p.textScale, TEXT_SCALE_MAX)));
+    } catch (e) { /* the stylesheet's own default of 1 still applies */ }
+    // A size dragged at the corner wins over the ⚙ size until that changes.
+    const dragged = loadQuickHeight();
+    if (dragged > 0) sizeQuickTo(dragged, quickMetrics(), 900 / 585);
+    else growForPics(box, p);
+    fields.relayoutPics?.();
+  };
+
+  /** Widen the window so the preview can stand at the window's full height.
+   *
+   *  The preview is height-first: a picture should use every pixel of height
+   *  the window has. For a tall or square picture that costs nothing, but a
+   *  16:9 needs about 1.8x its height in width, which the base 900px window
+   *  cannot give it without starving the prompt fields beside it — measured,
+   *  a 16:9 reached 54% of the available height.
+   *
+   *  So the window grows instead of the fields shrinking. It is centred in
+   *  the overlay, so the extra room opens out on the picture's side; the
+   *  fields keep their own floor untouched. Clamped to the viewport, where a
+   *  very wide picture simply gets whatever the screen allows.
+   *
+   *  Only ever grows past the size the window-size preference asks for, never
+   *  below it. */
+  const growForPics = (box, prefs) => {
+    const body = overlay.querySelector(".mmh3p-quickbody");
+    if (!box || !body) return;
+    let pad = { top: 0, bottom: 0, left: 0, right: 0 };
+    try {
+      const cs = getComputedStyle(body);
+      pad = { top: parseFloat(cs.paddingTop) || 0,
+              bottom: parseFloat(cs.paddingBottom) || 0,
+              left: parseFloat(cs.paddingLeft) || 0,
+              right: parseFloat(cs.paddingRight) || 0 };
+    } catch (e) { /* measured as zero padding */ }
+    const availH = (body.clientHeight || 0) - pad.top - pad.bottom;
+    // Height is fixed by the window's own height, so it is already known here
+    // and does not depend on the width this is about to set.
+    const need = availH > 0 ? fields.widthToFillHeight?.(availH) || 0 : 0;
+    const base = Math.round(900 * clampScale(prefs.quickScale));
+    if (!(need > 0)) { box.style.width = `min(${base}px, 88vw)`; return; }
+    const chrome = Math.max(0, Math.round(
+      (box.getBoundingClientRect().width || base) - (body.clientWidth || 0)))
+      + pad.left + pad.right;
+    const want = Math.round(need + PANE_GAP + PANE_FIELDS_MIN + chrome);
+    box.style.width = `min(${Math.max(base, want)}px, 96vw)`;
+  };
+
+  /* The corner grip. The window is resized by height and its width follows,
+     so it always keeps the picture preview's shape: with keyframes, the
+     width is the one that lets the pictures stand the window's full height
+     beside the fields' floor (growForPics' sum, exactly); without pictures
+     (T2VA, Reference) it keeps the window's own aspect. The height is
+     remembered; a double-click goes back to the ⚙ size. */
+  const quickMetrics = () => {
+    const box = overlay.querySelector(".mmh3p-quickmodal");
+    const body = overlay.querySelector(".mmh3p-quickbody");
+    let pad = { top: 0, bottom: 0, left: 0, right: 0 };
+    try {
+      const cs = getComputedStyle(body);
+      pad = { top: parseFloat(cs.paddingTop) || 0, bottom: parseFloat(cs.paddingBottom) || 0,
+              left: parseFloat(cs.paddingLeft) || 0, right: parseFloat(cs.paddingRight) || 0 };
+    } catch (e) { /* measured as zero padding */ }
+    const r = box.getBoundingClientRect();
+    const chromeV = r.height - ((body.clientHeight || 0) - pad.top - pad.bottom);
+    let fs = 1;
+    try { fs = parseFloat(getComputedStyle(box).getPropertyValue("--mmh3-fs")) || 1; } catch (e) { /* 100% */ }
+    return { box, w: r.width, h: r.height, chromeV,
+      chromeW: r.width - (body.clientWidth || 0) + pad.left + pad.right,
+      // Never more than the screen allows, so the floor is always reachable.
+      minH: Math.min(innerHeight * 0.92, chromeV + QUICK_FIELDS_MIN_H * fs) };
+  };
+  const quickWidthFor = (h, m, aspect) => {
+    const need = fields.widthToFillHeight?.(h - m.chromeV) || 0;
+    return need > 0 ? need + PANE_GAP + PANE_FIELDS_MIN + m.chromeW : h * aspect;
+  };
+  const sizeQuickTo = (h, m, aspect) => {
+    const maxW = innerWidth * 0.96, maxH = innerHeight * 0.92;
+    h = Math.min(maxH, Math.max(m.minH, h));
+    let w = quickWidthFor(h, m, aspect);
+    if (w > maxW) {
+      // Too wide for the screen: come down in height until it fits, so the
+      // shape still holds rather than the width being clipped.
+      const k = (w - quickWidthFor(h - 100, m, aspect)) / 100;
+      if (k > 0) h = Math.max(m.minH, h - (w - maxW) / k);
+      w = Math.min(maxW, quickWidthFor(h, m, aspect));
+    }
+    m.box.style.height = `${Math.round(h)}px`;
+    m.box.style.width = `${Math.round(w)}px`;
+    return Math.round(h);
+  };
+  const grip = el("div", { class: "mmh3p-quickgrip",
+    title: "Drag to resize \u2014 the window keeps the picture preview's shape. " +
+      "Double-click for the \u2699 size.",
+    ondblclick: () => { saveQuickHeight(0); applyQuickScale(); },
+    onpointerdown: (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault(); e.stopPropagation();
+      grip.setPointerCapture?.(e.pointerId);
+      const m = quickMetrics(), aspect = m.w / m.h, h0 = m.h;
+      // Width gained per pixel of height, to read a sideways drag as height.
+      const k = Math.max(0.1, (quickWidthFor(h0 + 100, m, aspect) - quickWidthFor(h0, m, aspect)) / 100);
+      const x0 = e.clientX, y0 = e.clientY;
+      let h = h0;
+      // The window is centred, so its corner moves half as far as its size
+      // changes: twice the pointer's travel keeps the corner under it.
+      const move = (ev) => {
+        const byY = 2 * (ev.clientY - y0), byX = 2 * (ev.clientX - x0) / k;
+        h = sizeQuickTo(h0 + (Math.abs(byY) >= Math.abs(byX) ? byY : byX), m, aspect);
+      };
+      const up = () => {
+        grip.removeEventListener("pointermove", move);
+        grip.removeEventListener("pointerup", up);
+        grip.removeEventListener("pointercancel", up);
+        saveQuickHeight(h);
+      };
+      grip.addEventListener("pointermove", move);
+      grip.addEventListener("pointerup", up);
+      grip.addEventListener("pointercancel", up);
+    } });
+  overlay.querySelector(".mmh3p-quickmodal")?.append(grip);
+
+  applyQuickScale();
+  // A picture dropped on the preview may be a different shape: re-fit the
+  // window to it (keeping a dragged height) the same way opening does.
+  fields.root.addEventListener("mmh3p-picschanged", () => applyQuickScale());
+
+  // The keyframe pane sizes itself to the pictures, which needs the window's
+  // real measurements — so it runs once mounted, and again whenever the
+  // window it sits in changes size.
+  fields.relayoutPics?.();
+  if (typeof ResizeObserver === "function") {
+    const ro = new ResizeObserver(() => fields.relayoutPics?.());
+    ro.observe(overlay.querySelector(".mmh3p-quickbody"));
+  }
+
   setTimeout(() => {
     // Straight into the named field when one was asked for, so the bar's
     // audio marks land on the section they stand for; the first field
@@ -4770,6 +9074,97 @@ function autoFitSelect(sel) {
  *  rect lands on it, which is the same mapping the decoder applies — so the
  *  card shows what the model receives. Returns the node untouched when there
  *  is no crop, so uncropped media keeps the plain element the cache holds. */
+/** The aspect ratio a picture actually shows once its rotation and crop are
+ *  applied — what the model receives, not what is on disk. Null when the item
+ *  never recorded its dimensions (older saves), which callers treat as "lay it
+ *  out without an aspect hint". Mirroring is left out on purpose: it flips the
+ *  frame without changing its proportions. */
+function shownAspect(item) {
+  if (!item) return null;
+  let w = Number(item.width), h = Number(item.height);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
+  const turn = ((parseInt(item.rotate, 10) || 0) % 360 + 360) % 360;
+  if (turn === 90 || turn === 270) { const t = w; w = h; h = t; }
+  if (hasCrop(item)) {
+    w *= Number(item.crop.w) || 1;
+    h *= Number(item.crop.h) || 1;
+  }
+  return w > 0 && h > 0 ? w / h : null;
+}
+
+/* Keyframe pane geometry. The pane takes its size from the pictures rather
+   than the pictures being fitted into a fixed column, so nothing is cropped
+   and no letterbox bars are left over. */
+const PANE_GAP = 8;          // between two pictures
+// Quick edit's corner grip: the dragged window height (0 = the ⚙ size), and
+// the least room its fields may be dragged down to, at 100% text. With the
+// window's own header and footer that is ~408px at 100% text, 568px at 150%
+// and 728px at 200% (it scales with the text, as the fields do): the
+// description keeps a few usable lines with the audio row coming into view,
+// and the body scrolls for the rest. The fields' full natural height
+// (419-896px, by mode and text size) would be too much: it is often taller
+// than the ⚙ size itself, which scrolls by design.
+const QUICK_H_KEY = "mmh3.quickHeight";
+const QUICK_FIELDS_MIN_H = 280;
+function loadQuickHeight() {
+  try { return Math.max(0, Math.round(Number(localStorage.getItem(QUICK_H_KEY)) || 0)); }
+  catch (e) { return 0; }
+}
+function saveQuickHeight(h) {
+  try { if (h > 0) localStorage.setItem(QUICK_H_KEY, String(h)); else localStorage.removeItem(QUICK_H_KEY); }
+  catch (e) { /* this session only */ }
+}
+// Below this the audio pair stacks and the description field starts to feel
+// cramped, so the previews give way rather than the writing surface.
+const PANE_FIELDS_MIN = 420;
+
+/** Size the keyframe pane and its tiles to the pictures' own aspect ratios.
+ *
+ *  `entries` is [{ tile, ar }]; `avail` is the space the pane may use. Two
+ *  pictures go side by side when their full-height widths fit the budget, and
+ *  stack otherwise — "side by side if there is horizontal room, vertical if
+ *  not". Whichever way round, every tile ends up at exactly its picture's
+ *  aspect, so `object-fit:contain` has nothing left to letterbox and the pane
+ *  itself is only as wide as the pictures need.
+ *
+ *  Pure geometry, no DOM reads: the caller measures once and passes it in,
+ *  which keeps this testable and keeps the measure/write phases apart. */
+function keyframePaneLayout(entries, avail) {
+  const availW = Number(avail?.width) || 0;
+  const availH = Number(avail?.height) || 0;
+  if (!availW || !availH || !entries.length) return null;
+  // The pane may take everything except the fields' own floor. There used to
+  // be a second cap at 65% of the width; it is gone because the window now
+  // grows to fit a picture that wants to be full height (see growForPics in
+  // openQuickEdit), and that cap was then the one thing still holding the
+  // picture short of the height it had just been given room for.
+  const budget = Math.max(1, availW - PANE_GAP - PANE_FIELDS_MIN);
+  // 16:9 stands in for a picture whose dimensions were never recorded; the
+  // caller replaces it and re-runs once the image reports its own.
+  const ars = entries.map((e) => (Number(e.ar) > 0 ? Number(e.ar) : 16 / 9));
+
+  // How tall each picture can be in either arrangement, given both the width
+  // budget and the height available. Comparing the two is what decides the
+  // layout: side by side wins exactly when it leaves the pictures bigger,
+  // which is what "is there horizontal room" amounts to. Testing whether a
+  // full-height row *fits* instead got this wrong — the row was pinned to the
+  // full height, so two wide pictures stacked even in a very wide window
+  // where side by side would plainly have been roomier.
+  const gaps = PANE_GAP * (ars.length - 1);
+  const sum = ars.reduce((t, a) => t + a, 0);
+  const widest = Math.max(...ars);
+  const rowH = Math.min(availH, (budget - gaps) / sum);
+  const colH = Math.min((availH - gaps) / ars.length, budget / widest);
+
+  const dir = rowH > colH ? "row" : "column";
+  const each = Math.max(1, dir === "row" ? rowH : colH);
+  const sizes = ars.map((a) => [each * a, each]);
+  const paneW = dir === "row"
+    ? sizes.reduce((t, sz) => t + sz[0], 0) + PANE_GAP * (sizes.length - 1)
+    : Math.max(...sizes.map((sz) => sz[0]));
+  return { dir, paneW, sizes };
+}
+
 function cropFrame(node, crop) {
   if (!crop) return node;
   const w = crop.w || 1, h = crop.h || 1;
@@ -4834,6 +9229,61 @@ function linkHeights(a, b) {
   });
   pair(a, b).observe(a);
   pair(b, a).observe(b);
+}
+
+/** One grip above the audio pair, in place of a corner grip on each box.
+ *  Dragging it up makes overall_soundscape and non_diegetic_music taller
+ *  together (in a filled layout the field above gives up the room, so it
+ *  reads as a splitter); down makes them shorter; a double-click puts them
+ *  back to three rows. The height is remembered at 100% text and scaled by
+ *  the text size, so a larger font keeps the same number of lines. It has
+ *  its own key rather than a field in the editor prefs: those are saved
+ *  whole from long-lived copies (the editor's, Quick edit's ⚙), any of which
+ *  would write a stale height back. The caller puts the returned grip
+ *  directly above the pair. */
+const AUDIO_H_KEY = "mmh3.audioBoxH";
+function audioGrip(boxes) {
+  const tas = boxes.map((b) => b?.querySelector?.("textarea") || b).filter(Boolean);
+  const fs = () => parseFloat(getComputedStyle(tas[0]).getPropertyValue("--mmh3-fs")) || 1;
+  const set = (css) => tas.forEach((t) => { t.style.height = css; });
+  const save = (v) => {
+    try { if (v) localStorage.setItem(AUDIO_H_KEY, String(v)); else localStorage.removeItem(AUDIO_H_KEY); }
+    catch (e) { /* this session only */ }
+  };
+  let stored = 0;
+  try { stored = Math.round(Number(localStorage.getItem(AUDIO_H_KEY)) || 0); } catch (e) { /* default */ }
+  if (stored > 0) set(`calc(${stored}px * var(--mmh3-fs, 1))`);
+  const grip = el("div", { class: "mmh3p-audiograb", role: "separator",
+    "aria-orientation": "horizontal",
+    title: "Drag to resize overall_soundscape and non_diegetic_music together; " +
+      "double-click for the default height",
+    ondblclick: () => { set(""); save(0); },
+    onpointerdown: (e) => {
+      if (e.button !== 0 || !tas.length) return;
+      e.preventDefault();
+      grip.setPointerCapture?.(e.pointerId);
+      grip.classList.add("on");
+      const y0 = e.clientY, h0 = tas[0].getBoundingClientRect().height;
+      const min = Math.round(48 * fs()), max = Math.round(innerHeight * 0.7);
+      let h = h0;
+      const move = (ev) => {
+        h = Math.min(max, Math.max(min, Math.round(h0 - (ev.clientY - y0))));
+        set(`${h}px`);
+      };
+      const up = () => {
+        grip.removeEventListener("pointermove", move);
+        grip.removeEventListener("pointerup", up);
+        grip.removeEventListener("pointercancel", up);
+        grip.classList.remove("on");
+        const v = Math.round(h / fs());
+        set(`calc(${v}px * var(--mmh3-fs, 1))`);
+        save(v);
+      };
+      grip.addEventListener("pointermove", move);
+      grip.addEventListener("pointerup", up);
+      grip.addEventListener("pointercancel", up);
+    } });
+  return grip;
 }
 
 let _modeMenu = null;
@@ -4930,12 +9380,13 @@ export function updateSummary(node) {
   // Left: two lines of the prompt itself. textContent, not innerHTML \u2014 the
   // prompt is user text and must never be parsed as markup. CSS clamps it.
   const preview = el("div", { class: "mmh3p-sumtext" + (text ? "" : " empty") });
-  // 300 chars is well past what two clamped lines can show at this width, so
-  // the node isn't carrying a whole prompt it will never display. Painted with
+  // 1500 chars is well past what the most rows the bar can be set to (eight)
+  // show at a wide node, so the node isn't carrying a whole prompt it will
+  // never display. Painted with
   // the editor's own chain, so a tag reads the same colour in both places.
   if (text) {
     preview.innerHTML =
-      paintTags(text.slice(0, 300)) + (text.length > 300 ? "\u2026" : "");
+      paintTags(text.slice(0, 1500)) + (text.length > 1500 ? "\u2026" : "");
   } else {
     preview.textContent = "click to open the quick editor";
   }
@@ -4950,6 +9401,9 @@ export function updateSummary(node) {
       + `${allSlots.bundled && !allSlots.own ? " (loader)" : ""}` : "",
     over ? `over the ${cap.total} limit` : "",
     orphans ? `${orphans} unpaired soundtrack${orphans > 1 ? "s" : ""}` : "",
+    // A draft is invisible from the canvas otherwise, and it is exactly the
+    // state where "why isn't my edit showing?" gets asked.
+    node._mmh3DraftActive ? "draft in progress" : "",
   ].filter(Boolean).join(" \u2022 ");
 
   const btn = el("button", {

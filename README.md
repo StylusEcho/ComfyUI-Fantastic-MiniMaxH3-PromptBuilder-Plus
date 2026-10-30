@@ -1,5 +1,7 @@
 # ComfyUI MiniMax H3 Prompt Studio (Plus)
 
+![version](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2FAdudeguyman%2FComfyUI-Fantastic-MiniMaxH3-PromptBuilder%2Fmain%2Fpyproject.toml&query=%24.project.version&label=version&color=0a6166) ![nodes 2.0](https://img.shields.io/badge/Nodes%202.0-compatible-7ec87e) ![license](https://img.shields.io/badge/license-MIT-blue)
+
 Guided prompt writing and reference-media handling for the open-weight
 **MiniMax H3** video model in ComfyUI, in a single node.
 
@@ -10,7 +12,8 @@ rewriting model (`H3-Context-IR`) turns your idea into it. That rewriter wasn't
 open-sourced. This pack is the hand-driven replacement: fillable templates for
 every mode, live checking against the guide's rules, and a media panel that
 keeps your reference tags straight — all on **MiniMax H3 Prompt Studio**, the
-one node this pack installs.
+one node you need to install this pack for. (Six more come with it since
+2.6.0, for [RefMods](#refmods); you only meet those if you use them.)
 
 This is a companion to
 [Adudeguyman's Fantastic H3 Prompt Builder](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder),
@@ -41,38 +44,769 @@ glance which preset matches it. Hover the thumbnail for the exact figures.
 *Trim and crop clips on the fly without touching the original files, and pull
 any frame straight out of a video into your picture references.*
 
+![The RefMod library](docs/refmods/01-library.png)
+
+*Now supports creating, editing, organizing, and tagging
+[RefMods](REFMODS.md).*
+
+---
+
+## What's new in 3.4.0
+
+Interface changes, all Plus only. No breakage of saved workflows.
+
+- **The node's ⚙ is text size only.** Node size is gone: drag the node's
+  edge instead. The full-size media window keeps its Window size.
+- **Prompt bar rows.** Drag the grip on the top edge of the prompt bar (the
+  strip along the bottom of the node) to show 2, 3 or 4 lines of the prompt;
+  it snaps a row at a time, applies to every node, and is remembered.
+  Double-click it for 2. A taller bar takes its room from the media panel;
+  drag the node taller to give it back.
+- **One text size for the whole node.** The ⚙'s Text size now reaches the
+  prompt bar along the bottom (and the fields it opens into in T2VA), and
+  the RefMods view follows it too. Before, the bar and the RefMods view
+  used the Prompt Builder window's text size, or one read once when the
+  node was made.
+- **The RefMods view matches the media view.** It has the same ⚙, and its
+  toolbar is the same height, with the ◈ and ⚙ in the same place, so ◈ swaps
+  the panel without the bar jumping.
+- **Prompt Builder header:** ❐ Media Loader comes first, then ◈ RefMods,
+  ☰ Library and Draft ▶. The two-column Reference form moved from the
+  header's ⫼ Columns button into ⚙ (*Two-column Reference form*).
+- **One grip for the audio boxes.** overall_soundscape and
+  non_diegetic_music no longer have a resize corner each. A grip above them
+  sets both heights together: drag up for taller, double-click for the
+  default. It's remembered, and it's in the Prompt Builder (every mode),
+  Quick edit and T2VA's fields on the node.
+- **Masking only in Reference mode.** In the other modes the media panel
+  has no ◐ Mask all, no ◐ badge, no right-click mask menu, and the picture
+  editor has no Masking row; a mask you set stays on the picture and comes
+  back in Reference mode. (It was only ever applied in Reference mode.)
+- **The Used view shows the pictures that are sent.** In I2VA, FL2VA and
+  L2VA it showed the first pictures whether they were switched on or not,
+  while the node sends the first ones that are on. It now shows those, and
+  the window button's count includes the ones switched off.
+- **T2VA's fields on the node no longer open Quick edit** when you click
+  into them.
+- **Quick edit:** 📜 Prompt Builder sits in the middle of the toolbar, and a
+  grip in the bottom-right corner resizes the window. The window keeps the
+  picture preview's shape as it changes size, so the keyframes always stand
+  its full height (without pictures, it keeps its own proportions). It goes
+  no smaller than about 408px tall at 100% text (more at larger text sizes).
+  The description box gives up its room first, so the fields always fit
+  without scrolling and the audio boxes end level with the picture. The size
+  is remembered; double-click the grip, or change Window size in its ⚙, to
+  go back. **Drop a picture file on the preview** to replace that picture:
+  it keeps its place and tag, is saved to the node, and the window re-fits
+  to the new picture's shape.
+- **Drop a generated video on the prompt bar to recall how it was made.**
+  Drag a video (from your files, or from ComfyUI's assets or queue panel)
+  onto the bar along the bottom of Prompt Studio and a dialog asks: **Add to
+  media**, or **Import settings**. ComfyUI saves the run inside the video,
+  and import reads back the Prompt Studio settings it was made with: the
+  mode and every prompt field (and the prompt it sent), **the media that was
+  loaded at the time**, and its RefMods picks, each with its own tick box.
+  The dialog shows what it found first (the mode, the start of the prompt,
+  each media file), and any file no longer in ComfyUI's input folder is
+  marked and left out. If the run had more than one Prompt Studio, you pick
+  which. Undo is in the media panel afterwards. A video with no ComfyUI
+  workflow in it (re-encoded, or downloaded from a sharing site) can still
+  be added as media. Pictures and audio dropped on the bar are simply added
+  to the media, as they would be on the media panel.
+- **Arrow keys in text fields no longer go missing.** After a picture had
+  been opened full size and closed with Close or a click outside it, ← and →
+  in any field stopped moving the caret: the viewer's key listener stayed
+  behind, stepping through pictures that were no longer on screen, until an
+  Escape happened to remove it. It's removed however the viewer closes now,
+  and never takes keys from a field being typed in.
+- **▣ Crop… in the enlarged view.** Clicking a picture in the media panel
+  opens it full size; a **▣ Crop…** button beside Close now goes straight
+  to the picture editor for the one on show (**✂ Trim & crop…** on a clip).
+- **No more 1–2px jumps between modes.** In Reference mode the ◐ Mask all
+  button made the pictures heading 2px taller, so every picture slot was 2px
+  shorter than in the other modes. And in the Prompt Builder, FL2VA and
+  L2VA's footer wrapped onto a second line and grew 2px.
+- **One right-click menu on a picture or clip.** The mask entries (a
+  picture's ◐ Crop and mask… and Clear the mask in Reference mode; a clip's
+  ✂ Trim & crop…, ◐ Mask for editing…, overlay and Clear the mask) now lead
+  the slot's own menu. They were a second menu opened by the same
+  right-click, so two menus stacked up, and closing one left the other over
+  the grid. Clear the mask is one click now, with Undo.
+
+## What's new in 3.3.0
+
+### Subject masking on the media panel's pictures (Plus only)
+
+The RefMod Create tab's masking, for pictures you send as references: mask
+the subject and the background is blurred around it, or the picture cropped
+to it, so props and backgrounds don't bleed into the reference. It applies
+in **Reference mode only**, when the picture goes out as a `<Picture N>`;
+as a first or last keyframe the picture is sent as you edited it. The file
+on disk is never changed.
+
+- **▣ on a picture** (or right-click → **Crop and mask…**, or ▣ on its card
+  in the Prompt Builder) opens the editor with a **Masking** row:
+  **▶ Auto mask** finds the subject with SAM 3.1 from a word (`person` to
+  start), **◉ Dots** steer it, and the **✎ Brush** paints into the mask or
+  erases from it. **Mask | Result** previews the blur. Below it: **Blur
+  background** (radius), **Grow**, **Edge**, **Crop to subject** with its
+  **Margin** — drawn as a dashed box over the picture — and **Keep every
+  match**. Settings changed here are the picture's own; **Use batch
+  settings** hands them back.
+- **◐ Mask all** in the pictures heading masks every picture that's on in
+  one queue job, with the settings every picture follows until it has its
+  own. Pictures you brushed by hand keep their mask.
+- A masked picture shows **◐** on its tile (hover for what's applied).
+  Right-click → **Clear the mask** (with Undo) sends it whole again.
+- Auto mask runs on the original pack's **Object Mask** (1.8.2 or newer)
+  with the SAM 3.1 checkpoint (`sam3.1_multiplex_fp16.safetensors` in
+  `models/checkpoints`); the brush works without either. **Auto model** in
+  the editor's settings and in Mask all picks the checkpoint (shared with
+  the video mask editor and RefMod Create), whatever it's called. If Auto
+  mask can't run (no checkpoint, nothing to look for, the original pack
+  missing), the editor's status line says why, and so does the browser
+  console. Its results are
+  copied into this pack's `input/minimax_h3_plus/masks`, so the original
+  pack's Clean up (which treats its own copies as disposable) can't take
+  them, and this pack's Clean up keeps them while a picture uses them.
+
+### Fixes (Plus only)
+
+- **The node's panel no longer gets squished.** With ComfyUI's right side
+  panel open on the Prompt Studio (its Parameters tab, which also redraws
+  when you switch workflow tabs), the panel inside the node shrank to the
+  side panel's width, about 260 px, with empty space beside it, and stayed
+  that way until a reload. The frontend drew the panel in that list too,
+  and that set a width the canvas then used for the node. The panel is
+  now left out of the Parameters list, and its width always follows the
+  node's.
+
+## What's new in 3.2.0
+
+Folds in the original pack's 1.8.2. No breakage of saved workflows; RefMods
+and masked editing want **the original pack at 1.8.2 or newer** alongside.
+
+### Fixes (Plus only)
+
+- **The trim editor opens on long clips again.** On any audio or video
+  longer than 15 seconds it failed to open at all: the 15-second marker on
+  its timeline still called a helper the 1.8.0 timeline-zoom merge had
+  removed, and the error stopped the window being built. Short clips never
+  draw the marker, which is why they still worked. The marker now follows
+  the zoom and hides when it's scrolled out of view.
+
+### Reference-mode columns (Plus only)
+
+- **Two-column Reference form** (the Prompt Builder's ⚙; until 3.4.0 the
+  ⫼ Columns button in its header) splits
+  the form in two: subject_definitions, the summary and retention_analysis
+  on the left; detailed_description, overall_soundscape and
+  non_diegetic_music on the right. Each column scrolls on its own, so a long
+  retention list never pushes the description out of view, and the subject
+  chip bar stays above both. The window widens to make room (up to the
+  screen's width), drops back to one column if the screen is too narrow
+  for two, and the choice is remembered.
+
+### From the original pack (1.8.2)
+
+- **Masking in RefMod Create.** Crop each picture and clip to its subject
+  and blur the background, so props and backgrounds don't bleed into the
+  RefMod: **Find and Mask All** in **Batch Masking** finds the subject with
+  SAM 3.1, **Crop to subject** crops around it, and **Blur background**
+  blurs the rest. **Crop and mask…** on a row (**Trim, crop and mask…** on
+  a clip) works on one picture with its own word, **▶ Auto mask**, **◉ Dots**
+  and a **✎ Brush**. See
+  [Crop to the subject](REFMODS.md#crop-to-the-subject-and-blur-the-background).
+  The masking runs on the original pack's Object Mask node.
+- **RefMod names must be unique**, and a renamed RefMod keeps its new name
+  in a stack's `labels` and the `reference_map`.
+- **In the original pack's nodes:** a new **Fantastic H3 Reference Map**
+  node, and the Text Encode lists its references in the order the model
+  reads them (**▦ Thumbnails…** for previews). Those are drawn by the
+  original pack; this pack doesn't attach a second copy to them.
+- Smaller fixes: **⬇ Write copy** shows its progress, dropping on the
+  Create tab lights the drop area reliably, and the stale "Audio can't be
+  sent alone" warning is gone.
+
+## What's new in 3.1.0
+
+Folds in the original pack's 1.8.1. No breakage of saved workflows; RefMods
+and masked editing want **the original pack at 1.8.1 or newer** alongside,
+since several of these changes are in its nodes.
+
+- **Custom size.** The trim and crop editor's size menu has **custom…**:
+  type any long edge, applied with Apply like the presets.
+- **Mask preview fixes.** The overlay redraws when you change the size or
+  the crop, and no longer draws grow and the regenerated cells too large on
+  a cropped clip. The edit itself was always right.
+- **RefMod cards number after the media.** The RefMods panel and a RefMod
+  Stack's cards now number RefMods after the media the Text Encode is fed —
+  Prompt Studio's own panel included — as the Text Encode will. Before, the
+  cards counted from 1 even when the media came first; the editor's chips
+  were already right.
+- **Library size.** The RefMod library has its own window and text size,
+  under a **⚙** beside its Close (upstream labels it ⤡ Size; this pack keeps
+  one bare gear per window).
+- **Edit bundles as copies.** RefMod bundles from ComfyUI-MiniMaxH3Mod 0.2.6+
+  open in **Edit frames & voice**; the result is saved as standalone copies
+  and the bundle is left as it is.
+- **In the original pack's Text Encode:** `stack_pictures` "up to 8" is now
+  **up to N**, with **stack_pictures_n** setting N (8 by default). A workflow
+  saved with "up to 8" needs it picked again.
+
+## What's new in 3.0.0
+
+**One node again.** This pack installs only **MiniMax H3 Prompt Studio**.
+The RefMod and masked-editing nodes it carried were copies of
+[the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)'s,
+which this pack is meant to sit beside, so they're gone and Prompt Studio
+works with the original pack's own:
+
+- **Removed:** RefMod Stack, RefMod Text Encode, RefMod Apply, Create /
+  Inspect / Edit RefMod, Store RefMod Encoder Frames, Edit Composite, Video
+  Edit Latent and Object Mask. Prompt Studio's `references` and `mods`
+  outputs plug into the original pack's **Fantastic H3** versions unchanged.
+- **Install the original pack alongside** for RefMods (the library's Create,
+  Inspect, Edit and Store encoder frames queue its nodes) and masked editing
+  (Auto Mask queues its Object Mask; Edit Composite and RefMod Text Encode
+  are its nodes). Prompt Studio's media, prompt editor and its own RefMod
+  picks work without it; anything that needs one of its nodes says so
+  instead of failing in the queue.
+- **Older workflows still open.** A workflow saved with this pack's copies
+  opens with the original pack's nodes in their place — same inputs, outputs
+  and settings — when that pack is installed.
+- **Auto Mask results move in.** Auto Mask now runs the original pack's
+  Object Mask, which saves each layer's result in its own
+  `input/minimax_h3/masks`. **Use this mask** copies them into this pack's
+  `input/minimax_h3_plus/masks` and points the layers there, so the original
+  pack's Clean up (which only knows its own Media Loader) can't delete layers
+  Prompt Studio still uses.
+- **Saved edit latents** are now made by the original pack's Text Encode, in
+  its folder, and its Clean up handles them. This pack's Clean up lists only
+  its own masks.
+
+**◈ swaps media and RefMods.** The Media | ◈ RefMods tabs above the node's
+panel are replaced by a **◈** button at the left of the panel's toolbar. It
+shows the RefMods (amber while they're showing, with the number picked
+beside it), and the same ◈ at the left of the RefMods toolbar swaps back.
+The node remembers which one you left showing, and the panel gains the
+height the tab strip took.
+
+## What's new in 2.9.0
+
+Folds in upstream's 1.7.4 and 1.8.0. No breakage of saved workflows; the
+pack now registers eleven nodes (four new, below).
+
+### Masked video editing (upstream 1.8.0)
+
+- **Mark part of a clip and only that area is regenerated**; the rest stays
+  as filmed. Right-click a video in Prompt Studio's media panel and choose
+  **◐ Mask for editing…**, or open the **◐ Mask** tab in its trim editor.
+  The mask is built from layers — **Auto Mask** (SAM 3.1, from dots and a
+  name), keyframed **ellipses, rectangles and polygons**, and **brush**
+  strokes — each adding to or cutting from those below. Grow, feather,
+  invert and crop to mask shape it. Needs the SAM 3.1 checkpoint; see
+  [Editing a clip with a mask](#editing-a-clip-with-a-mask).
+- Prompt Studio carries the edit in its `references` output, so the RefMod
+  Text Encode builds the edit latent from it and the new **MiniMax H3 Edit
+  Composite** pastes exactly the regenerated area back into your original
+  frames. **MiniMax H3 Video Edit Latent** does the same from frames and a
+  mask made elsewhere; **MiniMax H3 Object Mask (SAM 3.1)** is the node
+  Auto Mask queues for you.
+- **Clean up…** on the media panel deletes mask files nothing uses and
+  saved latents, keeps masks used by saved media sets and drafts, and
+  offers itself once unused masks pass 500 MB.
+- **(Plus only)** Upstream gives that reminder size a second ⚙ button of its
+  own. Here it's a *Clean-up reminder* row in the one ⚙ menu the panel
+  already has, beside window and text size.
+- **(Plus only)** This pack's masks and saved latents live in
+  `input/minimax_h3_plus/` rather than upstream's `input/minimax_h3/`. Each
+  pack's Clean up only knows its own nodes, so with a shared folder either
+  one could delete masks the other is still using.
+- **(Plus only)** Clean up counts masks held by every Prompt Studio in the
+  workflow (and by the original pack's Media Loader). Upstream's only looks
+  at its own Media Loader, which here would have called every Prompt Studio
+  mask unused.
+
+### Trim editor (upstream 1.8.0)
+
+- Zoom the timeline (−/+, the slider, the - and = keys, or scroll), see how
+  far the playhead is past the first kept frame, and stop losing work to a
+  stray click or Escape: with unsaved changes it asks first. Ctrl+Z inside
+  it no longer undoes the graph.
+- The editor has its own **⚙** window and text size, remembered for every
+  clip and set apart from the node's scale.
+- **(Plus only)** A tall clip still fills the editor: the picture may stand
+  as tall as the window is wide (then 64% of the screen), where upstream
+  caps it at 340 px × the window size.
+- Loader rows show each clip's length beside ✂, and video cards show their
+  aspect ratio as sent.
+
+### RefMods (upstream 1.7.4 and 1.8.0)
+
+- **Faster RefMod Text Encode.** RefMods now keep the pictures the text
+  encoder is shown inside their file. Older ones are decoded once and
+  cached; the library's **Store encoder frames** (the new **MiniMax H3 Store
+  RefMod Encoder Frames** node) adds them to old files for good.
+- **stack_pictures** (experimental) on the Text Encode sets how many of a
+  RefMod's pictures the encoder sees. **voice_description_at_label** also
+  writes each voice RefMod's saved description right after its
+  `<Audio n>:` label.
+- **Compressed RefMods no longer squash faces** — a photo of a different
+  shape is trimmed to the first one's shape, as Full always was.
+- **The RefMod library keeps unfinished work** when closed mid-way, and
+  RefMods gain a **Retained attributes** field (a tattoo, a scar) that
+  Draft from RefMods adds to the subject's retention note.
+- Stack cards open the library on their RefMod; drag to reorder works again.
+  New RefMods default to a 768 px short edge (was 1024).
+- **(Plus only)** RefMod Create's *pull from* list now offers Prompt Studio
+  nodes' media, not only the original pack's Media Loader.
+
+### Elsewhere (upstream 1.7.4 and 1.8.0)
+
+- **Right-click selected text** in any builder field for Copy, Cut, Paste
+  and Remove, alongside Save selection as phrase.
+- **Clearer refusals.** A refused request prints one line to the ComfyUI
+  console naming the failed check (never the token), and the origin check
+  also refuses same-site requests, as SECURITY.md described.
+- The 📖 Guide adds **Part E** on masked editing.
+- Upstream's release notes now live in [CHANGELOG.md](CHANGELOG.md) (upstream
+  version numbers); this README keeps this pack's own.
+
+---
+
+## What's new in 2.8.0
+
+**RefMods live on Prompt Studio now.** The node's panel has a **Media |
+◈ RefMods** switch; the RefMods tab is the same twelve-slot grid the RefMod
+Stack node has — library, Create, presets, a weight per channel — holding this
+node's own picks. No extra node, nothing to wire between them, the same way
+media stopped needing a separate loader in 2.0.0. **◈ RefMods** in the prompt
+editor opens those picks in a window instead of adding a stack node, and
+*Draft from RefMods* works straight from them.
+
+The full-size media window (❐ on the node's panel) has a **◈ RefMods** button
+to the left of its now-centred title. It opens the node's RefMods beside the
+media: RefMods on the left half of the screen, media on the right, so you can
+work on both at once. Click it again, or the RefMods window's Close, or press
+Escape, to put the media window back on its own; closing the media window
+closes both.
+
+The **RefMod Stack** node stays, for sharing one set across prompts or
+chaining: wired into Prompt Studio's `mods` input, its entries go first and
+the node's own follow. Workflows built with a separate stack keep working
+exactly as they were — nothing to redo. Under the hood Prompt Studio gained a
+hidden `stack_state` widget, added last so older workflows load it empty.
+
+---
+
+## What's new in 2.7.0
+
+Folds in upstream's 1.7.2 and 1.7.3. No breakage of saved workflows.
+
+### Subjects get a name (upstream 1.7.2 and 1.7.3)
+
+Each `<Subject N>` definition line now has a **name box**. Give a subject a
+name and the prompt writes "Their name is Ann." into their definition, and
+**`!Ann` works as shorthand anywhere else** — it expands to `<Subject 1> Ann`
+in description text, and to just "Ann" inside a spoken `<d>` line, where a
+label would otherwise be read aloud. Names are case-insensitive, so `!ann`,
+`!Ann` and `!ANN` all find the same subject.
+
+Start typing one and **press Tab to finish it**: `!cas` shows the rest of
+`!castle_with_moat` in grey, Tab accepts it with the saved spelling, Escape
+dismisses it. The editor paints a `!Name` as a subject chip in the same
+colour as `<Subject N>` itself, and warns about a name nobody has, a name
+with spaces, or a name on a line that isn't a subject. The `!` is a ⚙
+setting if it clashes with how you write.
+
+In this pack that completion and colouring work **in the quick editor and the
+subject definition rows as well as the full editor**, because all three go
+through the one shared chip field (see 2.5.0's colour-coding work) rather
+than each implementing it separately.
+
+### RefMods remember who they are (upstream 1.7.2)
+
+A RefMod can now store a **subject name, an appearance description and a
+voice description** in its header. Set them on the Create tab (for the whole
+batch or per source), in edit mode, or in the library's details panel; search
+finds them. **Draft from RefMods** then writes the appearance into the
+subject line and fills the voice box for you, and with everything already
+drafted it offers *Start over* or *Fill names and voices* rather than
+refusing. Character retention gained "Face, facial features, body type."
+
+Voice-timbre lines get a **voice box**, and the prompt adds "It is a …".
+Speaker buttons for a subject with a described voice become **split
+buttons**: a plain line, or one naming the voice ("in the low, husky voice
+referenced from `<Audio 1>`"). The choice is remembered per speaker and
+saved with the prompt.
+
+### Right-click any tag (upstream 1.7.3)
+
+Right-click a `<Picture>`, `<Video>`, `<Audio>` or `<Subject>` tag, a
+`!Name`, or a speaker ID to **replace it with another of the same kind, swap
+the two, or remove it**. *This tag*, *Field* and *Everywhere* set the reach,
+each showing a count, with unused tags listed first. Removing a subject or
+media tag everywhere also deletes its definition line and retention row.
+*This tag* and *Field* edits go through the browser, so **Ctrl+Z undoes
+them**.
+
+Speaker IDs are edited at the ID level, inside group tags too, and the next
+unused ID is offered as new. A line that came from a speaker button's voice
+option keeps its name and voice clause with the speaker: hand it to another
+speaker and they get theirs, remove the ID and the clause goes too.
+
+### The RefMod Stack node, rebuilt (upstream 1.7.3)
+
+The stack is now a grid of **twelve fixed slots** in two columns. Adding or
+removing RefMods never resizes the node; empty slots open the library. Cards
+show a thumbnail, name, on/off switch, an orange position badge over the
+options menu, and **a slider per channel labelled with its tag**, with knobs
+coloured by channel. The header shows slots used, token total, and
+"stack 2 / 3" when stacks are chained; the footer lists every label in send
+order, upstream stacks first and dimmed. **⤢ Size** sets node and text
+scale and is remembered for new nodes.
+
+**RefMod presets** save a stack — picks, weights and switches — with
+categories and a searchable picker, and a prompt in the library can be
+linked to one and offer to load it. Colours match the media panel.
+
+### Also
+
+- The Quick start now builds the workflow before you write the prompt, so
+  your media is already there as thumbnails when the editor opens.
+- The bundled 📖 Guide gains Part C (Prompt Builder) and Part D (RefMods).
+- Upstream ships its category sentinels (`"\0new"`, `"\0none"`) as raw NUL
+  bytes, which makes `refmodstack.js` read as a binary file to git, grep and
+  most editors. They are written here as the `\0` escape instead — the
+  identical string at runtime, in a file that stays text.
+
+---
+
+## What's new in 2.6.0
+
+Folds in upstream's 1.6.3, 1.6.4, 1.7.0 and 1.7.1. **This is the release that
+stops being a one-node pack** — see [RefMods](#refmods) below, and
+[Upgrading](#upgrading-from-1x) for what it means for a workflow you already
+have.
+
+### RefMods (upstream 1.7.0 and 1.7.1)
+
+**Save a character, a place, a look or a voice once and use it in any prompt
+after that** — no re-uploading, no re-cropping. A RefMod is a small file in
+`models/refmods`; the model reads it the same way it reads a reference
+picture or clip. New to them? Start with the
+[RefMods how-to guide](REFMODS.md).
+
+This is a whole subsystem, and it brings **six new nodes** with it. Until now
+this pack installed exactly one node, on purpose. RefMods needs more than one
+— a node to hold the picks, a node to encode them, and three that make and
+inspect the files — so the count went from one to seven:
+
+| Node | What it's for |
+|---|---|
+| **MiniMax H3 RefMod Stack** | Holds the RefMods a prompt uses, with a weight per pick. **Browse library…** picks from what you've saved. |
+| **MiniMax H3 RefMod Text Encode** | Stands in for *MiniMax H3 Reference to Video*. Sends the RefMods and Prompt Studio's media to the model together, numbered in one sequence, and hands back the empty latent. |
+| **MiniMax H3 RefMod Apply** | Appends references to conditioning encoded elsewhere, for workflows that already have their own text encoding. |
+| **MiniMax H3 Create RefMod** | The node the library queues when you create one. Works by hand in a graph too. |
+| **MiniMax H3 Inspect RefMod** | Decodes a RefMod so you can see what's actually stored in it. |
+| **MiniMax H3 Edit RefMod** | Drops, reorders or adds frames, and swaps the voice. |
+
+**Prompt Studio's editor** gets a **◈ RefMods** button in its header. It adds
+and wires a stack for you (or opens the one you already have), shows RefMods
+as chips beside your media, warns when something isn't reaching the Text
+Encode, and keeps a draft's RefMods separate from Live — the same way it
+already handles media. Right-clicking the Prompt Studio node has a **RefMod
+library** entry that sends the node's loaded media straight to the Create tab.
+
+**The library** is where RefMods are made and looked after. Drop in pictures,
+clips or audio (or pull them off the node's media panel), choose Full or
+Compressed, and create. Several photos become one RefMod; a clip's soundtrack
+or an audio file becomes its voice. Later you can rename it, give it a
+description and a preview image, see what's stored inside it, drop or reorder
+its frames, add more, swap the voice, or save the result as a copy.
+
+RefMods made from a **video clip** hold real motion: Create and Edit take the
+first frames of the clip on H3's own frame grid — 22 frames store 7, 39 store
+12, 56 store 17 — rather than evenly spaced picks that stored only 2.
+
+Two ready-made workflows show the whole chain,
+`MMH3_RefMod_Vanilla_Stack_Example.json` and
+`MMH3_RefMod_Fully_Fantastic_Example.json`. **Both are built on the original
+pack's Prompt Builder and Media Loader** rather than on Prompt Studio, so they
+need that pack installed alongside this one to load — see
+[Example workflows](#example-workflows).
+
+The format comes from
+[ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod)
+and is shared with it, so the two packs mix freely in one graph. Single-file
+RefMod bundles saved by ComfyUI-MiniMaxH3Mod 0.2.6 show up in the library and
+can be used and inspected (not edited) here.
+
+### Delivery tags (upstream 1.6.4)
+
+A new **Delivery** row in the editor, under the dialogue row, inserts the
+community-found performance tags that shape how a line is spoken: pauses and
+breaths, emphasis and whispering, and non-verbal sounds such as laughs, sighs
+and gasps. Pick a group, pick a tag, and hover the picker to preview an
+example line before inserting it. Tags that wrap text, like `<i>` and
+`<whisper>`, wrap whatever you have selected and leave it selected; with
+nothing selected the caret lands between the two halves, ready to type.
+
+These tags aren't in MiniMax's published guide, so results may vary — the
+bundled writing guide lists them in a **Community Discoveries** section,
+clearly marked as community findings.
+
+Delivery tags show in pink in the prompt, in the picker's preview and in the
+guide, so they stand out from the words being spoken. `<pants>` and
+`<smacks lips>` are gone; they didn't do anything.
+
+### Fixes (upstream 1.6.3, 1.7.0 and 1.7.1)
+
+- The crop frame now follows the picture when you rotate it. Turning a picture
+  that had an active crop left the marquee stranded in the black area beside
+  the image, wrongly shaped, and it could barely be dragged and never over the
+  picture itself.
+- Weight sliders on a long stack no longer jump the list back to the top.
+- Set/Get nodes between Prompt Studio and the Text Encode are followed, so
+  labels and warnings stay right on tidy graphs.
+- A draft with its own media or RefMods but no text yet is saved to disk like
+  any other draft (it used to be lost on reload).
+- Deleting a RefMod closes its details panel.
+
+### Coexistence
+
+Everything RefMods added has been renamed for this pack, the same way the rest
+of it already was: the six node types, their frontend CSS and their server
+routes all carry this pack's own names, so installing it alongside
+[the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)
+still works with no clashes. The **RefMod files themselves are shared** — both
+packs read and write `models/refmods` — which is the point: a RefMod you make
+in one is usable in the other, and in ComfyUI-MiniMaxH3Mod.
+
+---
+
+## What's new in 2.5.0
+
+Folds in upstream's 1.6.1 and the 1.6.2 security release.
+
+### Security (upstream 1.6.2)
+
+**Security release.** This version exists to address findings from the Comfy
+Registry's security review of earlier versions. No features changed; if you
+run any earlier version, update.
+
+- **Path containment.** Every file path a request supplies is now resolved
+  and verified (via `realpath`) to live inside ComfyUI's input, output or
+  temp directory before it is read, and the fallback that could previously
+  rewrite a rejected path into an unconfined one is gone. Symlink escapes
+  are caught by the same check.
+- **Cross-site request protection.** Every `POST` route now refuses requests
+  that a browser marks as coming from another site (`Sec-Fetch-Site:
+  cross-site`, or an `Origin` that doesn't match the host), independently of
+  ComfyUI core's middleware — which matters on `--listen` installs, where
+  core's Host/Origin comparison doesn't apply. A malicious web page you
+  happen to visit can no longer call this pack's upload, delete or write
+  endpoints.
+- **JSON routes require `Content-Type: application/json`.** Cross-origin
+  pages cannot send that content type without a CORS preflight, which is
+  never approved, so the JSON endpoints stop being reachable as "simple
+  requests". *If you script these endpoints yourself, add the header* — a
+  `text/plain` body now gets a 415.
+- **Deletion is double-checked.** The prompt/preset delete and rename paths
+  re-verify, immediately beside the `os.remove`, that the target file lives
+  inside its own library directory.
+- **`POST /minimax_h3/probe` removed.** Nothing in the pack called it, and
+  an uncalled endpoint that accepts an arbitrary path is pure attack
+  surface. Media metadata comes from the upload and extract responses and
+  from `presets/load`, as before.
+- **No more shelling out to ffmpeg.** All video and audio decoding now goes
+  through PyAV in-process (ComfyUI core requires PyAV, so every working
+  install has it). The ffmpeg/ffprobe fallback paths are gone: they were the
+  cause of the registry scanner's command-injection flags (list-argument
+  calls that were never actually injectable, but the cleanest answer is no
+  external processes at all), and they were also the pack's only dependency
+  on a binary being on PATH. If you previously relied on ffmpeg because PyAV
+  was broken in your environment, see Troubleshooting — a broken PyAV also
+  breaks ComfyUI itself, so it's worth fixing either way.
+
+### Prompt/preset linking and categories (upstream 1.6.1)
+
+**Prompts can be linked to a media preset.** A prompt is written for a
+particular set of references, so saving one can remember which. If your
+current media already matches a saved preset it offers to link it; if it
+doesn't, it offers to save it as a preset and link it in the same action.
+Which case applies is decided by comparing the media itself, not by the label
+on the preset picker — that label survives every edit short of *Unload*, so it
+can name a preset your media stopped matching an hour ago. Loading a linked
+prompt never swaps your media silently: a strip names the preset, its
+reference count and how many it would replace, and warns you if the preset has
+been edited since it was linked, because reference numbers are positional and
+`<Picture 3>` may no longer mean the picture you wrote it for. Linked prompts
+carry a badge in the library showing what the preset holds, with a hover
+preview of its contents. In draft mode the media goes to the draft's own set,
+never to the node. See
+[Linking a prompt to its media](#linking-a-prompt-to-its-media).
+
+**Media presets can be categorised.** The picker now has the same bar the
+prompt library does — a search box, a category dropdown and a ✎ to rename or
+clear a category — above a list grouped by category with uncategorised sets
+last. File a preset when you save it, or from the ✎ on its row in the picker,
+which changes only the label and never touches the media. Preset names stay
+unique across every category, because a prompt links to a preset by name.
+
+**Closing can save instead of asking.** A new ⚙ setting, *Save to node when
+closing*, makes ✕, Escape and clicking outside give the node your changes.
+Cancel still discards, and a draft is never written to the node by closing.
+While it's on, the unsaved-changes warning greys out, since it has nothing
+left to warn about.
+
+**The bundled guide is now HTML rather than a PDF** — it opens in a tab,
+searches with Ctrl+F, has a contents sidebar and deep links, and reads
+properly on a phone.
+
+**Fixes:**
+
+- Rotating a picture or clip in the crop editor no longer paints outside the
+  window. A quarter turn used to spill over the toolbar and cover the rotate
+  button itself, so the turn couldn't be undone.
+- The dialogue row's speaker buttons now keep up with your text. Inserting a
+  line for (S1) offers (S2) next, as it always should have — the row was only
+  rebuilt when something else redrew the editor.
+- Escape now respects your preferences. It used to close the editor directly,
+  discarding unsaved edits even with *Warn about unsaved changes* switched
+  on — which is the opposite of what that setting says.
+- A draft no longer loses its edits when you switch back to Live and then
+  close the editor.
+- A draft that never had media of its own no longer reverts your Media Loader
+  when it's committed. Media a draft merely displays is now kept separate from
+  media it owns, so only a set you deliberately edited is applied.
+- A draft started while the Media Loader was empty now follows the node's
+  media instead of showing none for ever, and committing it can't clear your
+  loader.
+- Media stored in a draft is checked when it loads; anything unusable is
+  discarded and the banner says how many, rather than a broken reference
+  reaching a generation.
+- The preset picker no longer reports a freshly loaded preset as edited. It
+  compares effective values now, so a preset whose stored form predates a
+  field still matches itself after loading.
+- A preset containing a switched-off item can be recognised again; the
+  comparison was ignoring disabled items on one side only.
+- The draft banner stays pinned above the editor body instead of scrolling
+  away, and survives a failure elsewhere in the form — it's the one thing that
+  tells you the node isn't holding what you're looking at.
+- The ⚙ menu can discard every saved draft, and shows how many there are.
+
+---
+
+### Draft mode (upstream 1.6.0)
+
+**Draft mode.** Queue a batch, then start writing the next prompt on a
+scratchpad the node can't execute. Drafts autosave to disk, survive a browser
+crash, reopen where you left off, and can carry their own reference set.
+**⇣ Pull from Live** copies the current prompt across — cast and setup only,
+or everything — so a follow-up shot doesn't mean re-typing your subjects.
+See [Draft mode](#draft-mode).
+
+**The media loader opens inside the editor.** The editor header's
+**❐ Media Loader** button now brings the panel up *over* the editor instead of
+closing it first, so adding a reference mid-sentence no longer costs a trip
+through the unsaved-changes prompt.
+
+**Fixes:**
+
+- Saving a prompt under a new name no longer deletes the one you loaded.
+  Renaming is now its own clearly-labelled action, and a name collision asks
+  before overwriting instead of replacing silently.
+- The library's category filter no longer sticks to a category that no longer
+  exists, which made a full library look empty.
+- The Media Loader's preset dropdown stayed open reliably; it was a native
+  `<select>` inside the node, which the ComfyUI frontend closes on every
+  canvas redraw.
+- Presets saved before dimensions were stored now come back with their aspect
+  data, and no longer cause a burst of redraws that made the browser sluggish.
+- The text size you set is re-applied when a workflow loads, instead of the
+  panel reverting to 100% inside a correctly-sized node.
+- Fixed caret drift in the highlighted text fields: the `[Shot N]` marker was
+  drawn bold, and the extra glyph width pushed the caret out of step with the
+  text underneath.
+- All prompt and preset writes are atomic, so a crash mid-save can't corrupt
+  an entry.
+- **(Plus only)** The media panel's "bake" call — flattening a trim or crop
+  into a new file — was still pointing at upstream's `/minimax_h3/` route
+  after this fork moved its own routes to `/minimax_h3_plus/`, so it 404'd.
+
 ---
 
 ## Contents
 
 - [What you get](#what-you-get)
+  — [Example workflows](#example-workflows)
 - [Requirements](#requirements)
 - [Install](#install)
 - [Prompt Studio](#prompt-studio)
 - [Quick start](#quick-start)
 - [Writing a prompt](#writing-a-prompt)
 - [Prompt library](#prompt-library)
+- [Draft mode](#draft-mode)
 - [Reference mode](#reference-mode)
 - [FAQ: wiring reference media](#faq-wiring-reference-media)
+- [RefMods](#refmods) (step-by-step: [RefMods how-to guide](REFMODS.md))
+- [Editing a clip with a mask](#editing-a-clip-with-a-mask)
+- [Dated output folders](#dated-output-folders)
 - [Troubleshooting](#troubleshooting)
 - [Credits](#credits)
-
----
+- [License](#license)
+- [Upstream changelog](CHANGELOG.md) — the original pack's releases, back to 1.6.0
 
 ## What you get
 
-One node, under **conditioning → video_models**:
+Under **conditioning → video_models**. **One node does the prompt and the
+media** — that's the pack:
 
 | Node | What it's for |
 |---|---|
-| **MiniMax H3 Prompt Studio** | The prompt editor and the reference-media panel in one node. No inputs required — prompt, the gated reference bundle, two keyframe images, a mode flag, and a routed MODEL all come out. Start here. |
+| **MiniMax H3 Prompt Studio** | The prompt editor, the reference-media panel and the node's own RefMod picks in one node. No inputs required — prompt, the gated reference bundle, two keyframe images, a mode flag, a RefMod bundle and a routed MODEL all come out. Start here. |
 
-That's deliberate: this pack exists so you don't need two nodes wired together
-for the common case. If you also install
+That's the whole pack, deliberately: this pack exists so you don't need
+several nodes wired together for the common case.
+
+It's built to sit beside
 [the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder),
-its Prompt Builder, Media Loader, Reference Splitter, and Filename Prefix
-nodes appear alongside Prompt Studio with no name clashes — the two packs are
-built to coexist.
+with no name clashes, and uses that pack's nodes for everything past the
+prompt and the media rather than carrying copies of them. Install it too for
+[RefMods](#refmods) and [masked editing](#editing-a-clip-with-a-mask):
+
+| The original pack's node | What Prompt Studio uses it for |
+|---|---|
+| **Fantastic H3 RefMod Text Encode** | Stands in for *MiniMax H3 Reference to Video* when RefMods are in play. Takes Prompt Studio's `prompt`, `references` and `mods`. |
+| **Fantastic H3 RefMod Stack** | Optional — Prompt Studio holds its own picks. Use one to share a set across several prompts, wired into Prompt Studio's `mods`. |
+| **Fantastic H3 RefMod Apply** | Attaches references to conditioning encoded elsewhere. |
+| **Fantastic H3 Reference Map** | Optional. The Text Encode's `reference_map` from Prompt Studio's `references` and `mods` without encoding, live as you edit the graph, for pasting into an LLM. |
+| **Fantastic H3 Create / Inspect / Edit RefMod**, **Store RefMod Encoder Frames** | Queued by the RefMod library; you don't wire them. |
+| **Fantastic H3 Edit Composite** | For masked edits: pastes the regenerated area into the original frames. Feed it Prompt Studio's `references`. |
+| **Fantastic H3 Video Edit Latent** | Optional. A masked-edit latent from frames and a mask made elsewhere. |
+| **Fantastic H3 Object Mask (SAM 3.1)** | Queued by Auto Mask; you don't wire it. |
+
+Its Prompt Builder, Media Loader, Reference Splitter and Filename Prefix
+appear alongside too. Both packs read the same `models/refmods` folder.
+
+### Example workflows
+
+Three ship in `example_workflows`, loadable from ComfyUI's workflow browser
+(Workflows → Browse Templates → this pack):
+
+| Workflow | What it shows |
+|---|---|
+| `MMH3PromptBuilder_AIO_Example.json` | The Set/Get fan-out pattern — one media source driving an fl2va and a ref2va pipeline. See [One loader, two pipelines](#one-loader-two-pipelines). |
+| `MMH3_RefMod_Vanilla_Stack_Example.json` | The RefMod chain with core ComfyUI nodes only. |
+| `MMH3_RefMod_Fully_Fantastic_Example.json` | The same chain plus the Fantastic LoRA loader and seed nodes from [comfyui-fantastic-loras](https://github.com/Adudeguyman/comfyui_fantastic-loras). |
+
+**All three came from the original pack and are built on its standalone Prompt
+Builder and Media Loader, not on Prompt Studio**, so they need that pack
+installed alongside this one to load at all. They're kept because the patterns
+they show are worth having; Prompt-Studio-native rebuilds are on the list and
+aren't done yet.
 
 Highlights:
 
@@ -83,12 +817,14 @@ Highlights:
 - **Live checking.** Shot numbering, cut times, dialogue formatting, references
   you connected but never mentioned — flagged while you write, not after a
   failed render.
-- **The official guide is built in.** A 📖 button opens the full PDF.
+- **The official guide is built in.** A 📖 button opens the full guide in a new tab — searchable, linkable, and readable on a phone.
 - **Your work isn't lost by a stray click.** Closing with unsaved changes asks
   first — **Save to node**, **Discard**, or **Keep editing**. Only *Save to
-  node* changes what the node sends; ✕, Cancel and Escape discard. The ⚙ menu
-  turns off click-outside-to-close, or the warning itself, if you'd rather work
-  another way.
+  node* changes what the node sends. If you'd rather work the other way round,
+  ⚙ → *Save to node when closing* makes ✕, Escape and clicking outside hand
+  your changes to the node instead of asking; Cancel still discards, and a
+  draft is never written to the node by closing. The ⚙ menu can also turn off
+  click-outside-to-close, or the warning itself.
 - **Reference tags read as chips** in the text, colour-coded by kind (⚙ has a
   toggle for plain text fields, which keeps the hover previews), with the
   thumbnail on hover — no side panel opening and shifting the layout. Hovering
@@ -111,16 +847,22 @@ Highlights:
   touching the file.
 - **A prompt library** — save prompts with categories and favourites, then
   search and reload them.
+- **Draft mode** — park the prompt that's queued and start the next one on a
+  disk-backed scratchpad, with its own reference set, that can't be executed
+  until you commit it.
+- **The media loader opens inside the editor** — no hunting for the node on
+  the canvas to add a reference mid-sentence.
 - **Media presets** so you can reload a set of references in one click.
 - **Unload media** clears the node in one go (after a confirmation) without
   deleting the underlying files, so presets pointing at them still work.
-- **Size control** — ⤢ Size sets the media panel's scale (100–300%) and its
-  text size (100–200%) independently, by slider or by typing the number.
-  Changes apply when you press **Apply**, not while you drag, because
-  resizing the node would pull the slider out from under the pointer. Both are
-  remembered for you rather than for the workflow, so a node dropped into a
-  new graph starts at the size you actually work at. The prompt editor has the
-  same two sliders in its ⚙ menu, which is what you want on a 4K monitor.
+- **Text size** — the node's ⚙ sets the text size (100–200%) for everything
+  in the node: the media panel, its RefMods view and the prompt bar. Size the
+  node itself by dragging its edge. In the full-size media window the ⚙ also
+  sets the window's size (100–300%). By slider or by typing the number;
+  changes apply when you press **Apply**, not while you drag, and are
+  remembered for you rather than for the workflow. The prompt editor has its
+  own window and text size in its ⚙ menu, which is what you want on a 4K
+  monitor.
 - **Detail control for reference video** — decode big clips at a smaller size
   so a long 4K reference doesn't eat gigabytes of RAM.
 - **Optional model routing.** Wire both checkpoints — `fl2va_model` and
@@ -135,13 +877,14 @@ Highlights:
 - **ComfyUI 0.30.0 or newer** — this is when H3 support landed.
 - **The MiniMax H3 models.** Use the `fl2va` checkpoint for text and keyframe
   work, `ref2va` for reference mode. ComfyUI's own H3 templates will set you up.
-- **PyAV or ffmpeg** — only needed for reference *videos*. Images and audio work
-  without either. There's a good chance you already have this: many ComfyUI
-  installs ship with ffmpeg, and PyAV comes along with several common custom
-  node packs. Try dropping a video on the media panel first — if it's accepted,
-  you're set. If not, `pip install av` into your ComfyUI environment is the easy
-  route. Either way the node still loads and tells you why videos are
-  unavailable, rather than failing when you hit queue.
+- **[The original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)**
+  1.8.1 or newer, for RefMods and masked editing — see [What you get](#what-you-get). The
+  prompt editor and the media panel work without it.
+- **PyAV** — used for video and audio decoding. ComfyUI itself requires PyAV,
+  so every working install already has it; the node checks at startup and
+  tells you if videos are unavailable rather than failing when you hit queue.
+  Since 1.6.2 the pack never shells out to ffmpeg — decoding is all in-process
+  through PyAV.
 
 ---
 
@@ -161,7 +904,8 @@ end up with `ComfyUI/custom_nodes/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder-Plus
 
 This installs alongside
 [the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)
-without conflict — install one or both.
+without conflict. Install both: this one is the prompt-and-media node, and
+the original pack supplies the RefMod and masked-editing nodes it works with.
 
 Then **restart ComfyUI completely** — not just a browser refresh. Nodes are only
 registered at startup.
@@ -186,6 +930,33 @@ changed that a saved workflow can't adapt to on its own:
   state and loaded media all live on the node's own widgets and are carried
   across the update intact.
 
+**2.4.0 renames `picture_1`/`picture_2` to `first_frame`/`last_frame` and, for
+L2VA only, moves which output slot the picture comes out on.** The rename
+alone is cosmetic — ComfyUI links by slot position, not name, so it doesn't
+touch existing connections. But **L2VA workflows saved before 2.4.0 need their
+picture link moved**: L2VA's one loaded picture used to travel on the
+`picture_1` slot (whichever input you'd wired it to), and now travels on the
+`last_frame` slot instead — matching what it actually is, the *last* frame,
+not the first. **Reconnect L2VA's picture wire to the new `last_frame`
+output**; I2VA and FL2VA are unaffected, since their pictures already came out
+on these same two slots.
+
+**2.6.0 adds six nodes and breaks no existing workflow.** Everything already
+on your canvas keeps working exactly as it did. Prompt Studio itself gains
+one new optional input (`mods`) and one new trailing output (`mods`) so it
+can actually carry a RefMod bundle — both appended after everything that was
+already there, so no existing slot moves and no existing wire is disturbed.
+The rest of the change is [RefMods](#refmods) arriving, with six more node
+types under **conditioning → video_models**. If you don't use RefMods you
+can ignore all of it entirely; if you do, start at **◈ RefMods** in the
+prompt editor's header.
+
+One thing to know if you also run
+[the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder):
+its RefMod nodes and this pack's are **separate node types with separate
+names**, so a workflow saved against one won't pick up the other's nodes. The
+RefMod *files* are shared, so your library is the same either way.
+
 ---
 
 ## Prompt Studio
@@ -195,16 +966,26 @@ panel on one node. There's nothing to wire between them: the media lives on
 the same node that writes the prompt, so the tags the editor offers are always
 the tags the output actually carries.
 
-It takes **no required inputs**, and has six outputs:
+The panel shows one of two things, and the **◈** button at the left of its
+toolbar swaps between them: the drag-and-drop **media** panel, and the
+twelve-slot [RefMod](#refmods) grid holding this node's own RefMods — so, like
+media, they need no separate node and no wiring. ◈ shows how many RefMods are
+picked, turns amber while the RefMods are showing, and the node remembers
+which one you left showing.
+
+It takes **no required inputs** — one optional `mods` for
+[RefMods](#refmods), alongside the two optional checkpoint inputs below — and
+has seven outputs:
 
 | Output | Type | Goes to |
 |---|---|---|
 | `model` | `MODEL` | the sampler, once you've wired both checkpoints in (see below) |
-| `prompt` | `STRING` | the `prompt` input on **Image to Video** or **Reference to Video** |
+| `prompt` | `STRING` | the `prompt` input on **Image to Video**, **Reference to Video**, or **RefMod Text Encode** |
 | `references` | `H3_REFS` | a **Reference Splitter**, whose slots feed **Reference to Video** — from the original pack, if you have it installed too |
-| `picture_1` | `IMAGE` | `first_frame` on **Image to Video** (or `last_frame` for L2VA) |
-| `picture_2` | `IMAGE` | `last_frame` on **Image to Video**, for FL2VA |
+| `first_frame` | `IMAGE` | `first_frame` on **Image to Video** |
+| `last_frame` | `IMAGE` | `last_frame` on **Image to Video** |
 | `ref2va_needed` | `BOOLEAN` | a switch node, to pick which H3 node runs |
+| `mods` | `H3_REF_MODS` | the node's RefMod picks (after anything chained into the `mods` input) — to **RefMod Text Encode**'s `mods` input, which **◈ RefMods** wires for you |
 
 `ref2va_needed` is true only in **Reference** mode — the one mode whose prompt
 goes to **Reference to Video** instead of **Image to Video**. Feed it to a
@@ -212,22 +993,24 @@ boolean switch and the mode you pick in the editor chooses the branch, instead
 of you rewiring by hand. If the editor state is ever unreadable it falls back
 to reference mode, same as the media gate does.
 
-`picture_1` and `picture_2` are the first two pictures in the panel on their
-own, which is everything the keyframe modes need — no splitter, no separate
-**Load Image**:
+`first_frame` and `last_frame` are named after exactly what they wire into —
+**Image to Video**'s own two picture inputs — so no splitter and no separate
+**Load Image** is needed for the keyframe modes:
 
 | Mode | Wire |
 |---|---|
-| **I2VA** | `picture_1` → `first_frame` |
-| **L2VA** | `picture_1` → `last_frame` |
-| **FL2VA** | `picture_1` → `first_frame`, `picture_2` → `last_frame` |
+| **I2VA** | panel's picture → `first_frame` |
+| **L2VA** | panel's picture → `last_frame` |
+| **FL2VA** | panel's two pictures → `first_frame` and `last_frame` |
 
 Reference media comes from the node's own panel rather than upstream slots, so
 the keyframe and reference media you load are picked up directly. The
-`references` bundle and both picture outputs are **mode-gated**: T2VA leaves
-all three empty, I2VA and L2VA fill `picture_1` only, and FL2VA fills both —
-so switching mode never quietly sends media the mode can't use. Anything
-withheld is printed to the console, never dropped silently.
+`references` bundle and both picture outputs are **mode-gated**: T2VA and
+Reference mode leave all three empty, I2VA fills `first_frame` only, L2VA
+fills `last_frame` only (its one loaded picture IS the last frame, not the
+first), and FL2VA fills both — so switching mode never quietly sends media the
+mode can't use. Anything withheld is printed to the console, never dropped
+silently.
 
 Two optional inputs, `fl2va_model` and `ref2va_model`, take both H3 checkpoints
 at once; the `model` output passes through whichever one the saved mode
@@ -235,6 +1018,11 @@ actually runs on (`ref2va` in Reference mode, `fl2va` everywhere else). Both
 are lazy, so the checkpoint the mode isn't using is never pulled into memory —
 wire both in once and let the mode decide, instead of rewiring the sampler by
 hand every time you switch modes.
+
+A third optional input, `mods`, is only for **chaining**: a RefMod Stack (or
+another pack's RefMod loader) wired there is sent first, and the node's own
+RefMods follow, numbered after it. You don't need it to use RefMods — the
+node's own picks are enough. Not lazy: unlike the checkpoints, reading it is cheap.
 
 The node carries no buttons — everything is reachable from the panel itself.
 The media panel sits at the top; drag the node's bottom edge and it grows with
@@ -252,34 +1040,37 @@ and the mode button turns red when you're over a limit.
 
 ## Quick start
 
-This is the same for every mode.
+This is the same for every mode. Build the workflow first, then write the
+prompt into it:
 
-1. Add a **MiniMax H3 Prompt Studio**.
-2. Drop your keyframe or reference media onto the panel, if your mode needs
-   any (T2VA needs none).
-3. Click the prompt bar (or double-click the node) to open the editor, pick
-   your mode along the top, and fill in the fields. The finished prompt builds
-   live in the right-hand panel.
-4. Click **Save to node**.
-5. Connect the node's `prompt` output to the `prompt` input on whichever H3
-   node you're using:
+1. Start from ComfyUI's own MiniMax H3 template for your mode. It already has
+   the loaders, sampler, decode and save nodes.
+2. Add a **MiniMax H3 Prompt Studio**. Connect its `prompt` output to the
+   `prompt` input on the template's H3 node:
    - **MiniMax H3 Image to Video** for T2VA, I2VA, FL2VA, and L2VA
    - **MiniMax H3 Reference to Video** for reference mode
 
    If `prompt` shows as a widget rather than an input, right-click it and choose
    *Convert widget to input*.
-6. Set `width`, `height`, and `length` on that node. For first/last-frame modes
-   the editor shows the exact frame count to use — H3 only accepts certain
-   values, and the editor already rounds to a valid one.
-7. Wire up whatever your mode needs:
+3. Wire up whatever your mode needs:
    - **T2VA** — nothing else; the prompt is the whole input.
-   - **I2VA / FL2VA / L2VA** — connect the node's own `picture_1` (and
-     `picture_2` for FL2VA) outputs to **Image to Video**:
-     - **I2VA** — `picture_1` → `first_frame`
-     - **FL2VA** — `picture_1` → `first_frame`, `picture_2` → `last_frame`
-     - **L2VA** — `picture_1` → `last_frame`
+   - **I2VA / FL2VA / L2VA** — connect the node's own `first_frame` (and
+     `last_frame` for FL2VA/L2VA) outputs to **Image to Video**:
+     - **I2VA** — `first_frame` → `first_frame`
+     - **FL2VA** — `first_frame` → `first_frame`, `last_frame` → `last_frame`
+     - **L2VA** — `last_frame` → `last_frame`
    - **Reference mode** — see [Reference mode](#reference-mode) below.
-8. Queue it.
+4. Set `width`, `height`, and `length` on the H3 node.
+5. Drop your keyframe or reference media onto Prompt Studio's own panel, if
+   your mode needs any (T2VA needs none). There is nothing to wire: the panel
+   is part of the node that writes the prompt.
+6. Click the prompt bar (or double-click the node) to open the editor, pick
+   the same mode along the top, and fill in the fields. The finished prompt
+   builds live in the right-hand panel, and the media you loaded shows up as
+   thumbnails to click. For first/last-frame modes the editor shows the exact
+   frame count to use — H3 only accepts certain values, and the editor already
+   rounds to a valid one — so match `length` to it.
+7. Click **Save to node**, then queue it.
 
 The rest of the workflow — loaders, samplers, VAE decode, save — is unchanged
 from ComfyUI's built-in MiniMax H3 templates. This pack only replaces how the
@@ -307,6 +1098,23 @@ prompt live as you type.
 **Things the toolbar does for you:** inserts numbered shots with correctly
 formatted cut times, writes camera moves as proper sentences, wraps dialogue
 with the right language tags and speaker IDs, and drops in reference tags.
+
+**Right-click a tag** — a `<Picture 2>`, `<Subject 1>`, `!Ann` or `(S1)` — to put
+another of the same kind in its place, swap the two, or remove it. **This
+tag**, **Field** and **Everywhere** set how far the change reaches, and each
+shows how many copies it would change. Tags nothing in the prompt cites yet
+are listed first, marked *unused*. Removing a subject or media tag
+everywhere also deletes the definition line and retention row for it.
+Speaker IDs work inside group tags too: swapping S1 and S2 everywhere turns
+`(S1,S2)` into `(S2,S1)`, and the next unused ID is offered as *new*. A
+line inserted with a speaker button's voice option moves as a whole: give it
+another speaker and its name and voice clause become theirs, and removing
+the ID drops the voice clause but keeps the name. Swapping IDs everywhere
+only renumbers, so every line keeps its speaker.
+This tag and Field can be undone with Ctrl+Z.
+
+**Right-click selected text** in any field for **Copy**, **Cut**, **Paste**
+and **Remove**, or to save it as a phrase. Ctrl+Z undoes Cut, Paste and Remove.
 
 **Things it checks:** shots numbered in order, cut times increasing and inside
 your video's length, `[Shot 1]` not carrying a timestamp, dialogue tags balanced
@@ -371,6 +1179,126 @@ Prompts live as individual JSON files in your ComfyUI user directory, so they
 survive updates and are easy to back up or share. Writes go through a temporary
 file, so a crash mid-save can't corrupt an entry.
 
+The editor's **❐ Media Loader** button opens the node's own media panel in an
+overlay on top of the editor — the same panel the node hosts, so everything
+works the same way. Escape closes the loader and leaves the editor open.
+Reference tags refresh when you close it, so adding or reordering media
+renumbers `<Picture N>` immediately.
+
+In draft mode that button opens the **draft's own** reference set instead,
+marked teal like the rest of draft mode. Editing it never touches the node's
+Live media: the draft keeps its own until you commit. Which set you are
+editing is decided by where you clicked — the panel on the node itself is
+always Live, and ❐ Media Loader while drafting is always the draft.
+
+### Linking a prompt to its media
+
+A prompt is usually written for a particular set of references, so the save
+form offers to remember which. What it offers depends on your current media:
+
+- **Linked to media — *name*** — your media is already saved as that preset,
+  so ticking the box is all it takes.
+- **Link to media — new preset** — your media isn't saved as a preset yet.
+  Tick the box, give it a name, and it's saved and linked in one go.
+
+The match is decided by comparing the media itself, not by the label on the
+preset picker: that label survives every edit short of **Unload media**, so it
+can name a preset your media stopped matching a while ago. When it has, the
+picker now shows it as *name (edited)*.
+
+Linked prompts carry a badge in the library showing what the preset holds —
+a small icon and count per kind, then the preset name — counted live from the preset itself, so it stays
+right even if you edit the preset afterwards, so you can
+tell at a glance which prompts bring media with them. Hover it for a preview
+of what's in that preset — thumbnails, a count by kind, and a note if any of
+its files have gone missing.
+
+Loading a linked prompt never changes your media silently. A strip appears
+naming the preset, how many references it holds and how many it would
+replace, with **Load the media too** or **Prompt only**. If the preset has
+been edited since it was linked, the strip warns you — reference numbers are
+positional, so `<Picture 3>` in the prompt may no longer mean the picture it
+did when you wrote it. A preset that has since been deleted doesn't block the
+prompt; you're just told it's gone.
+
+In draft mode the media goes to the draft's own set, never to the Media
+Loader node.
+
+---
+
+## Draft mode
+
+Queue some generations, then start on your *next* prompt without touching the
+one that's running: the **Draft ▶** button in the editor header switches to a
+scratchpad. The modal turns teal, the fields cool, and a banner states the
+deal plainly — the node still holds the Live prompt, and nothing in the draft
+is queued or executed until you commit it.
+
+The draft autosaves to disk as you type (its own file, in its own directory —
+it can never appear in, or interfere with, your prompt library or presets), so
+a browser crash costs at most a second or two. Closing the editor from draft
+mode reopens it in draft mode. Your Live session edits are held while you
+draft and restored when you switch back — nothing is written to the node by
+switching.
+
+A draft's media is in one of three states, and the banner always says which:
+
+- **Following the node's media** — the usual case. The draft shows whatever
+  the Media Loader holds.
+- **Showing media as of when the draft started** — if the loader held
+  references when you began, the draft remembers them so its `<Picture N>`
+  tags keep meaning the same files. Reference numbers are positional, so
+  without this, rearranging the loader would silently retarget the tags in
+  your draft. This is display only.
+- **Has its own media** — you edited the draft's reference set through
+  ❐ Media Loader. Only this state is applied to the node when you commit.
+
+The distinction matters: a draft you never edited media in will never change
+the node's media on commit, so improving your Live references while a draft
+sits open is safe.
+
+RefMods get the same treatment. A draft remembers the stack's picks as of
+when it started, so its `<Video N>` labels keep meaning the same files while
+you rework the Live stack; **◈ RefMods** in draft mode opens the stack panel
+on the draft's own copy of the picks (with the library and Create a click
+away as usual), and only a set you edited that way is written to the RefMod
+Stack when you commit. The banner says which state the draft's RefMods are
+in, just as it does for media.
+
+Because a draft's media is the one thing that can reach the Media Loader
+without having been uploaded through it, it's checked when the draft loads.
+Anything unusable — a missing file, an unrecognised type — is discarded, and
+the banner says how many, rather than letting a broken reference through to a
+generation. Unrecognised fields are left alone, so a draft written by a newer
+version isn't damaged by an older one.
+
+**Save to node** is greyed out while you're drafting — nothing in a draft can
+reach the node except through Commit — and the ⚙ menu's other controls carry
+on working as usual.
+
+**⇣ Pull from Live** copies the Live prompt into the draft, which saves
+re-typing a cast you've already written. It offers two scopes: *Cast and
+setup only* keeps the mode, duration, subject definitions, style and
+retention markers but leaves the description fields empty — the shape of
+writing the next shot in a scene — while *Everything* is a straight copy for
+working up a variant. Live is not changed either way.
+
+**Commit to Live** overwrites the node's prompt with the draft and applies the
+draft's media snapshot to the loader. If the Live prompt has work that isn't
+in the library, you're offered the chance to save it there first — inline,
+with the same collision protection as any library save. Committing consumes
+the draft. **Clear draft** throws the scratchpad away and starts a blank one.
+
+The draft banner stays pinned above the editor body rather than scrolling with
+the fields, so it still answers "am I editing Live?" when you're deep in the
+description. The ⚙ menu shows how many drafts exist across all your workflows
+and can discard them all at once.
+
+You can also save a draft straight to the library at any point without
+committing it — the banner then tracks whether the draft still matches what
+you saved. Drafts are per prompt-builder node, capped at the 25 most recently
+touched across all workflows; older ones age out on their own.
+
 ---
 
 ## Reference mode
@@ -386,7 +1314,10 @@ H3 Reference to Video** and the `ref2va` checkpoint.
    lands in the right group.
 2. Open the editor and switch to **Reference** mode. Your media now shows up
    as clickable thumbnails; click one to insert its tag into your text.
-3. Fill in the six sections, then **Save to node**.
+3. Fill in the six sections, then **Save to node**. On a wide screen,
+   ⚙ → **Two-column Reference form** puts the definitions, summary and
+   retention_analysis in a left column and the description and audio in a
+   right one, each scrolling on its own; the window widens to fit.
 4. Connect the node's `prompt` output to **MiniMax H3 Reference to Video**'s
    `prompt` input.
 5. `references` carries the whole gated bundle, but **Reference to Video**
@@ -395,6 +1326,11 @@ H3 Reference to Video** and the `ref2va` checkpoint.
    [the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)
    alongside this one, add its **Fantastic H3 Reference Splitter**, and wire
    `references` → the splitter → the matching slots on **Reference to Video**.
+
+   Using [RefMods](#refmods)? **RefMod Text Encode** takes the `references`
+   bundle whole and stands in for **Reference to Video**, so no splitter is
+   needed at all — and **◈ RefMods** in the editor makes that connection for
+   you.
 
 ### What the media panel shows you
 
@@ -407,9 +1343,18 @@ the tag it will actually get.
 
 The ✂ button on any video or audio row trims what's sent to a start–end range
 in seconds — the file itself is untouched, and the counters and 15-second
-budgets track the trimmed span. `last 2s` / `last 3s` shortcuts grab a clip's
+budgets track the trimmed span. Each row shows the length it sends beside
+its ✂ (✂ 10.5s): the kept span once trimmed, the whole clip until then. `last 2s` / `last 3s` shortcuts grab a clip's
 tail in one click, which is exactly what video continuation wants. Over-long
 clips can be brought inside the budget the same way instead of re-exporting.
+Beside the playhead time, **from start** says how far the playhead is past
+the first kept frame. Zoom the timeline with **−** / **+**, the zoom slider
+above it or the - and = keys (around the playhead), or scroll on it (around
+the pointer; Shift+scroll moves along it). **⤢ Kept range** fits the trim,
+and a short trim of a long clip opens zoomed. While zoomed, the strip beside
+the zoom controls shows the whole clip; drag it to move along. Closing with
+unsaved changes asks first: **Apply**, **Close without applying** or **Keep
+editing**.
 
 Videos that carry sound get an extra control for whether that soundtrack is
 treated as part of the video or as a separate audio reference. The **?** button
@@ -492,6 +1437,77 @@ a click. The **Phrases** row sits under the dialogue controls:
 Phrases are stored with ComfyUI rather than in the workflow, so they follow the
 install and are shared by every prompt you write. They're plain text — for
 saving a whole prompt, use the [prompt library](#prompt-library) instead.
+
+### Naming a subject
+
+Every `<Subject N>` line has a small **name** box beside it. Give a subject
+a name — say `Bob` — and two things happen:
+
+- The generated prompt adds *Their name is Bob.* to that definition line, so
+  the model ties the name to the label. The line you edit stays as you
+  wrote it.
+- **`!Bob`** works as shorthand in every other field. In the editor it shows
+  as a green subject tag, keeping the text easy to read; in the prompt it
+  becomes `<Subject 1> Bob`, which restates the identity every time the
+  name comes up. Inside a spoken `<d>…</d>` line it becomes just `Bob`, so
+  nobody says a label out loud.
+
+The chip bar shows the name on the subject's chip and adds a `!Bob` chip
+that inserts the shorthand. Names are one word (letters, digits, `-` and
+`_`); `!bob`, `!Bob` and `!BOB` all work and the prompt uses the spelling
+you gave the subject. Start typing one, like `!cas` for `castle_with_moat`,
+and the rest appears in grey after the cursor: press **Tab** to fill it in,
+or Escape to dismiss it. Hover a `!Bob` tag and you get the same pop-up card as
+the subject itself — its picture and what it cites. A `!Name` nobody is
+called, or a name on a line that is switched off, gets a warning rather
+than a silent gap in the prompt. Names save with the prompt.
+
+Prefer a different trigger than `!`? The ⚙ menu has **Subject name prefix**,
+with `@`, `#`, `$`, `%`, `&`, `*`, `~`, `+`, `=` and `^` to choose from. It's
+a per-browser setting like the rest of that menu, and it doesn't rewrite
+shorthand already typed with the old character.
+
+A RefMod can carry a name of its own. Set **Subject name** on the Create
+tab as you make it, in edit mode, or in its library details panel, and the
+name is stored inside the `.safetensors` file's header, so it travels with the file. **◈ Draft from
+RefMods** then fills the name box on that RefMod's `<Subject N>` line.
+Pressing it again with nothing left to draft offers **Fill names and voices** for any
+name or voice box that's empty, or **Start over** to clear all of both
+sections and draft them fresh. A name you've typed yourself is never replaced. The card
+shows the name as a badge, and search finds it.
+
+A RefMod can also carry an **Appearance**, **Retained attributes** and a
+**Voice** description, set in the same three places. Draft from RefMods writes
+the appearance straight into the subject's line (*…in `<Picture 1>`, with
+shoulder-length auburn hair and a green wool coat.*), adds the retained
+attributes — small details to keep, like a tattoo or a scar — to the end of
+the subject's `retention_analysis` note, and puts the voice description in
+the voice box on its `<Audio N>` line. Each is one line of up to 300
+characters.
+
+### Describing a voice
+
+Every voice-timbre line in `subject_definitions`, the kind that reads
+`<Audio 1> is the voice-timbre reference for <Subject 1> (S1), …`, has a
+**voice** box beside it. Describe the voice there, like `low, husky voice
+with a slow, warm pace`, and the prompt adds *It is a low, husky voice with
+a slow, warm pace.* after the line. Singing lines don't get one. When the
+line's subject has a name, it says whose voice it is instead: *It is Ann's
+voice: low, husky voice with a slow, warm pace.*, or *It is Ann's voice.*
+with the box empty.
+
+The speaker button for that ID in the dialogue row becomes a split button.
+Its arrow offers two lines:
+
+- **Just (S1)** inserts `!Ann (S1) says: <d>[English] </d>`.
+- **(S1) with voice** inserts `!Ann (S1), in the low, husky voice with a
+  slow, warm pace referenced from <Audio 1>, says: <d>[English] </d>`.
+
+Clicking the button itself repeats whichever you last picked for that
+speaker; each speaker remembers its own choice, and it saves with the prompt. Voiceover
+works the same way, with its off-screen wording and lips-closed clause. The
+`!Ann` part appears when that subject has a name. Lines you've already
+inserted keep their wording if you change the voice box later.
 
 ### Switching lines off
 
@@ -582,7 +1598,8 @@ other reference — tagged, taggable, and saved with presets.*
 
 **Pictures get the same treatment.** The ▣ button on a picture tile opens the
 editor with the rotate, crop and mirror tools — no timeline, since there's nothing
-to trim. The **size** dropdown caps the long edge of what's actually sent. Videos have
+to trim. The **size** dropdown caps the long edge of what's actually sent, from a
+preset or **custom…** for any long edge you type. Videos have
 the same control in their ✂ editor, where it matters more — a cap saves that
 memory on *every frame*, so a 15-second clip capped at 1280 px costs a fraction
 of the same clip at 4K. Both default to full — media is only resized when you
@@ -672,8 +1689,17 @@ repositions on every canvas redraw, and any touch collapses an open native
 picker — the "dropdown flashes and closes" bug. The pack's popover can only be
 closed by you: pick an entry, click elsewhere, or press Escape.
 
-The preset label, dropdown and Save / Delete buttons sit in the panel's top row,
-next to **Load files…**.
+The preset label, dropdown and Save / Delete buttons sit in the panel's top
+row, next to **Load files…**.
+
+Presets can be filed into **categories**. The picker has the same bar the
+prompt library does — a search box, a category dropdown, and a ✎ to rename or
+clear the selected category — above a list grouped by category, with
+uncategorised sets last. Set a category when you save, or file an existing
+preset from the picker with the ✎ on its row; that only changes the label,
+never the media. Categories are a view, not folders: preset
+names stay unique across the whole set, because a prompt links to a preset by
+name.
 
 Presets point at files you already uploaded rather than copying them, so saving
 and loading is instant. If you later delete one of those files, loading the
@@ -703,7 +1729,8 @@ and pushed every field sideways.
 ### Copying media between slots
 
 Right-click any slot for **Copy**, **Duplicate**, **Paste**, **Switch on/off**
-and **Remove**. Copy puts the reference on a clipboard shared by every loader
+and **Remove**, led by a picture's or clip's editing entries (crop, trim and
+masks; a picture's only in Reference mode). Copy puts the reference on a clipboard shared by every loader
 on the page, so you can paste it into a different node — useful for sending one
 picture through two graphs with different crops.
 
@@ -745,7 +1772,7 @@ self-contained.
 ### Which output goes where?
 
 Prompt Studio has a `prompt` output, a gated `references` bundle, and
-`picture_1` / `picture_2` for the keyframe modes (see
+`first_frame` / `last_frame` for the keyframe modes (see
 [Prompt Studio](#prompt-studio) for the full table). `references` isn't split
 into individual slots on its own — see the next question.
 
@@ -820,8 +1847,6 @@ soundtrack spends from both totals at once: a 12-second video with its audio on
 uses 12 of your 15 video seconds *and* 12 of your 15 audio seconds, leaving 3
 seconds of audio for anything else.
 
-Audio also can't be sent without at least one image or video alongside it.
-
 The loader flags all of these, and the ✂ trim is usually the fix — see
 [Trimming and cropping clips](#trimming-and-cropping-clips).
 
@@ -832,10 +1857,11 @@ would quietly invalidate tags already written into your prompt.
 ### Does switching mode change what gets sent?
 
 Yes — the saved mode decides what the outputs carry, so cables can stay
-plugged in permanently. Keep `picture_1` wired to `first_frame`, and a prompt
-saved in T2VA mode sends nothing but the prompt; switch the editor to I2VA and
-Save, and picture 1 flows again. What each mode sends is written right under
-the mode buttons in the editor, unusable media is greyed out in the rail, and
+plugged in permanently. Keep `first_frame` wired to `first_frame`, and a
+prompt saved in T2VA mode sends nothing but the prompt; switch the editor to
+I2VA and Save, and the picture flows again. What each mode sends is written
+right under the mode buttons in the editor, unusable media is greyed out in
+the rail, and
 the console prints exactly what was withheld on each run — so a gated
 reference is visible three ways before a render finishes.
 
@@ -913,8 +1939,8 @@ are exact frames of the finished video, so they go to the `first_frame` and
 slots, which exist only on the reference node and mean "here's something to draw
 from", not "here's a frame".
 
-Load your keyframes onto Prompt Studio's own panel and its `picture_1` /
-`picture_2` outputs already carry them — no separate **Load Image** node or
+Load your keyframes onto Prompt Studio's own panel and its `first_frame` /
+`last_frame` outputs already carry them — no separate **Load Image** node or
 extra wiring needed. See [Quick start](#quick-start) for the wiring.
 
 These modes take one image each, except FL2VA which takes two. Wire in more and
@@ -929,6 +1955,396 @@ frame count for your chosen end time — put that number into the native node's
 a valid one.
 
 ---
+
+## RefMods
+
+> **New to RefMods? Start with the [RefMods how-to guide](REFMODS.md).** It
+> walks through making, saving, editing and using them step by step. This
+> section is the detailed reference.
+
+RefMods are saved reference files for H3: a character's look, a voice, a
+place or a style, compressed once into a small latent and reused without
+re-encoding the source media. The format comes from
+[ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod)
+(MIT). Since 3.0.0 this pack keeps only the part Prompt Studio needs to hold
+its own picks (`refmods.py`, `refmod_core.py`, credited there); making,
+inspecting, editing and encoding RefMods use
+[the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)'s
+**Fantastic H3** nodes, installed alongside. Everything shares the
+`H3_REF_MODS` bundle type, so ComfyUI-MiniMaxH3Mod's nodes mix in too — its
+loaders into the Text Encode, a stack into its Step Curve or Inspect.
+
+### The library
+
+**Fantastic H3 RefMod Stack** holds every pick in one node. **Browse
+library…** opens the library: a thumbnail grid of everything under your
+`refmods` folders (including any mapped in `extra_model_paths.yaml`), with
+search, folders and a type filter. A card shows the file's token cost
+before you add it, and a look-and-voice pair saved as two files —
+`hero_visual` + `hero_audio`, or the H3RefMods fork's `hero_Video` +
+`hero_Audio` — appears as one card and one row. Click a card for its
+details, where you can rename it, move it to another folder, edit its
+description and concept, give it a subject name, appearance, retained
+attributes and voice description, replace its preview image, or delete it. A
+preview is any `.png`, `.jpg` or `.webp` saved beside the file with the
+same name.
+
+The details panel also has **Show what's stored**. A RefMod holds a latent,
+not a picture, so this runs it back through the H3 VAE (through the queue,
+like Create) and shows what the model is actually given: each stored frame
+as a thumbnail — right for a stack of photos — or the frames played as a
+clip, and the voice as an audio player. The **Strength** slider previews
+the softening a weight below 1 applies, so you can see what 0.5 really
+looks like. **Fantastic H3 Inspect RefMod** does the same in a graph.
+
+**Edit frames & voice…** in the details panel pulls a RefMod back into
+the Create tab. Its stored frames are listed first as sources — untick or
+remove the ones you don't want, drag to reorder, and drop new pictures or
+clips in to add them; they're encoded to the file's own size and style and
+the previews show how each one is trimmed to fit. Frames you
+keep are copied exactly as they are, never decoded and re-encoded, unless
+you blur their background (see **Batch Masking** below). The
+voice is a source too: untick it to remove it, or add an audio file (or
+tick a clip's soundtrack) to replace it — a trimmed voice keeps its whole
+trim, otherwise the first *Voice seconds* are kept. **Save changes** writes the result through the queue and the library
+reselects the file; tick **Save as a copy** and give it a name to leave the
+original alone and write the result as a new RefMod (its voice and preview
+come along). A RefMod that had no voice is renamed to the
+`_visual`/`_audio` pair when one is added. The **Subject name**, **Appearance** and
+**Voice** boxes in the settings pane set or clear those fields; when that's the
+only change, just the file headers are rewritten. **Fantastic H3 Edit RefMod** is
+the node behind it, should you want it in a graph.
+
+**Store encoder frames** is for RefMods saved before they carried the
+frames H3's text encoder is shown. Without them, RefMod Text Encode has to
+decode the RefMod (once, then it keeps the frames in its cache). This adds
+them to the file for good: one RefMod from its details panel, or every one
+still missing them from the button beside the sort menu. Each is decoded
+once, through the queue with the video VAE; its latent isn't touched. A
+RefMod made from several pictures keeps every picture, which roughly
+doubles its file.
+**Fantastic H3 Store RefMod Encoder Frames** is the node behind it.
+
+The **Create** tab makes new ones. Drop pictures, clips or audio anywhere
+on the library, or pull the items from any Prompt Studio in the workflow
+(the node's right-click menu has *RefMod library* for the same thing), so
+a clip you have already trimmed and cropped goes in as it stands. By
+default everything becomes **one RefMod**: six photos of a character are
+stacked into a single reference, one frame per photo, and any voices —
+audio files, or clips whose soundtrack you keep — are joined into one voice
+saved beside it. Every photo in it takes the first one's shape (portrait,
+landscape or square): the others have their edges trimmed to fit, in Full
+and Compressed alike. Each photo's preview shows exactly what will be
+trimmed, so drag your best-framed one to the top. Rather than accept the automatic trim, click **Crop and
+mask…** on any other photo: the crop editor opens locked to the first
+photo's shape, and you drag the box over the part you want to keep. The
+same button (**Trim, crop and mask…** on a clip) rotates, mirrors, trims
+and masks. These edits apply to the RefMod only; the node's
+media panel keeps its own settings. A stacked RefMod is cited in prompts as one
+video, like `<Video 1>`. Switch to **One
+per source** to turn a batch of unrelated items into separate RefMods
+instead.
+
+A clip contributes its first `latent_frames` frames (after its trim in the
+media panel), consecutive so the motion is real; H3's video VAE stores 2
+frames for up to 17 and 5 more per further 17, so 22 frames store 7, 39
+store 12, 56 store 17, and other counts are cut down to the nearest of
+those. The setting's caption shows the result live.
+
+**Batch Masking.** In the settings pane, **Find and Mask All** runs SAM 3.1
+(`sam3.1_multiplex_fp16.safetensors` in `models/checkpoints`) over every
+picture and clip in one queue job. It finds the word you type, which starts
+as `person` for the identity and pose/motion concepts, keeping the largest
+match unless **Keep every match** is ticked. A picture with its own word
+uses that, and brushed pictures are left alone. A clip is masked over the
+same frames Create takes from it. **Crop to subject** crops around what was
+found with a **Margin** (1.75×), grown to the stack's shape and kept inside
+the picture. A crop you adjust by hand is kept, and **Back to auto** returns
+it. **Blur background** blurs everything but the subject in pixels before
+encoding; **Blur**, **Grow** and **Edge** are in pixels of the picture as
+encoded. The editor (**Crop and mask…**) draws the mask over the picture
+and masks that picture alone: a **What to mask** box (empty uses Batch
+Masking's word), **▶ Auto mask**, **◉ Dots** to steer it, a **✎ Brush**
+that paints into the mask or erases from it (on a clip, every frame;
+Ctrl+Z undoes a stroke), **Mask | Result** for a live preview, and the
+picture's own settings, each following Batch Masking until changed there
+(**Use batch settings** hands them back). Auto mask starts fresh and drops
+the brush strokes. Apply or ‹ › keeps the window's changes; ‹ › or `,` `.`
+(PgUp/PgDn) step through every source. In edit mode, a Full RefMod's stored
+frames can be blurred too (**Mask…** on the frame): a latent blend outside
+the subject, with **Background kept** setting how much stays. Rows flag
+small crops (under 60% of the resolution), a subject cut off by the stack's
+shape, nothing masked, and masks to redo with Auto mask. The masks are
+temporary: they're deleted once the RefMod is saved, and Clean up sweeps
+any left over. What was done is recorded in the file (Batch Masking's
+settings), shown as a **bg blurred** badge and in Details, and edit mode
+starts from it.
+
+Voices can be trimmed with **Trim…** on their row. A trimmed voice keeps
+its whole trim; Voice seconds only cuts untrimmed ones. The line under
+Create shows the voice's length and tokens, about 80 a second.
+
+Under the Create button the tab shows how many frames and tokens the
+result will have. If that goes over the token limit, Create is blocked
+until you raise the limit, lower the resolution, switch to Compressed or
+leave some sources out — it never quietly drops photos to fit. Creation
+runs through the queue like any workflow, so ComfyUI manages memory and you
+can follow it in the queue panel, and the new card appears in the library
+when it lands, with a preview image written beside the file.
+
+**Fantastic H3 Create RefMod** is the node the library queues. It also
+works by hand in a graph with IMAGE and AUDIO inputs, and its `source`
+field takes a media-panel item, or a list of them to stack, as JSON. Not carried over from the
+original pack: mask inputs (the Create tab's Batch Masking crops and blurs
+around a subject instead), multi-reference merging, motion-only mode and
+presets.
+
+**Full or Compressed?** Full keeps as much of your picture or clip as
+possible, so faces, characters, products and text come through clearly,
+but it makes generation slower. Compressed keeps the overall look (colours,
+layout, shapes and style) and drops the fine detail, which makes it much
+lighter; it suits settings, styles and moods, or using many references at
+once. If you're not sure, make one of each and try them with the same
+prompt.
+
+### The stack node
+
+The stack is a grid of twelve slots, two to a row, and it never resizes
+itself: adding or removing RefMods fills or empties slots, and only
+**⤢ Size** or the resize handle changes the node. Click an empty slot to
+open the library; its own **⚙**, beside its Close, sets the library's
+window and text size.
+
+Each card shows the RefMod's thumbnail and name, an on/off switch, **⋯**
+and **×**, and a slider per channel labelled with the tag it will get —
+`<Video 1>` for the look, `<Audio 1>` for the voice. Up to 1 is plain
+strength. Above 1 adds copies: 2.7 sends two full copies and a third at
+0.7, and hovering the tag spells that out along with the token cost. The
+card's **⋯** menu switches a channel to **S × C** for several copies at the
+same reduced strength. Drag the grip to reorder, which matters because
+order sets the label numbers.
+
+The header shows how many slots are used and the token total, and **⋯**
+there holds `max_total_tokens`, a limit the queue enforces. **⤢ Size** sets
+the node and text scale, remembered for new nodes the way the Media
+Loader's is. The footer lists every label the next node will assign.
+
+**Chaining.** Wire one stack's `mods` output into another's `mods` input
+and the second stack sends both sets on. The header then reads
+*stack 2 / 2*, and the footer lists the upstream labels first, dimmed, so
+you can see the numbering the Text Encode will use across the chain.
+
+**Presets.** The preset row saves the stack — picks, weights and switches —
+under a name and an optional category, and loads it back into any stack
+node. The picker searches and filters by category like the media preset
+picker. The prompt library's save form can link a prompt to the RefMod
+preset the stack currently matches, the way it links media presets, and
+loading that prompt offers to load the RefMods too.
+
+To use RefMods, click **◈** at the left of the Prompt Studio node's toolbar
+and pick them there — it is the same twelve-slot grid a RefMod Stack node has, with
+**Browse library…**, **Create…**, presets and a weight per channel. **◈ RefMods**
+in the prompt editor's header opens the same picks in a window. Wire the node's
+`prompt`, `mods` and `references` outputs into RefMod Text Encode; the header
+button does the `mods` half itself when the Text Encode is already there, and
+the editor warns when a bundle doesn't reach one.
+
+The original pack's **Fantastic H3 RefMod Stack** node is there for sharing
+one set of RefMods across several prompts: wire its `mods` into Prompt Studio's `mods`
+input and its entries are sent first, with the node's own RefMods numbered
+after them (the stack's toolbar shows "stack 1 / 2"). A stack wired straight
+into the Text Encode, as 2.6.0 workflows were built, still works: the node
+finds it by following its `prompt` output. Loaded media and RefMods can be used together
+this way; the editor numbers the media first, then the RefMods, matching Text
+Encode.
+
+**Fantastic H3 RefMod Text Encode** stands in for *MiniMax H3 Reference to
+Video*. It takes the H3 CLIP, a prompt, the RefMod bundle on `mods`, and a
+reference bundle on `references` — Prompt Studio's `references` output, or a
+Media Loader's own — with the video VAE for pictures and clips
+and the audio VAE for voices. It presents every reference to the model's own
+encoder during tokenization, so the prompt can cite `<Picture n>`,
+`<Video n>` and `<Audio n>`: loaded media is labelled first, the
+RefMods after it, one counter per kind with every copy numbered, and the
+map is reported on `reference_map`. **Fantastic H3 Reference Map** gives the
+same map from the same `references` and `mods` without encoding anything.
+It shows the map as you edit the graph, before anything is queued, with a
+**⧉ Copy** button for pasting it into an LLM, and outputs it for an LLM
+node writing the prompt. Loaded media is sized as the native
+node sizes it (`width`, `height`, `length` and `ref_image_size` are the
+same settings); RefMods keep the size they were saved at. A clip is shown
+to the encoder at two frames a second, as the native node samples video.
+For a RefMod made from several pictures, `stack_pictures` (experimental)
+sets how many of them the encoder sees: every 4th (the default and the
+fewest tokens), up to N (set by `stack_pictures_n`, default 8), or all. More
+may help lock in identity and reduce bleed between RefMods, but what the
+encoder sees rides through every
+sampling step, so it costs memory and generation time. Connect its
+conditioning straight to the sampler — it has already attached the
+references — and its `latent` output is the empty AV latent to sample
+from, so no separate Empty Latent node is needed. The editor shows the same
+labels on its reference chips, media and RefMods together, groups a pick's
+copies under its first label (citing `<Picture 1>` is enough when 1–3 are
+the same file), and warns when the prompt cites a label the stack doesn't
+send. The cards number RefMods after the media the Text Encode is fed —
+Prompt Studio's own panel, or the original pack's Media Loader — as the
+Text Encode will; a stack's
+`labels` output lists the RefMods alone, counted from 1. Its optional
+`mods` input appends to another stack or loader, whose entries are numbered
+first.
+
+`voice_description_at_label` (off by default) doesn't change whether your
+voices are used — they always are. On, each voice RefMod's saved Voice
+description is also written right after its `<Audio n>:` label, where the
+encoder is introduced to the reference, instead of only in the prompt body.
+A RefMod set to identity with a subject name also says whose voice it is:
+`<Audio 1>: It is Kate's voice: female, medium pitched, precise.` Off, the
+encoder sees exactly what core's node gives it.
+
+The node lists its references in the order the model reads them: each
+label and the file or RefMod it stands for, under Media and then RefMods.
+The list follows the graph as you change media, picks, links or the
+builder's mode, so the order can be checked without queueing, and it counts
+media the builder's mode holds back. Past ten lines it scrolls. Click its
+heading to fold it. **▦ Thumbnails…** on the heading shows every reference
+as a small preview in the same order: media as the Media Loader shows it,
+crops marked, and RefMods with their tags and tokens. A clip's soundtrack
+and a RefMod's voice share its card.
+
+**Fantastic H3 RefMod Apply** appends the references to conditioning encoded
+elsewhere, with a `retention` multiplier on every entry. The model sees them,
+but the prompt cannot name them — use it when a workflow already has its
+own text encoding.
+
+Files from the H3RefMods fork's older "combined" format keep a voice inside
+the visual file; they load with the visual half only and are marked
+*embedded audio ignored* in the library. ComfyUI-MiniMaxH3Mod 0.2.6's
+single-file **bundles** (format version 5, several references in one file)
+are listed with a *bundle* badge and addressed as `name#index`; the first
+look and first voice inside become the card's channels. They can be picked,
+inspected, renamed, described and deleted here. **Edit frames & voice** saves
+a bundle's changes as a copy in standalone files and leaves the bundle as
+that pack wrote it.
+
+---
+
+## Editing a clip with a mask
+
+Replace, change or remove part of a clip and keep the rest as filmed. The
+mask decides where H3 may change anything; the prompt decides what that area
+becomes.
+
+**What you need:** the SAM 3.1 checkpoint,
+[`sam3.1_multiplex_fp16.safetensors`](https://huggingface.co/Comfy-Org/sam3.1/resolve/main/checkpoints/sam3.1_multiplex_fp16.safetensors),
+in `models/checkpoints`. The pack never downloads it. And
+[the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder),
+installed alongside: Auto Mask runs its Object Mask, and its RefMod Text
+Encode and Edit Composite build and finish the edit. Drawn shapes and brush
+layers, and combining them, are this pack's own.
+
+**Masking.** Right-click a video in Prompt Studio's media panel → **◐ Mask for
+editing…** (or the **◐ Mask** tab in its trim editor). It works on the clip
+as you've trimmed, cropped and mirrored it there. The mask is built from
+**layers**, stacked beside the picture like an image editor's, new ones on
+top: each one **Add**s its area or **Cut**s it out of the layers below it, the eye leaves
+one out, ⠇ drags to reorder and ⋯ renames, duplicates or deletes. The
+selected layer is outlined in amber on the video; hovering a row outlines
+that layer in white. It starts with an Auto Mask layer, ready for dots;
+**+ Add layer** adds more:
+
+- **Auto Mask with SAM** — click what you want masked on a frame where it's
+  clear and right-click anything that shouldn't be included. A click alone
+  can grab a whole person, so type what it is as well — "green jacket" — and
+  just that part under your dots is masked; a name with no dots masks every
+  match. **▶ Run Auto** runs SAM through the queue on its own, over the kept
+  range only.
+- **Ellipse**, **Rectangle** and **Polygon** — drag to draw (a polygon:
+  click its points, then the first one again). Move, resize or turn it on
+  another frame and it's keyed there, so it follows what it covers;
+  **Motion** sets how it travels between keys (Smooth, Linear or Ease). A
+  **Hidden** key takes it out of the mask until the next Shown key, for
+  something that leaves the frame or comes back after a cut.
+- **Brush** — paint or erase by hand, on this frame, from here to the end or
+  the whole clip.
+
+The layers play over the clip in cyan as you work (an approximate preview;
+hide it from the right-click menu). **Use this mask** combines them over the
+kept range into the clip's mask and saves it with the layers, so they stay
+editable; the card then reads **Video 1 · editing**. Widen the trim later
+and the panel says the mask stops short; Use this mask again covers it. Ctrl+Z undoes within the session, and
+closing with unsaved changes asks first.
+
+**Fixing an Auto Mask.** Dots can go on several frames: each marked frame
+seeds the tracking from there to the next one, so when a mask drifts, scrub
+to where it goes wrong, add a dot and run again (a frame needs a green dot;
+the layer's panel lists the frames with dots, and says **run again** once
+they or the name change). **Add** and **Cut** run SAM and merge the result
+into that layer or take it out — green-dot the shirt under the jacket, type
+"shirt", run with Add. **Look for it by name on every frame** also re-finds a
+named object wherever tracking lost it, such as after a cut; it can pick up
+look-alikes. For what SAM can't get, add a shape or a brush layer.
+
+**Shaping it.** These settings apply to the combined mask. **grow** widens the mask; **feather** fades the regenerated
+area into the kept footage so there's no hard seam (its inside stays fully
+regenerated; the fade is rounded up to whole 16-pixel latent cells at the
+sampling size); **invert** keeps what's masked and regenerates everything
+else — grow then protects a margin around it. **crop to mask** samples only
+the area around the mask, enlarged up to 4× at your pixel budget, for far
+more detail in small edits; **context** sets how much surroundings it keeps,
+the dashed box shows it, and it turns itself off when the mask covers most of
+the frame or is inverted. The overlay draws the mask grown and inverted as
+the edit uses it, and **▦ regenerated** shows the area H3 really
+regenerates — rounded out to the latent's 16-pixel cells at the sampling size.
+
+**Citing it.** The clip is always sent as a reference too, so the prompt
+can cite it the way H3's editing prompts do: `<Video 1> is the source video
+for the target video edit.` and `[video editing] The target video is an
+edited version of <Video 1>.` That costs a clip's worth of
+reference tokens — the builder and the mask panel show an estimate and warn
+past about 30,000. With crop to mask, only the cropped box is cited, which
+matches what's generated and costs far less. If an edit comes back as the
+clip unchanged, lower **reference strength** in the mask settings: the cited clip is
+then mixed toward a blurred copy, so it still gives the model the colours
+and placement but not detail it can copy back. **Masked area in the
+reference** (experimental) is for replacing a whole person, where the
+original tends to creep back: **blurred** softens the masked area of the
+cited clip by the **blur** radius, and **inverted** turns it into a
+photographic negative that keeps shape, movement and expressions;
+**blurred and inverted** does both. Everything outside the mask stays as it
+is. Describe the
+finished clip, including what the masked area becomes; when removing
+something, describe what's there instead and don't name it.
+
+**Generating.** Prompt Studio carries the edit in its `references` output,
+and the RefMod Text Encode builds it from there: the clip at your width × height pixel budget (keeping its own
+shape, never enlarged), encoded, with the mask on H3's latent grid. It's
+saved the first time and loaded on later runs until a setting that changes
+it does — the prompt, seed and sampler don't. Cited reference clips are
+saved the same way. Wire the Text Encode's `latent` into the sampler, and
+put **Fantastic H3 Edit Composite** between VAE Decode and Create Video with
+the same `references`: it pastes exactly the area H3 regenerated, the cells
+the ▦ overlay shows plus any feather (scaled back into place when crop to
+mask is on), into your original frames through a soft edge, so everything
+else is the source file's own pixels, not a VAE copy of them. Its `max_size` caps the output's
+long edge. The example workflows are wired this way.
+
+**Clearing and tidying.** Clearing a mask asks for a second click and
+offers Undo; the layers stay in the editor. Masks are stored one bit per
+pixel. Saving or running Auto Mask again leaves the old mask files behind,
+and changed settings leave old saved latents; the media panel's **Clean up…**
+deletes mask files that no Prompt Studio (or original-pack Media Loader) in
+the open workflow, saved media set or draft uses (each Auto Mask layer's result counts),
+plus saved latents (they're rebuilt when needed). Once those unused mask
+files pass 500 MB the panel offers a Clean up; set the size, or 0 for
+never, under *Clean-up reminder* in its ⚙ menu. This pack keeps its masks
+in `input/minimax_h3_plus/masks`, apart from the original pack's; **Use this
+mask** copies Auto Mask's results in there too, so the original pack's Clean
+up can't delete layers Prompt Studio still uses. Saved latents are the
+original pack's Text Encode's, and its own Clean up handles them.
+
+Masks made elsewhere work too: **Fantastic H3 Video Edit Latent** takes
+frames, a MASK and a megapixel budget and outputs the latent, width, height
+and length.
 
 ## Dated output folders
 
@@ -971,10 +2387,13 @@ script failing, and almost always one of:
    registering. Open the browser console (F12) — the first red error usually
    names the culprit, and it often isn't this pack.
 3. **A partial install.** `custom_nodes/<this pack>/web/` should contain
-   `promptbuilder.js`, `medialoader.js`, `promptstudio.js` and the guide PDF.
+   `promptbuilder.js`, `medialoader.js`, `promptstudio.js`,
+   `refmodstack.js` and `video-prompt-writing-guide.html`.
 
 If this pack itself is the one failing, the node now shows a **⚠ UI failed**
 button — click it for the error, and include that text in a bug report.
+
+### Anything else
 
 **The nodes don't appear.** ComfyUI needs a full restart, not a page refresh.
 Check the startup console for errors mentioning MiniMaxH3.
@@ -985,15 +2404,25 @@ open. If a node's *outputs* look wrong specifically, that's a restart issue
 rather than a browser one — and nodes already placed in a workflow keep their
 old slots, so delete and re-add them after an update.
 
-**Videos are rejected.** Neither PyAV nor ffmpeg was found. Many ComfyUI installs
-already include ffmpeg, so this is worth a check before installing anything: if
-ffmpeg isn't on your PATH, `pip install av` into your ComfyUI environment is the
-simplest fix.
+**Videos are rejected.** PyAV failed to import. ComfyUI core requires PyAV, so
+this almost always means another pack downgraded or broke it (a known culprit:
+`aiortc` pins `av<17`, which ComfyUI's own code can't run with).
+`pip install 'av>=17'` into your ComfyUI environment restores it.
+
+**"Couldn't upload … missing or stale session token" when dropping a file
+into Create, or drag-and-drop into the RefMod library doing nothing.** You are
+most likely using ComfyUI through another front-end's embedded tab —
+**SwarmUI** is the one reported. Its proxy rewrites the requests and drops the
+`X-MiniMaxH3-Token` header the pack's routes require, so uploads are refused
+(the ComfyUI console prints one line naming the failed check). Open ComfyUI's
+own interface directly in a browser tab — the address and port ComfyUI itself
+prints at startup — and the same workflow works. The nodes still run fine
+from SwarmUI's queue; only the library's uploads need the direct page.
 
 **A button does nothing.** Open the browser console (F12) and click it again —
-any failure prints there. The panel's **Open loader…** button opens the media
-panel in its own window, independent of the on-node one, if that helps narrow
-it down.
+any failure prints there. The panel's **❐** button opens the media panel in
+its own window, independent of the on-node one, if that helps narrow it
+down.
 
 **Something looks squashed or overlapping.** This pack works with both the
 classic node renderer and Nodes 2.0. If the on-node panel misbehaves in one of
@@ -1008,6 +2437,15 @@ Prompt structure follows MiniMax's official *Video Prompt Writing Guide*, which
 ships with this pack — click 📖 in the editor to read it.
 
 Built against ComfyUI's native MiniMax H3 support.
+
+RefMods: the format and the encode/apply runtime are adapted from
+[ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod)
+by Luisa (luisacaotica), MIT License; the library's layout took cues from
+FranckyB's [ComfyUI-H3RefMods](https://github.com/FranckyB/ComfyUI-H3RefMods).
+
+Mask layers: the keyframed shapes follow BISAM20's
+[ComfyUI-AnimatedMaskEditor](https://github.com/BISAM20/ComfyUI-AnimatedMaskEditor),
+MIT License.
 
 ## License
 

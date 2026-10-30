@@ -1,0 +1,657 @@
+# RefMods: a how-to guide
+
+A **RefMod** is a saved reference. It uses MiniMax H3's reference
+functionality to save characters or concepts as a bundled package quickly.
+Much like a LoRA, but without the training cost, and you can adjust your
+dataset quickly and easily. Make one from a few photos of a
+character, a clip of a place, or a recording of a voice, and it's ready to
+drop into any prompt from then on. No re-uploading, no re-cropping, and it
+looks the same every time you use it.
+
+![The RefMod library](docs/refmods/01-library.png)
+
+> **A note on the screenshots.** This guide came from
+> [the original pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder),
+> where the prompt editor and the media panel are two separate nodes — a
+> Prompt Builder and a Media Loader — and the pictures still show that
+> layout. Here they are one node, **MiniMax H3 Prompt Studio**, with the
+> media panel built into it. The text below is written for Prompt Studio;
+> where a picture shows two nodes, read them as the one you have. Nothing
+> about RefMods themselves differs.
+
+---
+
+## Contents
+
+- [Before you start](#before-you-start)
+- [Quick and easy setup](#quick-and-easy-setup)
+- [Making a RefMod](#making-a-refmod)
+- [Saving and organising](#saving-and-organising)
+- [Editing a RefMod](#editing-a-refmod)
+- [Using RefMods in a prompt](#using-refmods-in-a-prompt)
+- [Tips and fixes](#tips-and-fixes)
+
+---
+
+## Before you start
+
+You need:
+
+- **A ref2va H3 model.** RefMods are references, and ref2va is the model
+  that was trained on references. The standard fl2va model will still run
+  with them, but it wasn't trained to use them, so expect weaker results.
+  However, MiniMax has admitted there are faults with the open-weight
+  ref2va model, so we strongly encourage using a fl2va/ref2va hybrid model
+  that enables reference capabilities with fl2va quality. These are
+  **direct drop-ins** for ref2va workflows, and do not require any special
+  nodes or workflow modifications to use, just select a hybrid model
+  instead of a ref2va model. Testing was done using the "20-49" model from
+  this repo:
+  <https://huggingface.co/smhfacct/Minimax-H3-fl2va-ref2va-hybrid-models>
+- **The H3 video VAE** for anything with pictures, and **the H3 audio
+  VAE** for voices.
+- **[The original Fantastic H3 pack](https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder)**
+  installed alongside this one. Prompt Studio holds your RefMod picks, but
+  the nodes that make, inspect, edit and encode RefMods are that pack's
+  (**Fantastic H3 …**); the library queues them for you, and tells you if
+  they're missing.
+
+Your RefMods are saved in `ComfyUI/models/refmods`. You never have to go
+there yourself, but it's handy to know if you want to back them up or
+share them.
+
+There are two ready-made workflows in `example_workflows`. Load one, pick
+your model files, and everything below is already wired up:
+
+- **MMH3_RefMod_Vanilla_Stack_Example.json** uses only the original pack and
+  ComfyUI's own nodes.
+- **MMH3_RefMod_Fully_Fantastic_Example.json** is the same chain with the
+  Fantastic LoRA loader and seed nodes from the
+  [comfyui-fantastic-loras](https://github.com/Adudeguyman/comfyui_fantastic-loras)
+  pack, so install that first.
+
+---
+
+## Quick and easy setup
+
+Click **◈** at the left of the **Prompt Studio** node's toolbar. That swaps
+the node's media for this prompt's RefMods, which live — right on the node, next to its media, with nothing to
+add or wire. (**◈ RefMods** in the prompt editor's header opens the same picks
+in a window, and connects a **RefMod Text Encode** that's already in the
+workflow.) From here, everything happens inside that panel and its windows;
+the ◈ at the left of the RefMods toolbar swaps back to the media.
+
+![The RefMod Stack, Prompt Builder and RefMod Text Encode wired together](docs/refmods/02-nodes.png)
+
+### The nodes
+
+- **MiniMax H3 Prompt Studio** is where you write the prompt, load your
+  reference media, and pick your RefMods (**◈** swaps its panel to them). It shows
+  your RefMods as chips and passes them on. (In the picture above, this is
+  the Prompt Builder, the Media Loader and the RefMod Stack together.)
+- **Fantastic H3 RefMod Text Encode**, from the original pack, takes the
+  place of the native **MiniMax H3 Reference to Video** node. Use one or
+  the other, not both.
+
+The Text Encode node does everything Reference to Video did, and it
+understands RefMods:
+
+- Wire the H3 **clip** and **vae** into it as you would for Reference to
+  Video, plus the **audio_vae** if any of your references have a voice.
+- Prompt Studio's **prompt**, **mods** and **references** outputs go to the
+  inputs of the same names. **◈ RefMods** makes those connections for you
+  when the Text Encode is already in the graph.
+- Its **conditioning** goes to your sampler or guider, and its **latent**
+  is the empty video to sample into, so you don't need a separate Empty
+  Latent node either.
+- **width**, **height**, **length** and **ref_image_size** are the same
+  settings Reference to Video has, and they mean the same thing.
+- **stack_pictures** (experimental) sets how many pictures of a RefMod
+  made from several the text encoder sees: every 4th (the default), up to
+  8, or all. More pictures may help lock in identity and reduce bleeding
+  between RefMods, but they increase memory use and generation time.
+- **reference_map** is a text output listing every label and where it
+  came from. Handy for checking with a preview node. **Fantastic H3
+  Reference Map** gives the same text without encoding, from the same
+  references and mods. It shows the text as you edit the graph, before
+  anything is queued, with **⧉ Copy** for pasting it into an LLM, and
+  outputs it for an LLM node that writes the prompt.
+- The node itself lists its references in the order the model reads them,
+  each label with its file or RefMod, media first and then RefMods. It
+  updates as you change the graph, so you can check the order without
+  queueing. Click its heading to fold it. **▦ Thumbnails…** shows them all
+  as small previews, each RefMod with its tags and tokens.
+
+To show a RefMod to H3's text encoder, the Text Encode needs it as pictures.
+RefMods made or edited with a VAE keep those frames inside their file,
+so it never has to decode them. Older ones get them from the library's
+**Store encoder frames**. Until then they're decoded the first time they're
+used and kept in the original pack's `input/minimax_h3/cache`, where its
+**Clean up…** lists them; deleting them only means one more decode.
+
+Media from Prompt Studio's own panel still works through it, so you can mix
+RefMods with one-off pictures and clips in the same prompt. There's more on that
+under [Using RefMods with regular media](#using-refmods-with-regular-media).
+
+The RefMods panel has three buttons at the top, after the ◈:
+
+- **Browse library…** opens your saved RefMods.
+- **Create…** opens the library straight on the Create tab.
+- **Refresh** re-reads the folder if you added files by hand.
+
+It has twelve fixed slots, and adding RefMods fills them rather than growing
+the node.
+
+**The original pack's RefMod Stack node** is there if you want one set of
+RefMods shared by several prompts: wire its `mods` into Prompt Studio's `mods`
+input and its RefMods are sent first, with the node's own numbered after them.
+On its own node it also has **⤢ Size** for the node and text size.
+
+---
+
+## Making a RefMod
+
+Click **Create…** on the stack (or open the library and choose the
+**Create** tab).
+
+![The Create tab with photos and a voice ready to become one RefMod](docs/refmods/03-create.png)
+
+### 1. Add your media
+
+Drag pictures, clips or audio files **anywhere onto the window**, or click
+the drop area to pick files.
+
+Already have them in **Prompt Studio's media panel**, trimmed and cropped
+the way you like? Choose it under **From loader** and click **Pull**. Or
+right-click the Prompt Studio node and pick **RefMod library**.
+
+### 2. Choose one RefMod or several
+
+- **One RefMod from all** (the default) combines everything into a single
+  RefMod. Use this for several photos of the same character or place. More
+  angles usually give a better likeness.
+- **One per source** makes a separate RefMod from each item.
+
+Give it a **name**. If it's a character, give it a **Subject name** too,
+like `Bob`, in the settings on the right. That's the name the prompt uses
+for them (see [Give the subject a name](#let-the-editor-write-them-for-you)).
+You can describe them there too: **Appearance** is how they look, like
+`shoulder-length auburn hair and a green wool coat`, and **Voice** is how
+they sound, like `low, husky voice with a slow, warm pace`. Voice only shows
+when there's audio. Drafting puts both into the prompt for you. With **One
+per source**, the settings list these boxes for each item.
+
+### 3. Check the framing
+
+When you combine photos, they all take the resolution and aspect ratio of
+the **first one**:
+portrait, landscape or square. The first photo is marked *Sets dataset
+size and aspect ratio*.
+
+- Put your best-framed photo at the top. Drag rows to reorder.
+- Each preview shows what will be cut off
+  to fit.
+- To choose which part is kept instead of taking the middle, click
+  **Crop and mask…** on a photo. The crop box is locked to the right aspect
+  ratio, so just drag it over the part you want.
+
+Hover over any preview to see it larger.
+
+### Crop to the subject and blur the background
+
+**Batch Masking** in the settings finds who or what the RefMod is of in
+every picture and clip, using SAM 3.1. It needs
+`sam3.1_multiplex_fp16.safetensors` in `models/checkpoints`, the same file
+**Mask for editing** uses. Nothing is downloaded for you.
+
+- Type what to mask, like `person`, and click **Find and Mask All**. For the identity
+  and pose/motion concepts, the box starts as `person`. Every picture and
+  clip goes through the queue as one job. Each picture keeps its largest
+  match; tick **Keep every match** for a RefMod of more than one person.
+  A picture with its own word (see below) uses that, and pictures you
+  brushed are left alone.
+- **Crop to subject** crops each picture and clip around what was found,
+  with room around it set by **Margin** (1.75× by default). In a stack, the
+  crop takes the first photo's shape. It only grows to fit that shape, so
+  nothing is squashed. A crop you move by hand stays as you left it;
+  **Back to auto** on its row hands it back.
+- **Blur background** blurs everything but the subject before it's
+  encoded, so props and backgrounds don't bleed into the RefMod:
+  - **Blur** sets how strong the blur is.
+  - **Grow** widens the subject first, so hair and edges stay sharp.
+  - **Edge** softens the border so the blur fades in.
+
+  All three are in pixels of the picture as it's encoded, so they look the
+  same at any resolution. The blur doesn't change the token count; a
+  tighter crop can lower it.
+**Crop and mask…** on a row (**Trim, crop and mask…** on a clip) opens the
+editor with the mask drawn over the picture. **‹ ›**, `,` and `.`, or PgUp
+and PgDn step through every source. Its masking bar works on that picture
+alone:
+
+- **What to mask**: left empty, it uses Batch Masking's word. Type in it
+  to give this picture its own; Enter runs Auto mask.
+- **▶ Auto mask** masks the picture with SAM from the word and any dots.
+  To steer it, click **◉ Dots**, then left-click what to mask and
+  right-click what to leave out. It starts fresh: brush strokes on the
+  picture are dropped.
+- **✎ Brush** paints the mask by hand: **Paint** adds to it, **Erase**
+  takes away, **Size** sets the brush. Ctrl+Z undoes a stroke and **Clear
+  brush** removes them all. On a clip, a stroke covers every frame. It
+  works without Auto mask too, for masking by hand.
+- **Mask | Result** switches between the mask and the blurred result.
+- Under them are the picture's own settings. Each follows Batch Masking
+  until you change it here; a changed one is marked, and **Use batch
+  settings** hands them all back.
+
+**Apply** or **‹ ›** keeps what you did in the window. Closing it with
+unsaved changes asks first.
+A crop that follows the subject moves with the brush and the margin.
+
+A row is flagged when:
+
+- **Small crop**: the crop is under 60% of the resolution the RefMod is
+  made at.
+- **Subject cut off**: the stack's shape can't fit around the subject at
+  that margin.
+- **No subject found**, or **Nothing left masked** after the brush: that
+  picture is kept whole and isn't blurred.
+- **Auto mask again**: a clip's trim or Clip frames changed, or the masks
+  were cleaned up while the library was closed.
+
+The masks are temporary. They're deleted once the RefMod is made, and
+**Clean up** clears any left over. What was done is saved in the RefMod
+itself: its library card shows **bg blurred** (or **subject crop**), and
+Details lists Batch Masking's word, margin and blur. Editing it later
+starts from those settings.
+
+### Clips
+
+A clip becomes a short run of stored frames, so the model can read a
+motion or a look in movement. Two things to know:
+
+- **Trim first.** Only the start of the clip is used, so trim it in the
+  media panel (or with **Trim, crop and mask…** here) to the moment you want.
+- **Clip frames** is how many frames are taken from that start. H3 stores
+  frames in chunks: 2 stored frames for anything up to 17, then 5 more for
+  each further 17. So 22 frames store 7, 39 store 12, 56 store 17, and
+  anything in between is cut down to the nearest of those. The line under
+  the setting shows the result live, and each clip's row says which frames
+  it uses.
+
+Use **Full** for motion. Compressed keeps the overall look but not enough
+detail to carry movement.
+
+### 4. Full or Compressed?
+
+- **Full** keeps as much detail as possible. Use it for faces, specific
+  characters, products, or text that needs to stay readable. It makes
+  generation slower.
+- **Compressed** keeps the overall look (colours, layout, shapes, style)
+  but not the fine detail. It's much lighter, and good for settings,
+  styles, moods, or when you want lots of references at once.
+
+Not sure? Make one of each and try them with the same prompt.
+
+### 5. Voices
+
+Add an audio file, or tick **include its soundtrack as a voice** on a
+clip. The voice is saved alongside the look as part of the same RefMod.
+**Voice seconds** sets how much of the recording is kept, counted from the
+start. To keep a particular stretch instead, click **Trim…** on the voice's
+row: a trimmed voice keeps its whole trim, whatever Voice seconds says. The
+row shows how much is kept, and the line under Create adds the voice's
+tokens, about 80 a second. A clean recording of just the one voice, without
+music or background noise, gives the best result.
+
+### 6. Create
+
+Pick the **H3 video VAE** (and **audio VAE** for voices) under Models, then
+click **Create**.
+
+The line under the button tells you how big the result will be. If it's
+over your token limit, the button stays locked and tells you why. Lower
+the resolution, switch to Compressed, raise the limit, or leave out a
+source.
+
+Creating runs in the ComfyUI queue like any other job, so you can watch
+it there. When it's done, the new RefMod appears in the library.
+
+Closing the library part-way through doesn't lose the work. Whether you
+click outside the window, press Escape or hit **Close**, your sources,
+names, descriptions and any edit in progress are kept, and the next time
+you open the library — **Browse library…**, **Create…** or an empty slot —
+it comes back where you left it. **Start fresh** on the Create tab clears
+it. A page reload starts clean.
+
+---
+
+## Saving and organising
+
+Everything you create is saved automatically. Open **Browse library…** to
+see it all. **⚙** at the library's top right, beside Close, sets its window and text
+size, and it's remembered for next time.
+
+![A RefMod's details panel](docs/refmods/04-details.png)
+
+- **Search** by name, folder, description or subject name.
+- Filter by **Image / Video / Audio** and sort by name, size or newest.
+- **Folders** on the left list any subfolders you've sorted RefMods into
+  (for example `characters` or `places`). Click one to show only what's in
+  it. You can pick a folder when you create a RefMod, or move one later
+  from its details panel.
+
+Click **Details** on a card to open its panel. From there you can:
+
+- **Rename** it, or type a folder to move it (for example
+  `characters/jodi`).
+- Add a **description** and pick a **concept** (identity, clothing,
+  background, voice, style…) so it's easy to find later.
+- Give it a **Subject name**, like `Bob`. It's saved inside the RefMod
+  file, and drafting fills it in for you (see
+  [Give the subject a name](#let-the-editor-write-them-for-you)). You can
+  also set it on the Create tab as you make one, or in edit mode.
+- Describe its **Appearance**, **Retained attributes** and **Voice**. All
+  three are saved inside the file, and drafting puts them into the prompt.
+- **Replace preview** to set a nicer thumbnail.
+- **Store encoder frames**, for a RefMod saved before RefMods kept the
+  pictures the text encoder is shown, so the Text Encode doesn't have to
+  decode it. The button beside the sort menu does every RefMod still
+  missing them.
+- **Delete** it. You'll be asked to click twice.
+
+Click **Save changes** when you're done.
+
+---
+
+## Editing a RefMod
+
+### See what's inside
+
+In the details panel, click **Show what's stored**. It shows what the
+model actually receives: each frame as a thumbnail (or played as a clip),
+and the voice as an audio player. The **Strength** slider previews what a
+lower weight looks like.
+
+### Edit the RefMod's dataset
+
+Click **Edit frames & voice…**. The RefMod opens in the Create tab, with
+its saved frames listed first and marked **STORED**. Viewing or editing a
+RefMod's dataset needs to run everything through a ComfyUI queue, so it
+can take a moment to load individual elements, and it will wait until any
+jobs already running in your ComfyUI queue have finished.
+
+![Editing a RefMod's stored frames](docs/refmods/05-edit.png)
+
+- **Remove a frame**: untick it, or click ×.
+- **Reorder**: drag the rows.
+- **Add photos or clips**: drop them in. They're automatically fitted to
+  the RefMod's existing resolution and aspect ratio.
+- **Replace the voice**: drop in a new audio file.
+- **Remove the voice**: untick the stored voice row.
+- **Name and describe the subject**: fill in or clear **Subject name**,
+  **Appearance**, **Retained attributes** and **Voice** in the settings on
+  the right. If that's all
+  you change, only the file's header is rewritten.
+- **Blur the background of stored frames** (Full RefMods only): click
+  **Find and Mask All** in Batch Masking, and the stored frames get their
+  background blurred when you save. **Background kept** sets how much of
+  it stays; 0% blurs it fully. **Mask…** on a stored frame opens it in the
+  same window, with Auto mask, the brush, and Background kept and Grow for
+  that frame alone; **Result** decodes it with the blur, so you can check
+  it first. The blur is applied to the
+  stored frame itself, so its edge follows the frame's 16-pixel blocks.
+  A Compressed RefMod holds too little detail for this, but pictures you
+  add to one still get cropped and blurred.
+
+Editing never re-encodes what's already in a RefMod. Frames you keep are
+copied exactly as they were, unless you blur their background, and only
+the photos, clips or voice you add get encoded.
+
+**RefMods made from a video clip:** a clip's frames were encoded together,
+so they're marked **part of a clip**. Keep those together and in their
+original order. Removing or reordering them can break up the motion and
+make results drift, and the editor warns you if you do. To change a clip,
+re-trim it and create the RefMod again. Adding or removing whole photos is
+always safe.
+
+### Save over it, or save a copy
+
+- **Save changes** updates the RefMod.
+- Tick **Save as a copy** and give it a new name to keep the original as
+  it is and save your edited version alongside it.
+
+**Cancel** leaves without changing anything.
+
+---
+
+## Using RefMods in a prompt
+
+### Add them to the stack
+
+In the library, click **Add** on a card. Cards already in the stack show
+**✓ Add again**. Close the library and each one fills a slot on the RefMod
+Stack. Clicking an empty slot opens the library too.
+
+![Two RefMods in the stack with their weights and labels](docs/refmods/06-stack.png)
+
+Each card has:
+
+- **A weight slider per channel**, labelled with the tag it gets, like
+  `<Video 1>` for the look and `<Audio 1>` for the voice. 1 is normal
+  strength. Below 1 is softer. Above 1 adds extra copies: 2 means two
+  copies, which pushes the model harder toward that reference. Each extra
+  copy makes generation heavier.
+- **An on/off switch** to leave a RefMod out without removing it.
+- **⋯** for strength-times-copies mode and the card's details, and **×**
+  to remove it.
+- **The thumbnail and the name** open the library on that RefMod's details
+  pane, where you can rename it, describe it, look at what's stored or
+  edit it.
+
+**Reordering.** Drag a card by its handle, thumbnail or name and drop it on
+another card to take that place, or on an empty slot to go last. Escape
+part-way through puts it back. The handle also takes arrow keys.
+
+The header shows how many of the twelve slots are used and the token
+total. The footer lists the labels the prompt should use.
+
+**Presets.** The preset row saves the whole stack, weights and switches
+included, under a name, and loads it back into any stack node. When you
+save a prompt to the library, it can be linked to the preset your stack
+matches, and loading that prompt offers to load the RefMods too.
+
+**More than twelve, or a shared set.** Wire one stack's `mods` output into
+another's `mods` input. The second stack sends both sets on, its header
+reads *stack 2 / 2*, and its footer lists the first stack's labels first,
+dimmed, so the numbering is clear.
+
+### Cite them in the prompt
+
+Open **Edit prompt…** on Prompt Studio. Your RefMods show up as chips
+with their labels, like **`<Video 1>`** and **`<Audio 1>`**. Click a chip
+to insert its label.
+
+- **Several photos combined into one RefMod appear as a `<Video>`**, not a
+  `<Picture>`. That's expected. A single photo appears as a `<Picture>`.
+- **A RefMod's voice is a separate `<Audio>`** label.
+- **Copies share a label.** If you set a weight of 3, you'll see
+  `<Video 1–3>`. Cite `<Video 1>` and that's enough.
+
+In your subject definitions, write about them like any reference, for
+example:
+
+```text
+subject_definitions:
+<Subject 1> is the woman in <Video 1>.
+<Audio 1> is <Subject 1>'s voice timbre reference.
+```
+
+Then give each one a line in retention analysis, saying how closely to
+follow it:
+
+```text
+retention_analysis:
+<Subject 1> (appears in [Shot 1]): fully_preserved - the woman's identity is retained. Face, facial features, body type.
+<Audio 1>: reference - its vocal timbre guides the dialogue delivery of <Subject 1> without copying the original signal.
+```
+
+### Let the editor write them for you
+
+You don't have to type these lines yourself. In **Reference** mode, click
+**◈ Draft from RefMods** under `subject_definitions`. It writes a
+definition line and a matching retention entry for every RefMod in your
+stack, and ticks the right task types in the summary.
+
+![RefMod chips and the Draft from RefMods button in the editor](docs/refmods/07a-draft-button.png)
+
+![The definitions and retention entries it wrote](docs/refmods/07b-draft-filled.png)
+
+How each RefMod is written depends on its **concept**, the "what is this?"
+setting you pick when creating it (or later, in its details panel in the
+library):
+
+- **A person or character** becomes a `<Subject>`: "`<Subject 1>` is the
+  person in `<Video 1>`".
+- **An outfit** or **a place** also becomes a `<Subject>`, described as the
+  outfit or the environment.
+- **A visual style** or **a pose or motion** gets its own line instead of a
+  subject, saying what it guides and that its content isn't copied.
+- **A voice** is tied to the subject from the same RefMod, with its own
+  speaker ID. Singing voices, music styles, sound effects and ambience each
+  get their own wording.
+
+A RefMod's name and description are your own notes. They're never put
+into the prompt.
+
+**If a RefMod has no concept**, a small window asks what it is before
+drafting. Leave **Save the answers to the library** ticked and you won't be
+asked about that RefMod again.
+
+**If you already have lines**, it asks what to do:
+
+- **Add missing** keeps everything you've written and only drafts the
+  RefMods that don't have a line yet. Use this after adding a new RefMod
+  to the stack.
+- **Start over** clears all of both sections, including lines you wrote
+  for other media, and drafts them fresh.
+
+If every RefMod in the stack already has a line, there's nothing to add, so
+it offers **Start over** on its own. When a saved subject name or voice
+could go into an empty box, it also offers **Fill names and voices**.
+
+It only drafts RefMods. Pictures, clips and audio from the media panel are
+left for you to describe, since there's nothing saved about them.
+
+The drafted lines are a starting point. Read them over and add the details
+that matter for your shot, like hair, clothing or where the subject
+appears.
+
+**Give the subject a name.** Each `<Subject N>` line has a small name box.
+Type a name there — `Bob` — and the prompt adds *Their name is Bob.* to the
+definition. From then on you can write **`!Bob`** anywhere in the prompt
+instead of `<Subject 1>`: it shows as a green tag in the editor and turns
+into `<Subject 1> Bob` in the prompt (just `Bob` inside a spoken line), so
+every mention restates who it is. A `!Bob` chip appears next to the
+Subject chip to insert it.
+
+If the RefMod has a **Subject name** saved in the library, drafting fills
+the name box for you. Press **◈ Draft from RefMods** again later and
+choose **Fill names and voices** to fill any name or voice box left blank.
+A name you've typed yourself stays.
+
+**Describe them, too.** A RefMod's saved **Appearance** is drafted straight
+into its subject line:
+`<Subject 1> is the person in <Video 1>, with shoulder-length auburn hair and a green wool coat.`
+Its **Retained attributes**, for the small details the model should hold on
+to, close the subject's `retention_analysis` note:
+`<Subject 1>'s identity and appearance from <Video 1> are retained. Face, facial features, body type. A small rose tattoo on her left wrist.`
+Its **Voice** goes in the small voice box beside its `<Audio N>` line, and
+the prompt adds *It is a low, husky voice with a slow, warm pace.* With a
+subject name it says whose voice it is: *It is Ann's voice: low, husky voice
+with a slow, warm pace.*
+
+The speaker buttons in the dialogue row use it. When a speaker has a voice
+line, their button gets an arrow with two choices:
+
+- **Just (S1)** inserts `!Ann (S1) says:` and an empty spoken line.
+- **(S1) with voice** inserts `!Ann (S1), in the low, husky voice with a
+  slow, warm pace referenced from <Audio 1>, says:` and an empty spoken line.
+
+Clicking the button itself repeats your last choice for that speaker. Each
+speaker remembers its own, and it works the same with voiceover on.
+
+The editor warns you if the prompt cites a label that isn't being sent, or
+if a label is sent but never used.
+
+### Using RefMods with regular media
+
+You can use **loaded media** and RefMods together. Media from Prompt
+Studio's panel is numbered first, then the RefMods after it. So one picture
+in the panel plus a RefMod gives you `<Picture 1>` from the panel, then
+`<Video 1>` and `<Audio 1>` from the RefMod. The editor's chips and the
+RefMods cards both show the real numbers, so go by those. (A RefMod Stack's
+`labels` output counts the RefMods alone.)
+
+**◈ RefMods** in the editor's header wires the `mods` half through for you.
+
+### Drafts
+
+In **Draft mode**, the ◈ RefMods button edits the draft's own copy of the
+stack. Your live stack isn't touched until you **Commit to Live**. The
+draft banner tells you whether the draft is following the stack or has
+its own RefMods.
+
+---
+
+## Tips and fixes
+
+**Generation got really slow, or memory spikes.**
+Every reference adds to the work on every step. The usual culprits are a
+long video left in the media panel by accident, high weights (lots of
+copies), or several Full RefMods at once. Try Compressed, lower the
+weights, or trim clips down to the moment you actually need.
+
+**The model seems to ignore my RefMod.**
+Check that you're using a **ref2va** model, and that the prompt actually
+cites the label (the editor warns you if it doesn't). A weight a little
+above 1 can help.
+
+**My photos came out cropped strangely.**
+They all follow the first photo's resolution and aspect ratio. Reorder so your best-framed photo
+is first, or use **Crop and mask…** on the others.
+
+**No RefMods loaded** shows in the editor.
+The stack is connected but empty, or every row is switched off. Add some
+from the library.
+
+**The chips say something isn't reaching the Text Encode.**
+Click **◈ RefMods** in the editor's header again. It finishes any missing
+connection.
+
+**A voice sounds wrong or empty.**
+Open **Show what's stored** and listen. If it's silent or very short,
+edit the RefMod and drop the recording in again. Check that **Voice
+seconds** isn't set very low.
+
+**Can I share RefMods?**
+Yes. Copy the files from `models/refmods` (the `.safetensors` files and
+any preview image with the same name) to another ComfyUI's `models/refmods`
+folder.
+
+---
+
+## Credits
+
+The RefMod format, and the code that encodes and applies them, come from
+[ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod)
+by Luisa (luisacaotica), MIT License. This pack carries its own copy of
+that runtime so RefMods work without the original installed, and the files
+are the same format both ways: RefMods made here load in that pack, and
+its RefMods load here. That includes the single-file **bundles** its
+0.2.6 release can save: they show up in the library with a *bundle* badge,
+using the first look and first voice inside, and can be used and inspected
+here. Editing one saves a copy as standalone files and leaves the bundle as
+it is. The library's layout took cues from FranckyB's
+[ComfyUI-H3RefMods](https://github.com/FranckyB/ComfyUI-H3RefMods).
+

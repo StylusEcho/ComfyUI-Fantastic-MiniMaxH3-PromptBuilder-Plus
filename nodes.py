@@ -4,12 +4,13 @@ MiniMax H3 model (FL2VA family: T2VA / I2VA / FL2VA / L2VA, and Ref2VA
 full-reference mode).
 
 Outputs the final prompt STRING plus the mode-gated reference bundle and the
-first two loaded pictures, so a plain graph needs nothing else wired in.
+loaded keyframe(s) as first_frame / last_frame, so a plain graph needs
+nothing else wired in.
 """
 
 import json
 
-from . import media_io
+from . import media_io, subject
 
 PICTURES = 9
 VIDEOS = 3
@@ -181,8 +182,28 @@ def _brief_audio(a):
         return f"unreadable ({exc})"
 
 
-def build_bundle(media_state="[]", label="Studio"):
-    """Decode a media-panel state string into an H3_REFS bundle."""
+def _load_picture(item, label, subjects):
+    """One picture as sent. With `subjects` (Reference mode), a picture with a
+    subject mask is cropped to it and/or has its background blurred around it
+    (subject.py); otherwise, and always as a keyframe, it's sent as edited."""
+    crop = item.get("crop")
+    use = subjects and subject.active(item)
+    if use:
+        crop = subject.crop_rect(item) or crop
+    img = media_io.load_image(item["file"], crop=crop, mirror=bool(item.get("mirror")),
+                              rotate=item.get("rotate") or 0, resize=item.get("resize") or 0)
+    if use:
+        img = subject.apply(img, item, crop)
+        spec = item["subject"]
+        did = [f"background blurred ({float(spec.get('blur') or 0):g}px)" if float(spec.get("blur") or 0) > 0 else "",
+               "cropped to the subject" if subject.crop_rect(item) else ""]
+        print(f"[MiniMaxH3 {label}] {item.get('name') or item['file']}: " + ", ".join(d for d in did if d))
+    return img
+
+
+def build_bundle(media_state="[]", label="Studio", subjects=False):
+    """Decode a media-panel state string into an H3_REFS bundle. `subjects`
+    applies pictures' subject masking (Reference mode only)."""
     try:
         items = json.loads(media_state or "[]")
     except Exception:
@@ -192,11 +213,7 @@ def build_bundle(media_state="[]", label="Studio"):
 
     pictures, videos, video_audios, audios = _partition(items)
 
-    pic_t = [media_io.load_image(i["file"], crop=i.get("crop"),
-                                 mirror=bool(i.get("mirror")),
-                                 rotate=i.get("rotate") or 0,
-                                 resize=i.get("resize") or 0)
-             for i in pictures[:PICTURES]]
+    pic_t = [_load_picture(i, label, subjects) for i in pictures[:PICTURES]]
     vid_t = [media_io.load_video_frames(i["file"], start=_trim_span(i)[0],
              end=_trim_span(i)[1], crop=i.get("crop"),
              mirror=bool(i.get("mirror")),
@@ -226,13 +243,41 @@ def build_bundle(media_state="[]", label="Studio"):
     for i, a in enumerate(aud_t):
         print(f"[MiniMaxH3 {label}]   audio_{i+1}: {_brief_audio(a)}")
 
-    return {
+    bundle = {
         "pictures": pic_t,
         "videos": vid_t,
         "video_audios": vaud_t,
         "audios": aud_t,
         "items": items,
     }
+    # Masked video editing (upstream 1.8.0), ported from its standalone
+    # Media Loader. The clip being edited travels as its settings, not
+    # frames: the Text Encode builds it once (at the generation's pixel
+    # budget) and saves it, and Edit Composite reads the original frames at
+    # the end.
+    edit = next((i for i in items if isinstance(i, dict) and i.get("edit") and i.get("mask")
+                 and i.get("enabled") is not False and i.get("kind") == "video"), None)
+    if edit is not None:
+        bundle["edit"] = {k: edit.get(k) for k in ("name", "file", "trim", "crop", "mirror", "resize",
+                                                   "mask", "has_audio")}
+        bundle["edit"]["grow"] = int(edit.get("mask_grow", 16))
+        bundle["edit"]["keep_audio"] = edit.get("keep_audio", True)
+        bundle["edit"]["feather"] = int(edit["mask_feather"]) if edit.get("mask_feather") is not None else 12
+        bundle["edit"]["invert"] = bool(edit.get("mask_invert"))
+        # crop to mask: how much surroundings to keep; 0 samples the whole frame
+        bundle["edit"]["context"] = (float(edit.get("mask_context") or 1.75)
+                                     if edit.get("mask_crop") and not edit.get("mask_invert") else 0.0)
+        bundle["edit"]["ref_strength"] = float(edit.get("mask_ref_strength") or 1.0)
+        bundle["edit"]["hide"] = edit.get("mask_hide") if edit.get("mask_hide") in ("blur", "invert", "blur_invert") else "off"
+        bundle["edit"]["blur"] = float(edit.get("mask_blur") or 24.0)
+        print(f"[MiniMaxH3 {label}] editing {edit.get('name') or edit['file']} (also cited as a reference)")
+    # Each video's settings, index for index with "videos": what the Text
+    # Encode keys its saved reference latents on.
+    bundle["video_specs"] = [
+        {k: i.get(k) for k in ("name", "file", "trim", "crop", "mirror", "resize", "audio_mode")}
+        | {"edit": bool(i.get("edit"))}
+        for i in videos[:VIDEOS]]
+    return bundle
 
 
 def validate_media_state(media_state="[]"):
@@ -252,6 +297,45 @@ def validate_media_state(media_state="[]"):
     return True
 
 
+def _has_picks(stack_state):
+    try:
+        state = json.loads(stack_state or "{}")
+    except Exception:
+        return True              # let the validator report it properly
+    picks = state if isinstance(state, list) else (state or {}).get("picks")
+    return bool(picks)
+
+
+def _stack_stamps(stack_state):
+    if not _has_picks(stack_state):
+        return [stack_state]
+    try:
+        from .refmods import stack_stamps
+        return stack_stamps(stack_state)
+    except Exception:
+        return [stack_state]
+
+
+def _validate_stack(stack_state):
+    """RefMods are optional on top of this node (see __init__.py): with no
+    picks there is nothing to check, so the RefMod runtime is never imported
+    for a prompt that doesn't use it."""
+    if not _has_picks(stack_state):
+        return True
+    try:
+        from .refmods import validate_stack_state
+    except Exception as exc:
+        return f"This node has RefMods, but the RefMod runtime failed to load: {exc}"
+    return validate_stack_state(stack_state)
+
+
+def _build_mods(stack_state, mods):
+    if not _has_picks(stack_state):
+        return mods if mods is not None else []
+    from .refmods import build_stack
+    return build_stack(stack_state, mods, "MiniMaxH3 Studio RefMods")[0]
+
+
 def _pad(seq, n):
     return list(seq or []) + [None] * (n - len(seq or []))
 
@@ -261,12 +345,16 @@ class MiniMaxH3PromptStudio:
 
     Same two panels, no wiring between them: the prompt editor and the media
     panel share this node's own state, so the tags the editor offers are the
-    tags the bundle will carry. Deliberately input-less — reference media
-    comes from the panel, not from upstream slots.
+    tags the bundle will carry. Deliberately input-less for reference media —
+    that comes from the panel, not from upstream slots. RefMods work the same
+    way: the node's RefMods tab holds its own picks in `stack_state`, and the
+    `mods` output carries them to RefMod Text Encode. The `mods` input is
+    only for chaining — a RefMod Stack (or another pack's loader) wired there
+    is sent first, and this node's own picks follow.
 
-    Emits the prompt, the mode-gated bundle, and the first two pictures on
-    their own IMAGE outputs, so a plain I2VA / L2VA / FL2VA graph needs nothing
-    else.
+    Emits the prompt, the mode-gated bundle, and the loaded keyframe(s) on
+    their own first_frame / last_frame IMAGE outputs, so a plain I2VA / L2VA /
+    FL2VA graph needs nothing else.
     """
 
     CATEGORY = "conditioning/video_models"
@@ -275,9 +363,12 @@ class MiniMaxH3PromptStudio:
         "Click 'Edit Prompt' to open the guided editor, and load media in the "
         "panel below it. Outputs the MODEL for the mode being used, the final "
         "prompt STRING, an H3_REFS bundle holding only what the chosen mode "
-        "can actually send, the first two loaded pictures as IMAGEs for "
-        "first_frame / last_frame, and a ref2va_needed BOOLEAN that is true "
-        "in full-reference mode."
+        "can actually send, the loaded keyframe(s) as first_frame / "
+        "last_frame IMAGEs (I2VA fills first_frame, L2VA fills last_frame, "
+        "FL2VA fills both, T2VA and full-reference fill neither), a "
+        "ref2va_needed BOOLEAN that is true in full-reference mode, and the "
+        "RefMods picked on the node's RefMods tab as a 'mods' bundle for "
+        "RefMod Text Encode (after anything wired into the 'mods' input)."
     )
 
     # model leads, matching the order the chain is actually wired in: the
@@ -289,10 +380,12 @@ class MiniMaxH3PromptStudio:
     # deliberate one-off, taken in the same breaking release that dropped the
     # standalone nodes rather than spent as a second break later. Anything
     # added from here on gets appended last, as references and the pictures
-    # originally were.
-    RETURN_TYPES = ("MODEL", "STRING", "H3_REFS", "IMAGE", "IMAGE", "BOOLEAN")
-    RETURN_NAMES = ("model", "prompt", "references", "picture_1", "picture_2",
-                    "ref2va_needed")
+    # originally were — mods included, so a workflow saved before RefMods
+    # existed here is unaffected.
+    RETURN_TYPES = ("MODEL", "STRING", "H3_REFS", "IMAGE", "IMAGE", "BOOLEAN",
+                    "H3_REF_MODS")
+    RETURN_NAMES = ("model", "prompt", "references", "first_frame", "last_frame",
+                    "ref2va_needed", "mods")
     # model carries whichever checkpoint the saved mode runs on — ref2va in
     # full-reference mode, fl2va everywhere else — so both can stay wired and
     # the mode picks between them.
@@ -300,10 +393,13 @@ class MiniMaxH3PromptStudio:
     # prompt has to go to MiniMaxH3ReferenceToVideo rather than ImageToVideo.
     # Wire it into a switch to pick the branch from the editor's mode instead
     # of rewiring by hand.
-    # picture_1 / picture_2 are the first two loaded pictures on their own, so
-    # I2VA / L2VA / FL2VA reach first_frame and last_frame on
-    # MiniMaxH3ImageToVideo with no splitter in between — those modes never
-    # use more than two.
+    # first_frame / last_frame name the outputs after what MiniMaxH3ImageToVideo
+    # actually calls its two picture inputs, so both wire in directly with no
+    # splitter: I2VA fills only first_frame, L2VA fills only last_frame (its
+    # one loaded picture IS the last frame, not the first), and FL2VA fills
+    # both. T2VA and full-reference load no keyframes of their own — REF's
+    # pictures are reference tags on the `references` bundle instead — so
+    # both outputs carry nothing in those two modes.
     FUNCTION = "build"
 
     @classmethod
@@ -317,6 +413,10 @@ class MiniMaxH3PromptStudio:
                 "builder_state": ("STRING", {"multiline": False, "default": "{}"}),
                 # JSON list of media items, written by the node's panel.
                 "media_state": ("STRING", {"multiline": False, "default": "[]"}),
+                # The RefMods tab's picks, same JSON as a RefMod Stack's.
+                # Last on purpose: widget values are saved positionally, so a
+                # workflow from before this existed loads it as the default.
+                "stack_state": ("STRING", {"multiline": False, "default": "{}"}),
             },
             # Wire both checkpoints once and let the mode pick. Lazy, so the
             # one this mode isn't using is never pulled into memory — loading
@@ -324,6 +424,12 @@ class MiniMaxH3PromptStudio:
             "optional": {
                 "fl2va_model": ("MODEL", {"lazy": True}),
                 "ref2va_model": ("MODEL", {"lazy": True}),
+                # Chaining only: a RefMod Stack (or another pack's loader)
+                # whose entries go first, before the RefMods tab's own picks.
+                # Not lazy: unlike the checkpoints, reading it is cheap.
+                "mods": ("H3_REF_MODS", {"tooltip":
+                    "Optional. Another RefMod Stack to send first; this "
+                    "node's own RefMods (its RefMods tab) follow it."}),
             },
             "hidden": {"prompt": "PROMPT", "unique_id": "UNIQUE_ID"},
         }
@@ -349,36 +455,60 @@ class MiniMaxH3PromptStudio:
         return [want] if (linked is None or want in linked) else []
 
     @classmethod
-    def IS_CHANGED(cls, prompt_text="", builder_state="{}", media_state="[]", **kwargs):
+    def IS_CHANGED(cls, prompt_text="", builder_state="{}", media_state="[]",
+                   stack_state="{}", **kwargs):
         # Media decoding is driven entirely by widget state, so cache on all
-        # three: without media_state here a re-added clip would be ignored.
-        return f"{prompt_text}\x00{builder_state}\x00{media_state}"
+        # of it: without media_state here a re-added clip would be ignored,
+        # and a RefMod rewritten on disk has to re-run the node too.
+        return json.dumps([prompt_text, builder_state, media_state,
+                           _stack_stamps(stack_state)], default=str)
 
     @classmethod
-    def VALIDATE_INPUTS(cls, media_state="[]", **kwargs):
-        return validate_media_state(media_state)
+    def VALIDATE_INPUTS(cls, media_state="[]", stack_state="{}", **kwargs):
+        ok = validate_media_state(media_state)
+        if ok is not True:
+            return ok
+        return _validate_stack(stack_state)
 
     def build(self, prompt_text="", builder_state="{}", media_state="[]",
-              fl2va_model=None, ref2va_model=None,
+              stack_state="{}", fl2va_model=None, ref2va_model=None, mods=None,
               prompt=None, unique_id=None):
         mode = _mode_of(builder_state)
-        bundle = build_bundle(media_state, label="Studio")
+        # Subject masking is for references: keyframe modes send pictures as edited.
+        bundle = build_bundle(media_state, label="Studio", subjects=(mode == "REF"))
         gated, _ = gate_bundle(bundle, mode, label="Studio")
         gated["items"] = bundle.get("items", [])
+        # Carried past the mode gate, as upstream's Prompt Builder carries
+        # them: the edit clip and the per-video settings the Text Encode keys
+        # its cached reference latents on.
+        for key in ("edit", "video_specs"):
+            if bundle.get(key) is not None:
+                gated[key] = bundle[key]
         sent = sum(
             1
             for key, _group, _cap in _BUNDLE_GROUPS
             for value in gated.get(key) or []
             if value is not None
         )
-        # Taken from the gated bundle, not the raw one, so these obey the same
-        # mode rule as the rest: T2VA sends no pictures and I2VA / L2VA only
-        # one, so the spare output holds nothing rather than quietly leaking a
-        # frame the mode drops.
+        # Taken from the gated bundle, not the raw one, so this obeys the same
+        # mode rule as the rest of the bundle. gated["pictures"] holds at most
+        # one loaded picture for I2VA/L2VA and up to two for FL2VA — never
+        # more than the mode's own picture cap — so the two slots below are
+        # never asked to disagree with what the bundle actually sent.
         keyframes = _pad(gated.get("pictures"), 2)[:2]
+        # Which physical slot maps to which named output is mode-dependent:
+        # L2VA's one loaded picture is conceptually the LAST frame, not the
+        # first, even though it lands in keyframes[0] like every other
+        # single-picture mode. T2VA and REF load no keyframes of their own —
+        # REF's pictures are reference tags on the bundle instead — so both
+        # outputs are None in those two modes.
+        first_frame = keyframes[0] if mode in ("I2VA", "FL2VA") else None
+        last_frame = (keyframes[1] if mode == "FL2VA"
+                      else keyframes[0] if mode == "L2VA" else None)
         tail = f"{sent} reference(s) on the bundle" if sent else \
             "prompt only, no references"
-        named = [f"picture_{i + 1}" for i, v in enumerate(keyframes)
+        named = [name for name, v in
+                 (("first_frame", first_frame), ("last_frame", last_frame))
                  if v is not None]
         print(f"[MiniMaxH3 Studio] mode={mode} -> {tail}"
               f"{', ' + ' + '.join(named) + ' on their own outputs' if named else ''}")
@@ -392,7 +522,12 @@ class MiniMaxH3PromptStudio:
                   "input is empty — the model output carries nothing.")
         else:
             print(f"[MiniMaxH3 Studio] mode {mode} -> passing {want} through.")
-        return (model, prompt_text.strip(), gated, *keyframes, mode == "REF")
+        # Anything chained in first, then the RefMods tab's own picks. With
+        # neither it is an empty bundle, which Text Encode treats as "no
+        # RefMods" rather than an error.
+        out_mods = _build_mods(stack_state, mods)
+        return (model, prompt_text.strip(), gated, first_frame, last_frame,
+                mode == "REF", out_mods)
 
 
 NODE_CLASS_MAPPINGS = {

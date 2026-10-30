@@ -1,0 +1,1522 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video Prompt Writing Guide — combined reference</title>
+<style>
+:root{
+  --bg:#eeeff1; --surface:#fff; --surface-2:#f6f7f8;
+  --ink:#15171b; --ink-2:#4b515a; --ink-3:#79818d;
+  --rule:#d8dbe0; --rule-2:#e7e9ec;
+  --accent:#0d6b82; --accent-b:#9a2a5d; --accent-c:#2f7d4a; --accent-d:#4a55a8; --accent-e:#a4570b;
+  --key-ink:#fff;
+  --accent-soft:rgba(13,107,130,.10);
+  --mono-bg:#13161b; --mono-ink:#e4e8ee; --mono-dim:#8b95a3;
+  --mark:#ffd84d; --mark-ink:#2a2200;
+  --shadow:0 1px 2px rgba(16,20,28,.06),0 8px 24px -16px rgba(16,20,28,.28);
+  --sans:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  --cond:'Archivo Narrow','Roboto Condensed','Liberation Sans Narrow','Arial Narrow',system-ui,sans-serif;
+  --mono:ui-monospace,'SFMono-Regular','DejaVu Sans Mono','Liberation Mono',Menlo,Consolas,monospace;
+  --topbar:60px;
+}
+html[data-theme=dark]{
+  --bg:#0f1115; --surface:#161a20; --surface-2:#1b1f26;
+  --ink:#e8ebef; --ink-2:#aab1bc; --ink-3:#79818d;
+  --rule:#272c34; --rule-2:#1f242b;
+  --accent:#54bcd2; --accent-b:#e987b1; --accent-c:#6cc58c; --accent-d:#97a3ee; --accent-e:#f0a860;
+  --key-ink:#0f1115;
+  --accent-soft:rgba(84,188,210,.13);
+  --mono-bg:#0a0c10; --mono-ink:#dfe4ea;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -18px rgba(0,0,0,.8);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;overflow-x:hidden;background:var(--bg);color:var(--ink);
+  font:400 16px/1.68 var(--sans);
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+}
+a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:2px}
+a:hover{text-decoration-color:currentColor}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+
+/* ---------- signature: color-bar spine ---------- */
+.spine{position:fixed;left:0;top:0;bottom:0;width:9px;z-index:60;
+  background:linear-gradient(to bottom,
+    #9aa0a6 0 14.28%,#c8bd3a 14.28% 28.56%,#3aa6b8 28.56% 42.84%,
+    #4a9e63 42.84% 57.12%,#a8508a 57.12% 71.4%,#b8484a 71.4% 85.68%,#3d5ea8 85.68% 100%);
+}
+.spine i{position:absolute;left:0;right:0;bottom:0;display:block;
+  background:color-mix(in srgb,var(--bg) 58%,transparent);
+  backdrop-filter:grayscale(.9);-webkit-backdrop-filter:grayscale(.9);
+  transition:height .12s linear}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:0;z-index:50;height:var(--topbar);
+  display:flex;align-items:center;gap:16px;padding:0 20px 0 24px;
+  background:color-mix(in srgb,var(--surface) 88%,transparent);
+  backdrop-filter:saturate(1.4) blur(10px);-webkit-backdrop-filter:saturate(1.4) blur(10px);
+  border-bottom:1px solid var(--rule)}
+.brand{display:flex;align-items:baseline;gap:10px;min-width:0;text-decoration:none;color:inherit}
+.brand:hover b{color:var(--accent)}
+.brand b{font:600 15px/1 var(--sans);letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand span{font:500 12px/1 var(--cond);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap}
+.searchbox{position:relative;flex:1 1 200px;min-width:0;max-width:520px;margin-left:auto}
+.searchbox svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--ink-3)}
+#q{width:100%;height:36px;padding:0 76px 0 34px;border:1px solid var(--rule);
+  background:var(--bg);color:var(--ink);border-radius:3px;
+  font:400 14px/1 var(--sans)}
+#q::placeholder{color:var(--ink-3)}
+#q::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none}
+.searchbox.typing .kbd{display:none}
+#q:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.kbd{position:absolute;right:9px;top:50%;transform:translateY(-50%);display:flex;gap:4px;pointer-events:none}
+.kbd b{font:500 11px/16px var(--mono);color:var(--ink-3);border:1px solid var(--rule);
+  border-radius:3px;padding:1px 5px;background:var(--surface)}
+.iconbtn{height:36px;min-width:36px;padding:0 9px;border:1px solid var(--rule);background:var(--surface);
+  color:var(--ink-2);border-radius:3px;cursor:pointer;font:500 12px/1 var(--cond);
+  letter-spacing:.12em;text-transform:uppercase;display:inline-flex;align-items:center;gap:6px}
+.iconbtn:hover{border-color:var(--accent);color:var(--accent)}
+#menu{display:none}
+
+/* ---------- layout ---------- */
+.shell{display:grid;grid-template-columns:288px minmax(0,1fr);gap:0;align-items:start}
+.sidebar{position:sticky;top:var(--topbar);height:calc(100vh - var(--topbar));overflow-y:auto;
+  padding:22px 18px 60px 24px;border-right:1px solid var(--rule);scrollbar-width:thin}
+/* room after the end, so the last sections can still scroll to the top */
+main{padding:0 40px calc(100vh - var(--topbar) - 18px);max-width:900px;min-width:0}
+
+/* ---------- table of contents ---------- */
+.toc-group{margin-bottom:26px}
+.toc-part{display:flex;align-items:center;gap:8px;margin:0 0 10px;padding-bottom:8px;
+  border-bottom:1px solid var(--rule);
+  font:600 12px/1 var(--cond);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-2)}
+.toc-part .key{background:var(--ink);color:var(--bg);padding:3px 6px;border-radius:2px;letter-spacing:.1em;white-space:nowrap}
+.toc-group[data-group=b] .toc-part .key{background:var(--accent-b);color:#fff}
+.toc-group[data-group=c] .toc-part .key{background:var(--accent-c);color:var(--key-ink)}
+.toc-group[data-group=d] .toc-part .key{background:var(--accent-d);color:var(--key-ink)}
+.toc-group[data-group=e] .toc-part .key{background:var(--accent-e);color:var(--key-ink)}
+.sidebar a{display:flex;gap:8px;text-decoration:none;color:var(--ink-2);
+  padding:4px 8px;border-radius:3px;border-left:2px solid transparent;margin-left:-2px}
+.sidebar a:hover{background:var(--surface);color:var(--ink)}
+.toc-2{font:500 14px/1.35 var(--sans)}
+.toc-3{font:400 13px/1.35 var(--sans);color:var(--ink-3);padding-left:20px}
+.tnum{font:500 11px/1.5 var(--mono);color:var(--ink-3);min-width:22px}
+.toc-3 .tnum{min-width:26px}
+.sidebar a.active{color:var(--accent);border-left-color:var(--accent);background:var(--accent-soft)}
+.toc-group[data-group=b] a.active{color:var(--accent-b);border-left-color:var(--accent-b);
+  background:color-mix(in srgb,var(--accent-b) 10%,transparent)}
+.toc-group[data-group=c] a.active{color:var(--accent-c);border-left-color:var(--accent-c);
+  background:color-mix(in srgb,var(--accent-c) 10%,transparent)}
+.toc-group[data-group=d] a.active{color:var(--accent-d);border-left-color:var(--accent-d);
+  background:color-mix(in srgb,var(--accent-d) 10%,transparent)}
+.toc-group[data-group=e] a.active{color:var(--accent-e);border-left-color:var(--accent-e);
+  background:color-mix(in srgb,var(--accent-e) 10%,transparent)}
+.sidebar a.active .tnum{color:inherit}
+
+/* ---------- hero ---------- */
+.hero{padding:52px 0 34px;border-bottom:1px solid var(--rule)}
+.eyebrow{margin:0 0 14px;font:600 12px/1 var(--cond);letter-spacing:.2em;text-transform:uppercase;color:var(--ink-3)}
+.eyebrow .dot{color:var(--accent)}
+.hero h1{margin:0;font:700 clamp(34px,5.2vw,54px)/1.02 var(--sans);letter-spacing:-.028em;max-width:15ch}
+.hero p.lede{margin:18px 0 0;max-width:62ch;font-size:17px;color:var(--ink-2)}
+.modes{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:1px;margin-top:34px;
+  background:var(--rule);border:1px solid var(--rule);border-radius:4px;overflow:hidden}
+.mode{background:var(--surface);padding:14px 16px 16px;text-decoration:none;color:inherit;display:block}
+.mode:hover{background:var(--accent-soft)}
+.mode b{display:block;font:500 13px/1 var(--mono);letter-spacing:.02em;color:var(--accent)}
+.mode span{display:block;margin-top:7px;font-size:13.5px;line-height:1.45;color:var(--ink-2)}
+.hero .jump{margin-top:20px;font-size:14px;color:var(--ink-3)}
+.modes.modes-pack{margin-top:12px}
+.modes-pack .mode b{color:var(--accent-c)}
+.modes-pack .mode + .mode b{color:var(--accent-d)}
+.modes-pack .mode + .mode + .mode b{color:var(--accent-e)}
+
+/* ---------- parts & sections ---------- */
+.part-head{padding:46px 0 12px;border-bottom:2px solid var(--ink)}
+.part-row{display:flex;align-items:baseline;flex-wrap:wrap;gap:10px}
+.part-source{margin:10px 0 0;display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;
+  font:400 13.5px/1.4 var(--sans);color:var(--ink-2)}
+.part-source .file{font:400 11.5px/1.4 var(--mono);color:var(--ink-3)}
+.part-key{font:600 12px/1 var(--cond);letter-spacing:.16em;text-transform:uppercase;white-space:nowrap;
+  background:var(--ink);color:var(--bg);padding:5px 8px;border-radius:2px}
+.part-b .part-key{background:var(--accent-b);color:#fff}
+.part-label{font:700 21px/1.1 var(--sans);letter-spacing:-.015em}
+.part-blurb{flex:1 1 240px;font-size:14px;color:var(--ink-3)}
+.part-b{--accent:var(--accent-b);--accent-soft:color-mix(in srgb,var(--accent-b) 10%,transparent)}
+.part-c .part-key{background:var(--accent-c);color:var(--key-ink)}
+.part-d .part-key{background:var(--accent-d);color:var(--key-ink)}
+.part-e .part-key{background:var(--accent-e);color:var(--key-ink)}
+.part-c{--accent:var(--accent-c);--accent-soft:color-mix(in srgb,var(--accent-c) 10%,transparent)}
+.part-d{--accent:var(--accent-d);--accent-soft:color-mix(in srgb,var(--accent-d) 10%,transparent)}
+.part-e{--accent:var(--accent-e);--accent-soft:color-mix(in srgb,var(--accent-e) 10%,transparent)}
+.chunk{scroll-margin-top:calc(var(--topbar) + 18px)}
+.chunk-intro{padding-top:26px}
+.doc-title{margin:6px 0 14px;font:700 27px/1.18 var(--sans);letter-spacing:-.02em}
+.head{position:relative;display:flex;align-items:baseline;gap:12px;letter-spacing:-.015em}
+h2.head{margin:44px 0 14px;font:600 25px/1.2 var(--sans);padding-top:14px;border-top:1px solid var(--rule)}
+.part-head + .chunk h2.head{border-top:0;padding-top:0;margin-top:30px}
+h3.head{margin:34px 0 10px;font:600 18.5px/1.3 var(--sans)}
+.head .num{font:500 13px/1.6 var(--mono);color:var(--accent);flex:none;padding-top:3px}
+h3.head .num{font-size:12px}
+.anchor{opacity:0;text-decoration:none;color:var(--ink-3);font:400 15px/1 var(--mono);
+  align-self:center;transition:opacity .12s}
+.head:hover .anchor,.anchor:focus{opacity:1}
+
+p{margin:0 0 14px;max-width:70ch}
+ul,ol{margin:0 0 16px;padding-left:22px;max-width:70ch}
+li{margin:5px 0}
+li::marker{color:var(--ink-3)}
+strong{font-weight:600}
+hr{border:0;border-top:1px solid var(--rule);margin:32px 0}
+
+code{font:400 .875em/1.5 var(--mono);background:var(--surface-2);border:1px solid var(--rule-2);
+  padding:1px 5px;border-radius:3px;white-space:nowrap}
+html[data-theme=dark] code{background:var(--surface-2);border-color:var(--rule)}
+.dtags .dt{color:#993556;background:rgba(212,83,126,.12);border-radius:3px;padding:0 3px}
+html[data-theme=dark] .dtags .dt{color:#e692c8;background:rgba(230,146,200,.16)}
+td code,th code,li code{white-space:normal}
+
+/* ---------- code panels ---------- */
+.codewrap{position:relative;margin:0 0 20px}
+pre{margin:0;background:var(--mono-bg);color:var(--mono-ink);border-radius:4px;
+  padding:16px 18px;overflow-x:auto;border:1px solid transparent}
+html[data-theme=dark] pre{border-color:var(--rule)}
+pre code{background:none;border:0;padding:0;color:inherit;white-space:pre-wrap;
+  overflow-wrap:break-word;font:400 13px/1.72 var(--mono)}
+.copy{position:absolute;top:8px;right:8px;opacity:0;transition:opacity .12s;
+  border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.07);color:#cfd6de;
+  font:500 11px/1 var(--cond);letter-spacing:.14em;text-transform:uppercase;
+  padding:5px 8px;border-radius:3px;cursor:pointer}
+.codewrap:hover .copy,.copy:focus{opacity:1}
+.copy:hover{background:rgba(255,255,255,.16);color:#fff}
+.copy.done{color:#8fe0a8;border-color:#8fe0a8}
+
+/* ---------- tables ---------- */
+.tablewrap{overflow-x:auto;margin:0 0 22px;border:1px solid var(--rule);border-radius:4px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14.5px}
+th{text-align:left;font:600 11.5px/1.3 var(--cond);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-2);background:var(--surface-2);padding:10px 14px;border-bottom:1px solid var(--rule);white-space:nowrap}
+td{padding:10px 14px;border-bottom:1px solid var(--rule-2);vertical-align:top;color:var(--ink-2)}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:var(--accent-soft)}
+td:first-child{color:var(--ink);font-weight:500}
+
+/* ---------- notes & details ---------- */
+blockquote{margin:0 0 20px;padding:12px 0 12px 16px;border-left:3px solid var(--accent);
+  color:var(--ink-2);font-size:15px;background:linear-gradient(90deg,var(--accent-soft),transparent 70%)}
+blockquote p:last-child{margin-bottom:0}
+details{margin:0 0 22px;border:1px solid var(--rule);border-radius:4px;background:var(--surface);overflow:hidden}
+summary{cursor:pointer;padding:12px 16px;font:600 12px/1 var(--cond);letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-2);list-style:none;display:flex;align-items:center;gap:9px}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"▸";color:var(--accent);font-size:13px}
+details[open] summary{border-bottom:1px solid var(--rule)}
+details[open] summary::before{content:"▾"}
+summary:hover{color:var(--accent)}
+details .codewrap{margin:16px}
+
+/* ---------- search state ---------- */
+.searchstate{display:none;align-items:center;gap:12px;margin:22px 0 0;padding:11px 14px;
+  border:1px solid var(--accent);background:var(--accent-soft);border-radius:4px;
+  font:500 13px/1 var(--sans);color:var(--ink)}
+.searchstate.on{display:flex}
+.searchstate button{margin-left:auto;border:1px solid var(--rule);background:var(--surface);
+  color:var(--ink-2);border-radius:3px;padding:5px 9px;cursor:pointer;
+  font:500 11px/1 var(--cond);letter-spacing:.12em;text-transform:uppercase}
+.searchstate button:hover{color:var(--accent);border-color:var(--accent)}
+mark{background:var(--mark);color:var(--mark-ink);border-radius:2px;padding:0 1px}
+.hidden{display:none !important}
+body.searching .hero{display:none}
+.empty{display:none;padding:60px 0;color:var(--ink-3)}
+.empty.on{display:block}
+.empty b{display:block;font:600 20px/1.3 var(--sans);color:var(--ink);margin-bottom:8px}
+
+/* ---------- responsive ---------- */
+.scrim{display:none}
+@media (max-width:1080px){
+  .spine{display:none}
+  .shell{grid-template-columns:minmax(0,1fr)}
+  main{padding:0 22px calc(100vh - var(--topbar) - 18px)}
+  .topbar{padding:0 14px}
+  #menu{display:inline-flex;padding:0 8px}
+  .topbar{gap:10px}
+  .brand{flex:0 1 auto;min-width:0;overflow:hidden}
+  .brand span{display:none}
+  .brand b{font-size:14px}
+  .iconbtn{font-size:11px}
+  .kbd{display:none}
+  #q{padding-right:12px}
+  .sidebar{position:fixed;top:var(--topbar);left:0;width:300px;max-width:86vw;z-index:45;
+    background:var(--surface);transform:translateX(-102%);transition:transform .2s ease;
+    box-shadow:var(--shadow);padding-left:18px}
+  .sidebar.open{transform:none}
+  .scrim.on{display:block;position:fixed;inset:var(--topbar) 0 0;background:rgba(10,12,16,.4);z-index:44}
+  .hero{padding-top:34px}
+}
+@media (max-width:620px){
+  .brand{display:none}
+  main{padding:0 16px calc(100vh - var(--topbar) - 18px)}
+  .modes{grid-template-columns:1fr 1fr}
+  .modes .mode:last-child{grid-column:1/-1}
+  .hero h1{font-size:clamp(28px,9vw,40px)}
+  .part-head{padding-top:34px}
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *{transition:none !important}
+}
+@media print{
+  .topbar,.sidebar,.spine,.searchstate,.copy,.scrim{display:none !important}
+  .shell{display:block}main{max-width:none;padding:0}
+  pre{background:#f4f4f4;color:#111;border:1px solid #ccc}
+  .chunk,.part-head{break-inside:avoid}
+  details{border:0}details>*{display:block}
+}
+</style>
+</head>
+<body>
+<div class="spine" aria-hidden="true"><i id="veil" style="height:100%"></i></div>
+
+<header class="topbar">
+  <button class="iconbtn" id="menu" aria-label="Show contents">Contents</button>
+  <a class="brand" id="home" href="#"><b>Video Prompt Writing Guide</b><span>Combined reference</span></a>
+  <div class="searchbox">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    <input id="q" type="search" placeholder="Search the guide…" autocomplete="off" spellcheck="false" aria-label="Search the guides">
+    <span class="kbd"><b>/</b></span>
+  </div>
+  <button class="iconbtn" id="theme" aria-label="Switch to dark theme">Dark</button>
+</header>
+
+<div class="scrim" id="scrim"></div>
+
+<div class="shell">
+  <nav class="sidebar" id="toc" aria-label="Table of contents">
+<div class="toc-group" data-group="a"><p class="toc-part"><span class="key">Part A</span>Base modes</p><a class="toc-2" href="#a-1-task-overview" data-target="a-1-task-overview"><span class="tnum">1</span><span class="tlabel">Task Overview</span></a><a class="toc-2" href="#a-2-final-prompt-structure" data-target="a-2-final-prompt-structure"><span class="tnum">2</span><span class="tlabel">Final Prompt Structure</span></a><a class="toc-3" href="#a-2-1-part-one-is-the-instruction" data-target="a-2-1-part-one-is-the-instruction"><span class="tnum">2.1</span><span class="tlabel">Part One Is the Instruction</span></a><a class="toc-3" href="#a-2-2-part-two-contains-the-three-core-fields" data-target="a-2-2-part-two-contains-the-three-core-fields"><span class="tnum">2.2</span><span class="tlabel">Part Two Contains the Three Core Fields</span></a><a class="toc-2" href="#a-3-how-to-incorporate-keyframes-into-the-multimodal-description" data-target="a-3-how-to-incorporate-keyframes-into-the-multimodal-description"><span class="tnum">3</span><span class="tlabel">How to Incorporate Keyframes into the Multimodal Description</span></a><a class="toc-3" href="#a-3-1-i2va-begin-from-the-image-and-develop-forward" data-target="a-3-1-i2va-begin-from-the-image-and-develop-forward"><span class="tnum">3.1</span><span class="tlabel">I2VA: Begin from the Image and Develop Forward</span></a><a class="toc-3" href="#a-3-2-fl2va-describe-the-path-between-the-first-and-last-frames" data-target="a-3-2-fl2va-describe-the-path-between-the-first-and-last-frames"><span class="tnum">3.2</span><span class="tlabel">FL2VA: Describe the Path Between the First and Last Frames</span></a><a class="toc-3" href="#a-3-3-l2va-infer-the-opening-and-land-on-the-image-at-the-end" data-target="a-3-3-l2va-infer-the-opening-and-land-on-the-image-at-the-end"><span class="tnum">3.3</span><span class="tlabel">L2VA: Infer the Opening and Land on the Image at the End</span></a><a class="toc-2" href="#a-4-how-to-write-the-three-shared-core-sections" data-target="a-4-how-to-write-the-three-shared-core-sections"><span class="tnum">4</span><span class="tlabel">How to Write the Three Shared Core Sections</span></a><a class="toc-3" href="#a-4-1-develop-the-multimodal-description-along-the-timeline" data-target="a-4-1-develop-the-multimodal-description-along-the-timeline"><span class="tnum">4.1</span><span class="tlabel">Develop the Multimodal Description Along the Timeline</span></a><a class="toc-3" href="#a-4-2-shots-and-cuts" data-target="a-4-2-shots-and-cuts"><span class="tnum">4.2</span><span class="tlabel">Shots and Cuts</span></a><a class="toc-3" href="#a-4-3-camera-motion-motion-type-amplitude-speed" data-target="a-4-3-camera-motion-motion-type-amplitude-speed"><span class="tnum">4.3</span><span class="tlabel">Camera Motion: Motion Type + Amplitude + Speed</span></a><a class="toc-3" href="#a-4-4-speakers-dialogue-and-singing" data-target="a-4-4-speakers-dialogue-and-singing"><span class="tnum">4.4</span><span class="tlabel">Speakers, Dialogue, and Singing</span></a><a class="toc-3" href="#a-4-5-on-screen-text" data-target="a-4-5-on-screen-text"><span class="tnum">4.5</span><span class="tlabel">On-Screen Text</span></a><a class="toc-3" href="#a-4-6-overall-soundscape" data-target="a-4-6-overall-soundscape"><span class="tnum">4.6</span><span class="tlabel">overall_soundscape</span></a><a class="toc-3" href="#a-4-7-non-diegetic-music" data-target="a-4-7-non-diegetic-music"><span class="tnum">4.7</span><span class="tlabel">non_diegetic_music</span></a><a class="toc-2" href="#a-5-cases" data-target="a-5-cases"><span class="tnum">5</span><span class="tlabel">Cases</span></a><a class="toc-3" href="#a-case-1-t2va" data-target="a-case-1-t2va"><span class="tnum"></span><span class="tlabel">Case 1: T2VA</span></a><a class="toc-3" href="#a-case-2-i2va" data-target="a-case-2-i2va"><span class="tnum"></span><span class="tlabel">Case 2: I2VA</span></a><a class="toc-3" href="#a-case-3-fl2va" data-target="a-case-3-fl2va"><span class="tnum"></span><span class="tlabel">Case 3: FL2VA</span></a><a class="toc-3" href="#a-case-4-l2va" data-target="a-case-4-l2va"><span class="tnum"></span><span class="tlabel">Case 4: L2VA</span></a><a class="toc-2" href="#a-6-community-discoveries" data-target="a-6-community-discoveries"><span class="tnum">6</span><span class="tlabel">Community Discoveries</span></a><a class="toc-3" href="#a-6-1-audio-performance-tags" data-target="a-6-1-audio-performance-tags"><span class="tnum">6.1</span><span class="tlabel">Audio and Performance Tags</span></a></div>
+<div class="toc-group" data-group="b"><p class="toc-part"><span class="key">Part B</span>Full-reference mode</p><a class="toc-2" href="#b-top" data-target="b-top"><span class="tnum"></span><span class="tlabel">Introduction</span></a><a class="toc-2" href="#b-1-overall-structure" data-target="b-1-overall-structure"><span class="tnum">1</span><span class="tlabel">Overall Structure</span></a><a class="toc-2" href="#b-2-reference-labels-and-definitions-subject-definitions" data-target="b-2-reference-labels-and-definitions-subject-definitions"><span class="tnum">2</span><span class="tlabel">Reference Labels and Definitions (subject_definitions)</span></a><a class="toc-3" href="#b-2-1-subject-n" data-target="b-2-1-subject-n"><span class="tnum">2.1</span><span class="tlabel">&lt;Subject N&gt;</span></a><a class="toc-3" href="#b-2-2-picture-n" data-target="b-2-2-picture-n"><span class="tnum">2.2</span><span class="tlabel">&lt;Picture N&gt;</span></a><a class="toc-3" href="#b-2-3-video-n" data-target="b-2-3-video-n"><span class="tnum">2.3</span><span class="tlabel">&lt;Video N&gt;</span></a><a class="toc-3" href="#b-2-4-audio-n" data-target="b-2-4-audio-n"><span class="tnum">2.4</span><span class="tlabel">&lt;Audio N&gt;</span></a><a class="toc-3" href="#b-2-5-visual-and-audio-tracks-from-the-same-reference-video" data-target="b-2-5-visual-and-audio-tracks-from-the-same-reference-video"><span class="tnum">2.5</span><span class="tlabel">Visual and Audio Tracks from the Same Reference Video</span></a><a class="toc-2" href="#b-3-summary" data-target="b-3-summary"><span class="tnum">3</span><span class="tlabel">summary</span></a><a class="toc-2" href="#b-4-retention-analysis" data-target="b-4-retention-analysis"><span class="tnum">4</span><span class="tlabel">retention_analysis</span></a><a class="toc-3" href="#b-4-1-visible-content" data-target="b-4-1-visible-content"><span class="tnum">4.1</span><span class="tlabel">Visible Content</span></a><a class="toc-3" href="#b-4-2-audio" data-target="b-4-2-audio"><span class="tnum">4.2</span><span class="tlabel">Audio</span></a><a class="toc-2" href="#b-5-detailed-description" data-target="b-5-detailed-description"><span class="tnum">5</span><span class="tlabel">detailed_description</span></a><a class="toc-3" href="#b-5-1-basic-format" data-target="b-5-1-basic-format"><span class="tnum">5.1</span><span class="tlabel">Basic Format</span></a><a class="toc-3" href="#b-5-2-full-reference-mode-differences" data-target="b-5-2-full-reference-mode-differences"><span class="tnum">5.2</span><span class="tlabel">Full-Reference Mode Differences</span></a><a class="toc-3" href="#b-5-3-using-reference-labels-in-shots" data-target="b-5-3-using-reference-labels-in-shots"><span class="tnum">5.3</span><span class="tlabel">Using Reference Labels in Shots</span></a><a class="toc-3" href="#b-5-4-speakers-audio-sources-and-dialogue" data-target="b-5-4-speakers-audio-sources-and-dialogue"><span class="tnum">5.4</span><span class="tlabel">Speakers, Audio Sources, and Dialogue</span></a><a class="toc-2" href="#b-6-overall-soundscape-and-non-diegetic-music" data-target="b-6-overall-soundscape-and-non-diegetic-music"><span class="tnum">6</span><span class="tlabel">overall_soundscape and non_diegetic_music</span></a><a class="toc-2" href="#b-7-complete-example" data-target="b-7-complete-example"><span class="tnum">7</span><span class="tlabel">Complete Example</span></a></div>
+<div class="toc-group" data-group="c"><p class="toc-part"><span class="key">Part C</span>Prompt Builder</p><a class="toc-2" href="#c-top" data-target="c-top"><span class="tnum"></span><span class="tlabel">Introduction</span></a><a class="toc-2" href="#c-1-getting-started" data-target="c-1-getting-started"><span class="tnum">1</span><span class="tlabel">Getting Started</span></a><a class="toc-3" href="#c-1-1-quick-start" data-target="c-1-1-quick-start"><span class="tnum">1.1</span><span class="tlabel">Quick Start</span></a><a class="toc-2" href="#c-2-the-editor" data-target="c-2-the-editor"><span class="tnum">2</span><span class="tlabel">The Editor</span></a><a class="toc-3" href="#c-2-1-modes" data-target="c-2-1-modes"><span class="tnum">2.1</span><span class="tlabel">Modes</span></a><a class="toc-3" href="#c-2-2-the-header" data-target="c-2-2-the-header"><span class="tnum">2.2</span><span class="tlabel">The Header</span></a><a class="toc-3" href="#c-2-3-writing-tools" data-target="c-2-3-writing-tools"><span class="tnum">2.3</span><span class="tlabel">Writing Tools</span></a><a class="toc-3" href="#c-2-4-checks" data-target="c-2-4-checks"><span class="tnum">2.4</span><span class="tlabel">Checks</span></a><a class="toc-2" href="#c-3-reference-mode" data-target="c-3-reference-mode"><span class="tnum">3</span><span class="tlabel">Reference Mode</span></a><a class="toc-3" href="#c-3-1-getting-media-in" data-target="c-3-1-getting-media-in"><span class="tnum">3.1</span><span class="tlabel">Loading Media</span></a><a class="toc-3" href="#c-3-2-trimming-and-cropping" data-target="c-3-2-trimming-and-cropping"><span class="tnum">3.2</span><span class="tlabel">Trimming and Cropping</span></a><a class="toc-3" href="#c-3-3-how-tags-get-their-numbers" data-target="c-3-3-how-tags-get-their-numbers"><span class="tnum">3.3</span><span class="tlabel">How Tags Get Their Numbers</span></a><a class="toc-3" href="#c-3-4-picture-roles" data-target="c-3-4-picture-roles"><span class="tnum">3.4</span><span class="tlabel">Picture Roles</span></a><a class="toc-3" href="#c-3-5-naming-a-subject" data-target="c-3-5-naming-a-subject"><span class="tnum">3.5</span><span class="tlabel">Naming a Subject</span></a><a class="toc-3" href="#c-3-6-switching-lines-off" data-target="c-3-6-switching-lines-off"><span class="tnum">3.6</span><span class="tlabel">Switching Lines Off</span></a><a class="toc-2" href="#c-4-saving-your-work" data-target="c-4-saving-your-work"><span class="tnum">4</span><span class="tlabel">Saving Your Work</span></a><a class="toc-3" href="#c-4-1-prompt-library" data-target="c-4-1-prompt-library"><span class="tnum">4.1</span><span class="tlabel">Prompt Library</span></a><a class="toc-3" href="#c-4-2-linking-a-prompt-to-its-media" data-target="c-4-2-linking-a-prompt-to-its-media"><span class="tnum">4.2</span><span class="tlabel">Linking a Prompt to Its Media</span></a><a class="toc-3" href="#c-4-3-phrases" data-target="c-4-3-phrases"><span class="tnum">4.3</span><span class="tlabel">Phrases</span></a><a class="toc-3" href="#c-4-4-media-presets" data-target="c-4-4-media-presets"><span class="tnum">4.4</span><span class="tlabel">Media Presets</span></a><a class="toc-2" href="#c-5-draft-mode" data-target="c-5-draft-mode"><span class="tnum">5</span><span class="tlabel">Draft Mode</span></a><a class="toc-3" href="#c-5-1-media-and-refmods-in-a-draft" data-target="c-5-1-media-and-refmods-in-a-draft"><span class="tnum">5.1</span><span class="tlabel">Media and RefMods in a Draft</span></a><a class="toc-3" href="#c-5-2-commit-pull-and-clear" data-target="c-5-2-commit-pull-and-clear"><span class="tnum">5.2</span><span class="tlabel">Commit, Pull and Clear</span></a></div>
+<div class="toc-group" data-group="d"><p class="toc-part"><span class="key">Part D</span>RefMods</p><a class="toc-2" href="#d-top" data-target="d-top"><span class="tnum"></span><span class="tlabel">Introduction</span></a><a class="toc-2" href="#d-1-before-you-start" data-target="d-1-before-you-start"><span class="tnum">1</span><span class="tlabel">Before You Start</span></a><a class="toc-2" href="#d-2-setting-up" data-target="d-2-setting-up"><span class="tnum">2</span><span class="tlabel">Setting Up</span></a><a class="toc-3" href="#d-2-1-the-three-nodes" data-target="d-2-1-the-three-nodes"><span class="tnum">2.1</span><span class="tlabel">The Three Nodes</span></a><a class="toc-3" href="#d-2-2-refmod-text-encode" data-target="d-2-2-refmod-text-encode"><span class="tnum">2.2</span><span class="tlabel">RefMod Text Encode</span></a><a class="toc-2" href="#d-3-making-a-refmod" data-target="d-3-making-a-refmod"><span class="tnum">3</span><span class="tlabel">Making a RefMod</span></a><a class="toc-3" href="#d-3-1-add-your-media" data-target="d-3-1-add-your-media"><span class="tnum">3.1</span><span class="tlabel">Add Your Media</span></a><a class="toc-3" href="#d-3-2-one-refmod-or-several" data-target="d-3-2-one-refmod-or-several"><span class="tnum">3.2</span><span class="tlabel">One RefMod or Several</span></a><a class="toc-3" href="#d-3-3-check-the-framing" data-target="d-3-3-check-the-framing"><span class="tnum">3.3</span><span class="tlabel">Check the Framing</span></a><a class="toc-3" href="#d-3-4-crop-to-the-subject" data-target="d-3-4-crop-to-the-subject"><span class="tnum">3.4</span><span class="tlabel">Crop to the Subject</span></a><a class="toc-3" href="#d-3-5-clips" data-target="d-3-5-clips"><span class="tnum">3.5</span><span class="tlabel">Clips</span></a><a class="toc-3" href="#d-3-6-full-or-compressed" data-target="d-3-6-full-or-compressed"><span class="tnum">3.6</span><span class="tlabel">Full or Compressed</span></a><a class="toc-3" href="#d-3-7-voices" data-target="d-3-7-voices"><span class="tnum">3.7</span><span class="tlabel">Voices</span></a><a class="toc-3" href="#d-3-8-create" data-target="d-3-8-create"><span class="tnum">3.8</span><span class="tlabel">Create</span></a><a class="toc-2" href="#d-4-the-library" data-target="d-4-the-library"><span class="tnum">4</span><span class="tlabel">The Library</span></a><a class="toc-3" href="#d-4-1-the-details-panel" data-target="d-4-1-the-details-panel"><span class="tnum">4.1</span><span class="tlabel">The Details Panel</span></a><a class="toc-2" href="#d-5-editing-a-refmod" data-target="d-5-editing-a-refmod"><span class="tnum">5</span><span class="tlabel">Editing a RefMod</span></a><a class="toc-3" href="#d-5-1-see-whats-stored" data-target="d-5-1-see-whats-stored"><span class="tnum">5.1</span><span class="tlabel">See What&#x27;s Stored</span></a><a class="toc-3" href="#d-5-2-edit-the-dataset" data-target="d-5-2-edit-the-dataset"><span class="tnum">5.2</span><span class="tlabel">Edit the Dataset</span></a><a class="toc-3" href="#d-5-3-save-over-it-or-save-a-copy" data-target="d-5-3-save-over-it-or-save-a-copy"><span class="tnum">5.3</span><span class="tlabel">Save Over It, or Save a Copy</span></a><a class="toc-2" href="#d-6-using-refmods-in-a-prompt" data-target="d-6-using-refmods-in-a-prompt"><span class="tnum">6</span><span class="tlabel">Using RefMods in a Prompt</span></a><a class="toc-3" href="#d-6-1-the-stack" data-target="d-6-1-the-stack"><span class="tnum">6.1</span><span class="tlabel">The Stack</span></a><a class="toc-3" href="#d-6-2-citing-the-labels" data-target="d-6-2-citing-the-labels"><span class="tnum">6.2</span><span class="tlabel">Citing the Labels</span></a><a class="toc-3" href="#d-6-3-describing-the-subject" data-target="d-6-3-describing-the-subject"><span class="tnum">6.3</span><span class="tlabel">Describing the Subject</span></a><a class="toc-3" href="#d-6-4-draft-from-refmods" data-target="d-6-4-draft-from-refmods"><span class="tnum">6.4</span><span class="tlabel">Draft From RefMods</span></a><a class="toc-3" href="#d-6-5-subject-names" data-target="d-6-5-subject-names"><span class="tnum">6.5</span><span class="tlabel">Subject Names</span></a><a class="toc-3" href="#d-6-6-refmods-with-regular-media" data-target="d-6-6-refmods-with-regular-media"><span class="tnum">6.6</span><span class="tlabel">RefMods With Regular Media</span></a><a class="toc-3" href="#d-6-7-two-speakers" data-target="d-6-7-two-speakers"><span class="tnum">6.7</span><span class="tlabel">Two Speakers</span></a><a class="toc-3" href="#d-6-8-character-bleeding" data-target="d-6-8-character-bleeding"><span class="tnum">6.8</span><span class="tlabel">Character Bleeding</span></a><a class="toc-3" href="#d-6-9-drafts" data-target="d-6-9-drafts"><span class="tnum">6.9</span><span class="tlabel">Drafts</span></a><a class="toc-2" href="#d-7-tips-and-fixes" data-target="d-7-tips-and-fixes"><span class="tnum">7</span><span class="tlabel">Tips and Fixes</span></a><a class="toc-2" href="#d-8-credits" data-target="d-8-credits"><span class="tnum">8</span><span class="tlabel">Credits</span></a></div>
+<div class="toc-group" data-group="e"><p class="toc-part"><span class="key">Part E</span>Masked editing</p><a class="toc-2" href="#e-top" data-target="e-top"><span class="tnum"></span><span class="tlabel">Introduction</span></a><a class="toc-2" href="#e-1-masking-a-clip" data-target="e-1-masking-a-clip"><span class="tnum">1</span><span class="tlabel">Masking a Clip</span></a><a class="toc-2" href="#e-2-fixing-an-auto-mask" data-target="e-2-fixing-an-auto-mask"><span class="tnum">2</span><span class="tlabel">Fixing an Auto Mask</span></a><a class="toc-2" href="#e-3-shaping-the-mask" data-target="e-3-shaping-the-mask"><span class="tnum">3</span><span class="tlabel">Shaping the Mask</span></a><a class="toc-2" href="#e-4-citing-the-clip" data-target="e-4-citing-the-clip"><span class="tnum">4</span><span class="tlabel">Citing the Clip</span></a><a class="toc-2" href="#e-5-generating" data-target="e-5-generating"><span class="tnum">5</span><span class="tlabel">Generating</span></a><a class="toc-2" href="#e-6-clearing-and-tidying" data-target="e-6-clearing-and-tidying"><span class="tnum">6</span><span class="tlabel">Clearing and Tidying</span></a><a class="toc-2" href="#e-7-masks-made-elsewhere" data-target="e-7-masks-made-elsewhere"><span class="tnum">7</span><span class="tlabel">Masks Made Elsewhere</span></a><a class="toc-2" href="#e-8-credits" data-target="e-8-credits"><span class="tnum">8</span><span class="tlabel">Credits</span></a></div>
+  </nav>
+
+  <main>
+    <section class="hero">
+      <p class="eyebrow">Five parts <span class="dot">/</span> one index</p>
+      <h1>Video Prompt Writing Guide</h1>
+      <p class="lede">Everything needed to rewrite a user request into a generation prompt: the base modes that build an audiovisual timeline from text and keyframes, and full-reference mode, which adds labelled reference assets and its own six-section output. Parts C to E cover this pack's own tools: the Prompt Builder and RefMods, which write those prompts with you, and masked editing.</p>
+      <div class="modes">
+        <a class="mode" href="#a-1-task-overview"><b>T2VA</b><span>Text only. Build the whole timeline.</span></a>
+        <a class="mode" href="#a-1-task-overview"><b>I2VA</b><span>First frame given. Develop forward.</span></a>
+        <a class="mode" href="#a-1-task-overview"><b>FL2VA</b><span>First and last frames. Connect them.</span></a>
+        <a class="mode" href="#a-1-task-overview"><b>L2VA</b><span>Last frame given. Land on it.</span></a>
+        <a class="mode" href="#b-1-overall-structure"><b>Full-reference</b><span>Subjects, pictures, videos, audio.</span></a>
+      </div>
+      <div class="modes modes-pack">
+        <a class="mode" href="#c-1-1-quick-start"><b>Prompt Builder</b><span>Write and check prompts in the editor.</span></a>
+        <a class="mode" href="#d-top"><b>RefMods</b><span>Saved references for any prompt.</span></a>
+<a class="mode" href="#e-top"><b>Masked editing</b><span>Change part of a clip, keep the rest.</span></a>
+      </div>
+      <p class="jump">Jump to what people look up most: <a href="#a-4-3-camera-motion-motion-type-amplitude-speed">camera motion vocabulary</a>, <a href="#a-4-4-speakers-dialogue-and-singing">speaker and dialogue tags</a>, <a href="#a-5-cases">the four worked cases</a>, <a href="#b-7-complete-example">the full-reference example</a>, <a href="#c-1-1-quick-start">the Prompt Builder quick start</a>, <a href="#d-3-making-a-refmod">making a RefMod</a>, or <a href="#e-1-masking-a-clip">masking a clip</a>.</p>
+    </section>
+
+    <div class="searchstate" id="state"><span id="statetext"></span><button id="clear">Clear search</button></div>
+    <div class="empty" id="empty"><b>No matches</b>Try a shorter term, a field name like <code>non_diegetic_music</code>, or a tag like <code>scenetrans</code>.</div>
+
+<article class="part part-a" id="part-a"><header class="part-head"><div class="part-row"><span class="part-key">Part A</span><span class="part-label">Base modes</span><span class="part-blurb">Prompt structure for text-to-video and keyframe tasks.</span></div><p class="part-source">Video Prompt Writing Guide (T2VA / I2VA / FL2VA / L2VA)<span class="file">VIDEO_PROMPT_WRITING_GUIDE_base_en.md</span></p></header><section class="chunk lvl2" id="a-1-task-overview" data-toc="a-1-task-overview"><h2 class="head"><span class="num">1</span><span class="htext">Task Overview</span><a class="anchor" href="#a-1-task-overview" aria-label="Link to this section">#</a></h2><ul>
+<li><strong>T2VA</strong>: Builds a complete audiovisual timeline from text.</li>
+<li><strong>I2VA</strong>: T2VA body + first-frame instruction + a visual path that develops forward from the first frame.</li>
+<li><strong>FL2VA</strong>: T2VA body + first-and-last-frame instruction + a continuous path from the first frame to the last frame.</li>
+<li><strong>L2VA</strong>: T2VA body + last-frame instruction + a path that converges from a plausible preceding state to the last frame.</li>
+</ul></section><section class="chunk lvl2" id="a-2-final-prompt-structure" data-toc="a-2-final-prompt-structure"><h2 class="head"><span class="num">2</span><span class="htext">Final Prompt Structure</span><a class="anchor" href="#a-2-final-prompt-structure" aria-label="Link to this section">#</a></h2></section><section class="chunk lvl3" id="a-2-1-part-one-is-the-instruction" data-toc="a-2-1-part-one-is-the-instruction"><h3 class="head"><span class="num">2.1</span><span class="htext">Part One Is the Instruction</span><a class="anchor" href="#a-2-1-part-one-is-the-instruction" aria-label="Link to this section">#</a></h3><p><strong>T2VA</strong> has no image-alignment instruction and begins directly with the three core fields.</p>
+<p><strong>I2VA</strong> always uses:</p>
+<pre><code class="language-text">For the target video, at 0.00 seconds into the target video, &lt;Picture 1&gt; (from [Shot 1]) is fully referenced.
+</code></pre>
+<p><strong>FL2VA</strong> always uses:</p>
+<pre><code class="language-text">How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot N) aligns with the S.SS-second mark of the target video.
+</code></pre>
+<p><strong>L2VA</strong> always uses:</p>
+<pre><code class="language-text">How the reference pictures align with the target video — &lt;Picture 1&gt; (from [Shot N]) aligns with the S.SS-second mark of the target video.
+</code></pre>
+<p>Here, <code>N</code> is the index of the actual final shot, and <code>S.SS</code> is the effective video duration formatted to exactly two decimal places. The instruction must be the first line of the final prompt, followed by one blank line before the core fields.</p></section><section class="chunk lvl3" id="a-2-2-part-two-contains-the-three-core-fields" data-toc="a-2-2-part-two-contains-the-three-core-fields"><h3 class="head"><span class="num">2.2</span><span class="htext">Part Two Contains the Three Core Fields</span><a class="anchor" href="#a-2-2-part-two-contains-the-three-core-fields" aria-label="Link to this section">#</a></h3><pre><code class="language-text">integrated_multimodal_description: [Shot 1] ...
+
+overall_soundscape: ...
+
+non_diegetic_music: ...
+</code></pre>
+<ul>
+<li><strong>integrated_multimodal_description</strong>: Describes visuals, actions, shots, speakers, dialogue, singing, and diegetic audio along the timeline.</li>
+<li><strong>overall_soundscape</strong>: Summarizes ambient sound, physical action sounds, and non-verbal human sounds across the entire video.</li>
+<li><strong>non_diegetic_music</strong>: Describes background music that the characters cannot hear and only the audience can hear.</li>
+</ul></section><section class="chunk lvl2" id="a-3-how-to-incorporate-keyframes-into-the-multimodal-description" data-toc="a-3-how-to-incorporate-keyframes-into-the-multimodal-description"><h2 class="head"><span class="num">3</span><span class="htext">How to Incorporate Keyframes into the Multimodal Description</span><a class="anchor" href="#a-3-how-to-incorporate-keyframes-into-the-multimodal-description" aria-label="Link to this section">#</a></h2></section><section class="chunk lvl3" id="a-3-1-i2va-begin-from-the-image-and-develop-forward" data-toc="a-3-1-i2va-begin-from-the-image-and-develop-forward"><h3 class="head"><span class="num">3.1</span><span class="htext">I2VA: Begin from the Image and Develop Forward</span><a class="anchor" href="#a-3-1-i2va-begin-from-the-image-and-develop-forward" aria-label="Link to this section">#</a></h3><p><code>&lt;Picture 1&gt;</code> is the actual first frame of the video at 0.00 seconds and belongs to <code>[Shot 1]</code>. The description should first establish the style, subjects, composition, and scene anchors in the image, then describe the next action. Character identity, clothing, colors, key objects, and spatial relationships should remain consistent.</p>
+<p>Recommended structure: <strong>first-frame anchor → action onset → continuous development → result or reaction</strong>.</p></section><section class="chunk lvl3" id="a-3-2-fl2va-describe-the-path-between-the-first-and-last-frames" data-toc="a-3-2-fl2va-describe-the-path-between-the-first-and-last-frames"><h3 class="head"><span class="num">3.2</span><span class="htext">FL2VA: Describe the Path Between the First and Last Frames</span><a class="anchor" href="#a-3-2-fl2va-describe-the-path-between-the-first-and-last-frames" aria-label="Link to this section">#</a></h3><p>Picture 1 is the opening, and Picture 2 is the ending. Focus on how the subject moves, how poses change, how objects are manipulated, how the composition evolves, and how the scene or lighting transitions.</p>
+<p>FL2VA generally favors a single shot so the model can interpolate continuously from the first frame to the last frame. Use multiple shots only when they are explicitly specified. The last frame must be reached by the final <code>[Shot N]</code> at the end of the video.</p>
+<p>Recommended structure: <strong>first-frame state → observable intermediate changes → progressively narrowing differences → last-frame state</strong>.</p></section><section class="chunk lvl3" id="a-3-3-l2va-infer-the-opening-and-land-on-the-image-at-the-end" data-toc="a-3-3-l2va-infer-the-opening-and-land-on-the-image-at-the-end"><h3 class="head"><span class="num">3.3</span><span class="htext">L2VA: Infer the Opening and Land on the Image at the End</span><a class="anchor" href="#a-3-3-l2va-infer-the-opening-and-land-on-the-image-at-the-end" aria-label="Link to this section">#</a></h3><p><code>&lt;Picture 1&gt;</code> is the final frame of the video and belongs to the last <code>[Shot N]</code>; it does not inherently belong to Shot 1. Infer a plausible earlier state from the user's intent and the last frame, then describe how the characters, objects, camera, and scene gradually approach the reference image.</p>
+<p>Recommended structure: <strong>plausible preceding state → explicit action and transition path → gradual convergence in the final shot → last-frame landing</strong>.</p></section><section class="chunk lvl2" id="a-4-how-to-write-the-three-shared-core-sections" data-toc="a-4-how-to-write-the-three-shared-core-sections"><h2 class="head"><span class="num">4</span><span class="htext">How to Write the Three Shared Core Sections</span><a class="anchor" href="#a-4-how-to-write-the-three-shared-core-sections" aria-label="Link to this section">#</a></h2></section><section class="chunk lvl3" id="a-4-1-develop-the-multimodal-description-along-the-timeline" data-toc="a-4-1-develop-the-multimodal-description-along-the-timeline"><h3 class="head"><span class="num">4.1</span><span class="htext">Develop the Multimodal Description Along the Timeline</span><a class="anchor" href="#a-4-1-develop-the-multimodal-description-along-the-timeline" aria-label="Link to this section">#</a></h3><p><code>integrated_multimodal_description</code> is the main body of the rewritten prompt. Every detail should correspond to something visible or audible: visual style, initial composition, subject appearance and position, scene and key props, actions and reactions, shot changes, spoken language, and synchronized diegetic sound.</p>
+<p>At the beginning of <code>[Shot 1]</code>, state the overall style and initial composition. Common styles include <code>Cinematic</code>, <code>live-action</code>, <code>2D-animated</code>, <code>3D CG</code>, <code>claymation</code>, <code>watercolor</code>, and <code>vintage film</code>. For keyframe tasks, derive the style from the reference image; for T2VA, select it from the user's text.</p>
+<pre><code class="language-text">[Shot 1] Live-action, cinematic, a medium-wide shot frames...
+</code></pre></section><section class="chunk lvl3" id="a-4-2-shots-and-cuts" data-toc="a-4-2-shots-and-cuts"><h3 class="head"><span class="num">4.2</span><span class="htext">Shots and Cuts</span><a class="anchor" href="#a-4-2-shots-and-cuts" aria-label="Link to this section">#</a></h3><p>Do not add a timestamp to the first shot. Use sequential shot numbers for later shots, and begin each one with a strictly increasing cut time that falls within the video duration:</p>
+<pre><code class="language-text">[Shot 2] At 00:03.500, the camera cuts to...
+</code></pre>
+<p>For ordinary cuts, use <code>the camera cuts to</code>, <code>the shot cuts to</code>, <code>the shot transitions to</code>, <code>the shot changes to</code>, or <code>the shot switches to</code>. When explicitly requested by the user, cross-dissolve, fade, or wipe may also be used. A cut should introduce new information about the subject, space, state, viewpoint, or time. If only the distance or a slight angle needs to change, prefer camera motion.</p></section><section class="chunk lvl3" id="a-4-3-camera-motion-motion-type-amplitude-speed" data-toc="a-4-3-camera-motion-motion-type-amplitude-speed"><h3 class="head"><span class="num">4.3</span><span class="htext">Camera Motion: Motion Type + Amplitude + Speed</span><a class="anchor" href="#a-4-3-camera-motion-motion-type-amplitude-speed" aria-label="Link to this section">#</a></h3><p>A complete camera-motion expression has three dimensions: the <strong>motion type</strong> defines how the camera moves, <strong>amplitude</strong> defines the range of compositional change, and <strong>speed</strong> defines the pacing of that change. Add amplitude and speed only when they are meaningful; medium amplitude and normal speed are usually omitted.</p>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Available Expression</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Motion type</td>
+<td><code>Zoom In / Zoom Out</code></td>
+<td>The focal length changes while the camera body remains stationary</td>
+</tr>
+<tr>
+<td>Motion type</td>
+<td><code>Push In / Pull Out</code></td>
+<td>The camera moves forward / backward</td>
+</tr>
+<tr>
+<td>Motion type</td>
+<td><code>Pan Left / Pan Right</code></td>
+<td>The camera remains in place while the lens pivots horizontally</td>
+</tr>
+<tr>
+<td>Motion type</td>
+<td><code>Truck Left / Truck Right</code></td>
+<td>The camera translates horizontally</td>
+</tr>
+<tr>
+<td>Motion type</td>
+<td><code>Tilt Up / Tilt Down</code></td>
+<td>The camera remains in place while the lens pivots vertically</td>
+</tr>
+<tr>
+<td>Motion type</td>
+<td><code>Pedestal Up / Pedestal Down</code></td>
+<td>The entire camera moves upward / downward</td>
+</tr>
+<tr>
+<td>Motion type</td>
+<td><code>Arc Shot</code></td>
+<td>The camera moves in an arc around the subject</td>
+</tr>
+<tr>
+<td>Motion type</td>
+<td><code>Tracking Shot</code></td>
+<td>The camera follows a moving subject</td>
+</tr>
+<tr>
+<td>Motion type</td>
+<td><code>Static Shot</code></td>
+<td>The camera position and lens remain still</td>
+</tr>
+<tr>
+<td>Motion type</td>
+<td><code>Shake Slightly / Shake Strongly</code></td>
+<td>Slight / strong camera shake</td>
+</tr>
+<tr>
+<td>Motion type</td>
+<td><code>POV</code></td>
+<td>The subject's point of view</td>
+</tr>
+<tr>
+<td>Motion type</td>
+<td><code>Roll Clockwise / Roll Counterclockwise</code></td>
+<td>The camera rolls clockwise / counterclockwise around the lens axis</td>
+</tr>
+<tr>
+<td>Amplitude</td>
+<td><code>with small amplitude</code></td>
+<td>Small-range change</td>
+</tr>
+<tr>
+<td>Amplitude</td>
+<td><code>with large amplitude</code></td>
+<td>Large-range change</td>
+</tr>
+<tr>
+<td>Speed</td>
+<td><code>at slow speed</code></td>
+<td>Slow movement</td>
+</tr>
+<tr>
+<td>Speed</td>
+<td><code>at fast speed</code></td>
+<td>Fast movement</td>
+</tr>
+</tbody>
+</table>
+<p>Camera motion should be written as a natural English action within the shot, rather than stacked as separate labels at the end of a sentence:</p>
+<pre><code class="language-text">The camera pushes in with small amplitude at slow speed toward the folded letter in her hands.
+The camera pans right with large amplitude at fast speed, revealing the open doorway.
+The camera holds a static shot as the runner exits the frame.
+</code></pre></section><section class="chunk lvl3" id="a-4-4-speakers-dialogue-and-singing" data-toc="a-4-4-speakers-dialogue-and-singing"><h3 class="head"><span class="num">4.4</span><span class="htext">Speakers, Dialogue, and Singing</span><a class="anchor" href="#a-4-4-speakers-dialogue-and-singing" aria-label="Link to this section">#</a></h3><p>Subjects who speak, sing, or produce an off-screen human voice use stable IDs such as <code>(S1)</code> and <code>(S2)</code>. When multiple already-numbered speakers speak or sing together, use a compound ID such as <code>(S1,S2)</code>. A speaker keeps the same ID across shots; characters who never vocalize receive no speaker ID.</p>
+<p>When a speaker first appears, provide enough information from the visual and audio context to establish a stable identity, such as character type, age, gender, whether the person is on-screen, pitch, timbre, speaking rate, or accent. Place the speaker's identifying phrase, ID, action, and delivery outside <code>&lt;d&gt;</code>. Inside <code>&lt;d&gt;</code>, include only the language tag and the actual user-provided spoken content. Preserve every original word and punctuation mark verbatim; do not translate or rewrite them.</p>
+<pre><code class="language-text">The young woman with a quiet, breathy voice (S1) says: &lt;d&gt;[English] I get off at the next station.&lt;/d&gt;
+The two children (S1,S2) shout together, &lt;d&gt;[English] Wait for us!&lt;/d&gt;
+</code></pre>
+<p>For voiceover, use the exact phrase <code>says in an off-screen voiceover</code>. Immediately after every voiceover <code>&lt;d&gt;</code> block, state that the corresponding on-screen character's lips remain closed:</p>
+<pre><code class="language-text">The man (S1) says in an off-screen voiceover: &lt;d&gt;[English] I still remember that road.&lt;/d&gt; while his lips remain completely closed.
+</code></pre>
+<p>When the same line of dialogue or lyrics crosses a cut, use <code>&lt;scenetrans&gt;</code> at the connecting points in both parts and explicitly state that the audio continues across the cut. Use <code>&lt;cutoff&gt;</code> when speech is truncated by the end of the video. Continuity may be expressed with <code>continues seamlessly across the cut</code>, <code>continues uninterrupted into the next shot</code>, <code>carries over from the previous shot</code>, or <code>remains audible across the transition</code>.</p><p>Beyond these markers, the community has found a set of delivery tags — pauses, breaths, emphasis, laughter — that can be placed inside <code>&lt;d&gt;</code> to shape performance. They are not part of the official guide; see <a href="#a-6-1-audio-performance-tags">6.1 Audio and Performance Tags</a>.</p></section><section class="chunk lvl3" id="a-4-5-on-screen-text" data-toc="a-4-5-on-screen-text"><h3 class="head"><span class="num">4.5</span><span class="htext">On-Screen Text</span><a class="anchor" href="#a-4-5-on-screen-text" aria-label="Link to this section">#</a></h3><p>Place any banner, sign, label, subtitle, or neon text that is actually visible on screen in English double quotation marks. Preserve the original text and punctuation verbatim, without translation.</p>
+<pre><code class="language-text">A red neon sign reading &quot;营业中&quot; glows above the doorway.
+</code></pre></section><section class="chunk lvl3" id="a-4-6-overall-soundscape" data-toc="a-4-6-overall-soundscape"><h3 class="head"><span class="num">4.6</span><span class="htext">overall_soundscape</span><a class="anchor" href="#a-4-6-overall-soundscape" aria-label="Link to this section">#</a></h3><p>Use 1–4 English sentences in one continuous paragraph to summarize the ambient sound, physical action sounds, and non-verbal human sounds across the full video, such as wind, rain, traffic, footsteps, fabric movement, impacts, breathing, laughter, or panting. Dialogue, singing, and diegetic music already belong in the multimodal description and should not be repeated here. Use <code>N/A</code> only when the user explicitly requests complete silence throughout the video.</p>
+<pre><code class="language-text">overall_soundscape: Steady rain taps against the café windows while low room ambience continues underneath. The entrance bell rings once, followed by wet footsteps and the soft scrape of a chair.
+</code></pre></section><section class="chunk lvl3" id="a-4-7-non-diegetic-music" data-toc="a-4-7-non-diegetic-music"><h3 class="head"><span class="num">4.7</span><span class="htext">non_diegetic_music</span><a class="anchor" href="#a-4-7-non-diegetic-music" aria-label="Link to this section">#</a></h3><p>Use 1–3 English sentences to describe background music that the characters cannot hear and only the audience can hear. Focus on instrumentation, speed, rhythm, and dynamic changes; do not use abstract mood words or explain the emotional function of the score. Singing, instruments, radio, television, or phone music audible to the characters are diegetic events and should appear in the multimodal description. Use <code>N/A</code> when there is no non-diegetic music.</p>
+<pre><code class="language-text">non_diegetic_music: Sparse piano notes at a slow tempo, joined by sustained low strings that gradually increase in volume before fading out.
+</code></pre></section><section class="chunk lvl2" id="a-5-cases" data-toc="a-5-cases"><h2 class="head"><span class="num">5</span><span class="htext">Cases</span><a class="anchor" href="#a-5-cases" aria-label="Link to this section">#</a></h2></section><section class="chunk lvl3" id="a-case-1-t2va" data-toc="a-case-1-t2va"><h3 class="head"><span class="htext">Case 1: T2VA</span><a class="anchor" href="#a-case-1-t2va" aria-label="Link to this section">#</a></h3><p>With no reference image, construct the complete timeline directly from the text. You may add scene, character, action, and sound details that remain consistent with the user's intent.</p>
+<pre><code class="language-text">integrated_multimodal_description: [Shot 1] Live-action, cinematic, a medium-wide shot frames a baker opening the shutters of a small street bakery before sunrise. The camera pushes in with small amplitude at slow speed as the middle-aged baker with a calm, slightly raspy voice (S1) places a fresh loaf on the wooden counter and says: &lt;d&gt;[English] First batch of the morning.&lt;/d&gt; [Shot 2] At 00:05.000, the camera cuts to a close-up of steam rising from the sliced bread while the baker's final words carry over from the previous shot.
+
+overall_soundscape: Wooden shutters scrape open over a quiet street as trays clink softly inside the bakery. The doorbell rings once, followed by light footsteps and the crisp sound of bread being sliced.
+
+non_diegetic_music: A soft acoustic-guitar pattern at a moderate tempo, joined by sparse upright-bass notes and a gentle fade at the end.
+</code></pre></section><section class="chunk lvl3" id="a-case-2-i2va" data-toc="a-case-2-i2va"><h3 class="head"><span class="htext">Case 2: I2VA</span><a class="anchor" href="#a-case-2-i2va" aria-label="Link to this section">#</a></h3><p>Write the first-frame instruction first, then use the subject, composition, and scene in Picture 1 as the starting point of Shot 1 before describing how the scene continues to develop.</p>
+<pre><code class="language-text">For the target video, at 0.00 seconds into the target video, &lt;Picture 1&gt; (from [Shot 1]) is fully referenced.
+
+integrated_multimodal_description: [Shot 1] Live-action, cinematic, the young woman shown in &lt;Picture 1&gt; remains beside the rain-covered train window, preserving her appearance, clothing, seat position, and the carriage layout. The camera trucks right with small amplitude at slow speed as she lifts her gaze from the folded letter toward the passing city lights. Her reflection moves across the glass while the quiet, breathy young woman (S1) says: &lt;d&gt;[English] I get off at the next station.&lt;/d&gt; She folds the letter along its existing crease.
+
+overall_soundscape: The train wheels produce a steady metallic rhythm beneath a low ventilation hum. Rain ticks against the window while paper rustles softly in her hands.
+
+non_diegetic_music: Sustained cello notes at a slow tempo with widely spaced piano tones, gradually decreasing in volume.
+</code></pre></section><section class="chunk lvl3" id="a-case-3-fl2va" data-toc="a-case-3-fl2va"><h3 class="head"><span class="htext">Case 3: FL2VA</span><a class="anchor" href="#a-case-3-fl2va" aria-label="Link to this section">#</a></h3><p>The two images anchor the opening and ending respectively. The body should not repeat two static image descriptions; instead, it should supply the motion path that connects them. The following example is an eight-second single shot.</p>
+<pre><code class="language-text">How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the 8.00-second mark of the target video.
+
+integrated_multimodal_description: [Shot 1] Live-action, cinematic, a rain-soaked cyclist begins in the position and framing established by Picture 1, holding a closed black umbrella beside a silver bicycle. The camera pulls out with small amplitude at slow speed as she releases the bicycle handle, raises the umbrella above her shoulder, and presses the runner upward until the canopy opens. Water rolls from the expanding fabric while she steps beneath it, rotates the handle into the final angle, and settles into the pose, spacing, and composition established by Picture 2 at the end of the shot.
+
+overall_soundscape: Rain falls steadily on the pavement, followed by the metallic click of the umbrella runner and the soft snap of the canopy opening. Water drips from the bicycle frame as distant traffic passes.
+
+non_diegetic_music: N/A
+</code></pre></section><section class="chunk lvl3" id="a-case-4-l2va" data-toc="a-case-4-l2va"><h3 class="head"><span class="htext">Case 4: L2VA</span><a class="anchor" href="#a-case-4-l2va" aria-label="Link to this section">#</a></h3><p>The image anchors only the final moment. First establish a compatible earlier state, then let the actions, object states, and composition gradually land on Picture 1 in the final shot. The following example is a six-second single shot.</p>
+<pre><code class="language-text">How the reference pictures align with the target video — &lt;Picture 1&gt; (from [Shot 1]) aligns with the 6.00-second mark of the target video.
+
+integrated_multimodal_description: [Shot 1] Live-action, cinematic, a close shot begins with an intact drinking glass near the edge of a dark wooden table, while the same hand and sleeve visible in &lt;Picture 1&gt; approach from the right. The camera pushes in with small amplitude at slow speed as the fingertips strike the rim. The glass tips, falls, and hits the floor with a sharp impact; cracks spread through it as fragments slide outward. Toward the end, the moving pieces lose momentum and settle into the exact broken arrangement, hand position, camera angle, lighting, and final composition established by &lt;Picture 1&gt;.
+
+overall_soundscape: Fingertips tap the glass before it scrapes across the tabletop, falls, and breaks with a sharp crash. Small fragments scatter and gradually stop sliding across the floor.
+
+non_diegetic_music: A low electronic pulse at a slow tempo, ending immediately after the glass breaks.
+</code></pre></section><section class="chunk lvl2" id="a-6-community-discoveries" data-toc="a-6-community-discoveries"><h2 class="head"><span class="num">6</span><span class="htext">Community Discoveries</span><a class="anchor" href="#a-6-community-discoveries" aria-label="Link to this section">#</a></h2><blockquote><p>The material in this section is not part of MiniMax's published guide. It comes from tags the community has found to work in practice. Treat it as a starting point rather than a specification: behaviour may vary between checkpoints, and any of it may stop working in a future model revision.</p></blockquote></section><section class="chunk lvl3" id="a-6-1-audio-performance-tags" data-toc="a-6-1-audio-performance-tags"><h3 class="head"><span class="num">6.1</span><span class="htext">Audio and Performance Tags</span><a class="anchor" href="#a-6-1-audio-performance-tags" aria-label="Link to this section">#</a></h3><p>These tags go <em>inside</em> a <code>&lt;d&gt;</code> block, alongside the spoken text, to shape delivery — pauses, breathing, emphasis, and non-verbal sounds. They are distinct from the <code>&lt;scenetrans&gt;</code> and <code>&lt;cutoff&gt;</code> markers in <a href="#a-4-4-speakers-dialogue-and-singing">4.4</a>, which control how a line spans a cut. Most are self-closing; the few that wrap text are shown with a closing tag.</p><table class="dtags">
+<thead>
+<tr><th>Tag</th><th>What it does</th><th>Example</th></tr>
+</thead>
+<tbody>
+<tr><td><code><span class="dt">&lt;pause&gt;</span></code></td><td>Short pause</td><td><code>Okay, so. <span class="dt">&lt;pause&gt;</span> This is just me talking.</code></td></tr>
+<tr><td><code><span class="dt">&lt;long pause&gt;</span></code></td><td>Longer pause</td><td><code>I mean… <span class="dt">&lt;long pause&gt;</span> I don't even know.</code></td></tr>
+<tr><td><code><span class="dt">&lt;breath&gt;</span></code></td><td>Breathing sound</td><td><code>And then… <span class="dt">&lt;breath&gt;</span> it just happened.</code></td></tr>
+<tr><td><code><span class="dt">&lt;inhale&gt;</span> / <span class="dt">&lt;exhale&gt;</span></code></td><td>In/out breath</td><td><code><span class="dt">&lt;inhale&gt;</span> Alright, let's do this.</code></td></tr>
+<tr><td><code><span class="dt">&lt;catches breath&gt;</span></code></td><td>Out of breath</td><td><code>Wait… <span class="dt">&lt;catches breath&gt;</span> hold on a sec.</code></td></tr>
+<tr><td><code><span class="dt">&lt;deep breath&gt;</span></code></td><td>Calming down</td><td><code><span class="dt">&lt;deep breath&gt;</span> Okay. I can do this.</code></td></tr>
+<tr><td><code><span class="dt">&lt;i&gt;</span>word<span class="dt">&lt;/i&gt;</span></code></td><td>Emphasize 1–4 words</td><td><code>I was <span class="dt">&lt;i&gt;</span>not<span class="dt">&lt;/i&gt;</span> expecting that.</code></td></tr>
+<tr><td><code><span class="dt">&lt;whisper&gt;</span>…<span class="dt">&lt;/whisper&gt;</span></code></td><td>Whisper delivery</td><td><code><span class="dt">&lt;whisper&gt;</span> Don't tell anyone this.<span class="dt">&lt;/whisper&gt;</span></code></td></tr>
+<tr><td><code><span class="dt">&lt;humming&gt;</span>…<span class="dt">&lt;/humming&gt;</span></code></td><td>Humming a tune</td><td><code><span class="dt">&lt;humming&gt;</span> da-da-da-beautiful-day.<span class="dt">&lt;/humming&gt;</span></code></td></tr>
+<tr><td><code><span class="dt">&lt;laughs&gt;</span> / <span class="dt">&lt;chuckle&gt;</span></code></td><td>Laughing</td><td><code>That's… <span class="dt">&lt;laughs&gt;</span> that's actually funny.</code></td></tr>
+<tr><td><code><span class="dt">&lt;sighs&gt;</span></code></td><td>Sigh</td><td><code><span class="dt">&lt;sighs&gt;</span> I really tried.</code></td></tr>
+<tr><td><code><span class="dt">&lt;uh&gt;</span></code></td><td>Filler / hesitation</td><td><code>So, like… <span class="dt">&lt;uh&gt;</span> what was I saying?</code></td></tr>
+<tr><td><code><span class="dt">&lt;stutter&gt;</span></code></td><td>Stutters the words</td><td><code><span class="dt">&lt;stutter&gt;</span> I ca can't believe that.</code></td></tr>
+<tr><td><code><span class="dt">&lt;gasp&gt;</span></code></td><td>Sharp intake</td><td><code><span class="dt">&lt;gasp&gt;</span> Oh my God.</code></td></tr>
+<tr><td><code><span class="dt">&lt;coughs&gt;</span></code></td><td>Cough</td><td><code><span class="dt">&lt;coughs&gt;</span> Sorry, one sec.</code></td></tr>
+<tr><td><code><span class="dt">&lt;clears throat&gt;</span></code></td><td>Throat clear</td><td><code><span class="dt">&lt;clears throat&gt;</span> So anyway…</code></td></tr>
+<tr><td><code><span class="dt">&lt;sniff&gt;</span></code></td><td>Sniffing</td><td><code><span class="dt">&lt;sniff&gt;</span> It's just… really sad.</code></td></tr>
+<tr><td><code><span class="dt">&lt;softer&gt;</span></code></td><td>Quieter delivery</td><td><code><span class="dt">&lt;softer&gt;</span> I don't think I can say it.</code></td></tr>
+<tr><td><code><span class="dt">&lt;mhm&gt;</span></code></td><td>Agreement sound</td><td><code>Yeah, <span class="dt">&lt;mhm&gt;</span> exactly.</code></td></tr>
+<tr><td><code><span class="dt">&lt;phew&gt;</span></code></td><td>Relief</td><td><code><span class="dt">&lt;phew&gt;</span> That was close.</code></td></tr>
+</tbody>
+</table><p>Use them sparingly. One or two per line reads as natural performance; stacking many in a single utterance tends to make delivery choppy and can cause the model to drop the tags entirely.</p><p>The prompt builder carries this same list in its <strong>Delivery</strong> row, grouped into pauses and breath, delivery and emphasis, and non-verbal sounds. Hovering the picker previews the example; the four tags that wrap text wrap the current selection when there is one.</p></section></article>
+<article class="part part-b" id="part-b"><header class="part-head"><div class="part-row"><span class="part-key">Part B</span><span class="part-label">Full-reference mode</span><span class="part-blurb">Six-section rewrite output when reference assets are supplied.</span></div><p class="part-source">Full-Reference Mode Rewrite Output Format Guide<span class="file">VIDEO_PROMPT_WRITING_GUIDE_ref_en.md</span></p></header><section class="chunk chunk-intro" id="b-top" data-toc="b-top">
+<p>This guide explains how rewrite outputs are organized and written in full-reference mode.</p>
+<p>Write all six rewrite sections in English. Preserve the original language only for dialogue and lyrics inside <code>&lt;d&gt;</code> and for text visibly present in the scene.</p>
+<p><strong>Description detail:</strong> Make <code>detailed_description</code> as detailed and explicit as possible. For each shot, clearly establish the current composition, subject appearance and position, environment and lighting, actions and state changes, camera movement, current sound, and the points where referenced content actually appears or takes effect. Avoid reducing the description to a plot summary or a list of reference relationships.</p>
+<blockquote>
+<p>The basic formats for shots, camera movement, speakers, dialogue, and ordinary sound are shared with the <a href="#part-a">Video Prompt Writing Guide (T2VA / I2VA / FL2VA / L2VA)</a>. This guide focuses on the reference labels, analysis sections, and format differences specific to full-reference mode.</p>
+</blockquote></section><section class="chunk lvl2" id="b-1-overall-structure" data-toc="b-1-overall-structure"><h2 class="head"><span class="num">1</span><span class="htext">Overall Structure</span><a class="anchor" href="#b-1-overall-structure" aria-label="Link to this section">#</a></h2><p>A complete rewrite output consists of six sections in the following order:</p>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>subject_definitions</code></td>
+<td>Defines referenced content and its reference labels</td>
+</tr>
+<tr>
+<td><code>summary</code></td>
+<td>Summarizes the task type, target video, and main reference relationships</td>
+</tr>
+<tr>
+<td><code>retention_analysis</code></td>
+<td>Describes how referenced content is preserved, transferred, or reused</td>
+</tr>
+<tr>
+<td><code>detailed_description</code></td>
+<td>Describes visuals, actions, shots, sound, and dialogue in playback order</td>
+</tr>
+<tr>
+<td><code>overall_soundscape</code></td>
+<td>Summarizes ambience and physical sounds</td>
+</tr>
+<tr>
+<td><code>non_diegetic_music</code></td>
+<td>Describes background music audible only to the audience</td>
+</tr>
+</tbody>
+</table></section><section class="chunk lvl2" id="b-2-reference-labels-and-definitions-subject-definitions" data-toc="b-2-reference-labels-and-definitions-subject-definitions"><h2 class="head"><span class="num">2</span><span class="htext">Reference Labels and Definitions (<code>subject_definitions</code>)</span><a class="anchor" href="#b-2-reference-labels-and-definitions-subject-definitions" aria-label="Link to this section">#</a></h2><p>Full-reference rewrites use four types of labels to identify the source and role of referenced content:</p>
+<table>
+<thead>
+<tr>
+<th>Label</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>&lt;Subject N&gt;</code></td>
+<td>Visible content abstracted from reference assets that can be reused or modified in the target video</td>
+</tr>
+<tr>
+<td><code>&lt;Picture N&gt;</code></td>
+<td>A reference image used as a concrete target frame or shot-planning anchor</td>
+</tr>
+<tr>
+<td><code>&lt;Video N&gt;</code></td>
+<td>A reference video that provides an editing source, continuation starting point, or whole-video temporal structure</td>
+</tr>
+<tr>
+<td><code>&lt;Audio N&gt;</code></td>
+<td>An audio signal that is copied or referenced</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Once a reference label is assigned to a piece of content, it keeps the same meaning across <code>subject_definitions</code>, <code>summary</code>, <code>retention_analysis</code>, <code>detailed_description</code>, and the audio sections.</p>
+</blockquote>
+<p><code>subject_definitions</code> defines each piece of referenced content that must be tracked separately later, such as a person, an environment, a source video's structure, or an audio track. Give each item its own line and explain what its label denotes, its reference role, and the main features to follow; name the corresponding source asset when its provenance needs to be made explicit. If <code>&lt;Picture N&gt;</code> or <code>&lt;Video N&gt;</code> only identifies the source of another referenced item and will not be analyzed or used separately later, cite it inside that item's definition without adding a separate line. <code>retention_analysis</code> records where each referenced item appears and whether it is fully preserved, partially preserved, transferred, or reused.</p></section><section class="chunk lvl3" id="b-2-1-subject-n" data-toc="b-2-1-subject-n"><h3 class="head"><span class="num">2.1</span><span class="htext"><code>&lt;Subject N&gt;</code></span><a class="anchor" href="#b-2-1-subject-n" aria-label="Link to this section">#</a></h3><p><code>&lt;Subject N&gt;</code> is used for reusable visible content, including:</p>
+<ul>
+<li>People, animals, or objects</li>
+<li>Scenes, backgrounds, or environments</li>
+<li>Clothing, props, interfaces, or visual effects</li>
+<li>Styles, actions, expressions, or poses</li>
+</ul>
+<p>It represents a content unit that will actually be used in the target video, rather than the source file itself. One subject may be defined by multiple reference assets, and one reference asset may provide multiple subjects.</p>
+<pre><code class="language-text">&lt;Subject 1&gt; is the young woman in &lt;Picture 1&gt;, with long dark hair, a blue cardigan, and a thin silver necklace.
+</code></pre>
+<p>When the same subject comes from multiple assets, combine the sources and state what each asset provides:</p>
+<pre><code class="language-text">&lt;Subject 1&gt; is the woman whose appearance comes from &lt;Picture 1&gt; and whose walking motion comes from &lt;Video 1&gt;.
+</code></pre></section><section class="chunk lvl3" id="b-2-2-picture-n" data-toc="b-2-2-picture-n"><h3 class="head"><span class="num">2.2</span><span class="htext"><code>&lt;Picture N&gt;</code></span><a class="anchor" href="#b-2-2-picture-n" aria-label="Link to this section">#</a></h3><p>Use a standalone <code>&lt;Picture N&gt;</code> when the reference image itself serves as a shot's first frame, keyframe, last frame, edited keyframe, or composition anchor:</p>
+<pre><code class="language-text">&lt;Picture 2&gt; is the first frame of [Shot 1], showing a woman seated beside a café window.
+</code></pre>
+<p>If an image is used only to define a character, scene, costume, or style, do not create a standalone picture entry. Instead, cite the image source inside the corresponding <code>&lt;Subject N&gt;</code> definition.</p>
+<p>When an image acts as a storyboard or shot-planning reference, state which shots it maps to and what planning information it provides:</p>
+<pre><code class="language-text">&lt;Picture 3&gt; is a storyboard reference for [Shot 1] and [Shot 2], defining their viewpoint, subject placement, and shot order.
+</code></pre></section><section class="chunk lvl3" id="b-2-3-video-n" data-toc="b-2-3-video-n"><h3 class="head"><span class="num">2.3</span><span class="htext"><code>&lt;Video N&gt;</code></span><a class="anchor" href="#b-2-3-video-n" aria-label="Link to this section">#</a></h3><p><code>&lt;Video N&gt;</code> is reserved for whole-video relationships, such as:</p>
+<ul>
+<li>Editing an original video</li>
+<li>Continuing from the end of an original video</li>
+<li>Referencing the original video's camera movement, cuts, rhythm, or temporal structure</li>
+</ul>
+<pre><code class="language-text">&lt;Video 1&gt; is the source video for the target video edit.
+</code></pre>
+<p>If a person, object, scene, action, or effect from a reference video is reused as visible content, it still belongs under <code>&lt;Subject N&gt;</code>. <code>&lt;Video N&gt;</code> identifies the asset or structural source and does not replace subject labels.</p></section><section class="chunk lvl3" id="b-2-4-audio-n" data-toc="b-2-4-audio-n"><h3 class="head"><span class="num">2.4</span><span class="htext"><code>&lt;Audio N&gt;</code></span><a class="anchor" href="#b-2-4-audio-n" aria-label="Link to this section">#</a></h3><p><code>&lt;Audio N&gt;</code> represents a standalone audio asset or an enabled synchronized audio track from a reference video. Common uses include:</p>
+<ul>
+<li>Copying all or part of an audio signal</li>
+<li>Referencing a background-music style</li>
+<li>Referencing a speaker's voice timbre and delivery</li>
+<li>Using dialogue, lyrics, or sound effects from the original audio</li>
+<li>Referencing beat, rhythm, or audio continuity</li>
+</ul>
+<p>When an <code>&lt;Audio N&gt;</code> explicitly corresponds to a target speaker, reuse that speaker's global ID in the definition: write <code>&lt;Subject N&gt; (Sx)</code> when the speaker maps to a defined subject, or use a stable voice description followed by <code>(Sx)</code> otherwise. The ID comes from the target video's global speaker order and is not independently assigned or renumbered in the audio definition. See Section 5.4 for the speaker-numbering rules:</p>
+<pre><code class="language-text">&lt;Audio 1&gt; is the voice-timbre reference for &lt;Subject 1&gt; (S1).
+</code></pre>
+<p>When one audio asset serves multiple roles, describe those roles in one natural sentence rather than creating additional subsections.</p></section><section class="chunk lvl3" id="b-2-5-visual-and-audio-tracks-from-the-same-reference-video" data-toc="b-2-5-visual-and-audio-tracks-from-the-same-reference-video"><h3 class="head"><span class="num">2.5</span><span class="htext">Visual and Audio Tracks from the Same Reference Video</span><a class="anchor" href="#b-2-5-visual-and-audio-tracks-from-the-same-reference-video" aria-label="Link to this section">#</a></h3><p><code>&lt;Video N&gt;</code> and <code>&lt;Audio N&gt;</code> are numbered independently. Each index indicates only the label's order within its own category and does not encode a pairing between the two categories. The same reference video may therefore correspond to <code>&lt;Video 1&gt;</code> and <code>&lt;Audio 2&gt;</code>; different indices do not prevent them from coming from the same source asset.</p>
+<p>An ordinary reference video does not create <code>&lt;Audio N&gt;</code> merely because the file contains sound.</p>
+<p>An <code>&lt;Audio N&gt;</code> definition primarily states the audio's role and does not have to name the <code>&lt;Video N&gt;</code> it comes from. State the shared source only when needed to remove provenance ambiguity, for example:</p>
+<pre><code class="language-text">&lt;Video 1&gt; is the source video for the target video edit.
+&lt;Audio 2&gt; is the synchronized audio track of &lt;Video 1&gt; and is reused in the target video.
+</code></pre></section><section class="chunk lvl2" id="b-3-summary" data-toc="b-3-summary"><h2 class="head"><span class="num">3</span><span class="htext"><code>summary</code></span><a class="anchor" href="#b-3-summary" aria-label="Link to this section">#</a></h2><p>This section uses one short English paragraph to summarize the target video and its reference relationships. It begins with a square-bracketed task-type prefix:</p>
+<pre><code class="language-text">[reference generation] ...
+[video editing + reference generation + audio reuse] ...
+</code></pre>
+<p>Choose task types according to the actual role each reference asset plays in the target video:</p>
+<table>
+<thead>
+<tr>
+<th>Task type</th>
+<th>When to use it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>keyframe completion</code></td>
+<td>An image serves as the target video's first frame, keyframe, last frame, edited keyframe, or another concrete frame anchor</td>
+</tr>
+<tr>
+<td><code>reference generation</code></td>
+<td>An image, video, or audio asset provides generation guidance for a character, scene, style, action, camera movement, storyboard, and so on, without serving as a concrete frame or as the source video being edited or continued</td>
+</tr>
+<tr>
+<td><code>video editing</code></td>
+<td>An existing source video is directly modified; editing an image or generating between still keyframes does not belong to this type</td>
+</tr>
+<tr>
+<td><code>video continuation</code></td>
+<td>New content continues, extends, resumes, or transitions from an existing source video</td>
+</tr>
+<tr>
+<td><code>audio reuse</code></td>
+<td>The same audio signal is reused in full or in part</td>
+</tr>
+<tr>
+<td><code>audio reference</code></td>
+<td>The audio signal is not copied directly; only its music style, timbre, dialogue or lyric content, sound-effect texture, beat, or continuity is referenced</td>
+</tr>
+</tbody>
+</table>
+<p>When a task satisfies multiple relationships, combine the task types with <code>+</code> and do not repeat a type. For example, continuing from a source video while using an image as the last frame is written as <code>[video continuation + keyframe completion]</code>. Editing a source video while retaining its original audio may be written as <code>[video editing + audio reuse]</code>.</p>
+<p>The mere presence of video or audio does not automatically create a corresponding task type. If a reference video provides only camera movement, cuts, or rhythm, it normally belongs to <code>reference generation</code>. Use <code>video editing</code> or <code>video continuation</code> only when that video is directly edited or continued.</p>
+<p>When editing a source video, use <code>audio reuse</code> as well if its original audio remains audible. When continuing a source video without directly copying the audio signal, use <code>audio reference</code> if the new audio only continues the original track's audible characteristics.</p>
+<p>The summary uses the previously defined <code>&lt;Subject N&gt;</code>, <code>&lt;Picture N&gt;</code>, <code>&lt;Video N&gt;</code>, and <code>&lt;Audio N&gt;</code> labels to describe the main subjects, shot flow, and roles of the reference assets. Do not introduce new reference labels in this section.</p>
+<p>For video-editing tasks, begin the summary after the task-type prefix with:</p>
+<pre><code class="language-text">The target video is an edited version of &lt;Video 1&gt;.
+</code></pre></section><section class="chunk lvl2" id="b-4-retention-analysis" data-toc="b-4-retention-analysis"><h2 class="head"><span class="num">4</span><span class="htext"><code>retention_analysis</code></span><a class="anchor" href="#b-4-retention-analysis" aria-label="Link to this section">#</a></h2><p>This section describes how each piece of referenced content is preserved, transferred, copied, or referenced in the target video. Use one line for each reference label and preserve the meaning established in <code>subject_definitions</code>.</p></section><section class="chunk lvl3" id="b-4-1-visible-content" data-toc="b-4-1-visible-content"><h3 class="head"><span class="num">4.1</span><span class="htext">Visible Content</span><a class="anchor" href="#b-4-1-visible-content" aria-label="Link to this section">#</a></h3><p><code>&lt;Subject N&gt;</code>, <code>&lt;Picture N&gt;</code>, and <code>&lt;Video N&gt;</code> use the following relationship markers. These markers are fixed English values in the output format:</p>
+<table>
+<thead>
+<tr>
+<th>Relationship marker</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fully_preserved</code></td>
+<td>The defined role of the referenced content is fully preserved</td>
+</tr>
+<tr>
+<td><code>partially_preserved</code></td>
+<td>The referenced content is still used, but some defined characteristics are changed or only partially retained</td>
+</tr>
+<tr>
+<td><code>attribute_transfer</code></td>
+<td>Referenced characteristics are transferred to a different identifiable target subject</td>
+</tr>
+<tr>
+<td><code>weak_reference</code></td>
+<td>Only broad similarity in style, category, composition, or atmosphere is retained</td>
+</tr>
+</tbody>
+</table>
+<p>Subject entry:</p>
+<pre><code class="language-text">&lt;Subject 1&gt; (appears in [Shot 1], [Shot 3]): fully_preserved - ...
+</code></pre>
+<p>Picture entry:</p>
+<pre><code class="language-text">&lt;Picture 2&gt; ([Shot 1] first frame): fully_preserved - ...
+</code></pre>
+<p>Video-structure entry:</p>
+<pre><code class="language-text">&lt;Video 1&gt; (cut and pacing structure): weak_reference - ...
+</code></pre></section><section class="chunk lvl3" id="b-4-2-audio" data-toc="b-4-2-audio"><h3 class="head"><span class="num">4.2</span><span class="htext">Audio</span><a class="anchor" href="#b-4-2-audio" aria-label="Link to this section">#</a></h3><p><code>&lt;Audio N&gt;</code> uses the following relationship markers:</p>
+<table>
+<thead>
+<tr>
+<th>Relationship marker</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fully_copy</code></td>
+<td>The complete source audio serves as the target video's complete final audio track</td>
+</tr>
+<tr>
+<td><code>partially_copy</code></td>
+<td>Only part of the timeline or selected audio layers are copied, or other sounds are added, removed, or replaced after copying</td>
+</tr>
+<tr>
+<td><code>reference</code></td>
+<td>The signal is not copied directly; only timbre, rhythm, music style, dialogue content, or sound texture is referenced</td>
+</tr>
+<tr>
+<td><code>weak_reference</code></td>
+<td>Only broad similarity in category or atmosphere is retained</td>
+</tr>
+</tbody>
+</table>
+<pre><code class="language-text">&lt;Audio 1&gt;: fully_copy - &lt;Audio 1&gt; is reused 1:1 as the target video's complete final audio track.
+</code></pre>
+<pre><code class="language-text">&lt;Audio 2&gt;: reference - the target speaker follows &lt;Audio 2&gt;'s voice timbre and measured delivery without copying the original signal.
+</code></pre>
+<p>Choose each relationship marker only within the reference role already defined for that label in <code>subject_definitions</code>. Do not treat newly added actions, backgrounds, or plot events in the target video as losses of reference fidelity.</p></section><section class="chunk lvl2" id="b-5-detailed-description" data-toc="b-5-detailed-description"><h2 class="head"><span class="num">5</span><span class="htext"><code>detailed_description</code></span><a class="anchor" href="#b-5-detailed-description" aria-label="Link to this section">#</a></h2><p>This is the main body of a full-reference rewrite. It describes visuals, actions, sound, and dialogue shot by shot in target-video playback order and inserts reference labels where they apply.</p></section><section class="chunk lvl3" id="b-5-1-basic-format" data-toc="b-5-1-basic-format"><h3 class="head"><span class="num">5.1</span><span class="htext">Basic Format</span><a class="anchor" href="#b-5-1-basic-format" aria-label="Link to this section">#</a></h3><p>The basic format follows the <a href="#part-a">Video Prompt Writing Guide (T2VA / I2VA / FL2VA / L2VA)</a>:</p>
+<ul>
+<li>Write the body in English. Preserve the original language of dialogue, lyrics, and visible text.</li>
+<li><code>[Shot 1]</code> marks the opening shot and has no timestamp. Later shots use <code>[Shot N] At MM:SS.mmm, ...</code> to mark cut times.</li>
+<li>Write camera movement as natural English within the current shot, including movement type, amplitude, and speed when they need to be expressed.</li>
+<li>Give vocal sources stable <code>(S1)</code>, <code>(S2)</code>, and subsequent IDs. Write dialogue and lyrics as <code>&lt;d&gt;[Language] ...&lt;/d&gt;</code>.</li>
+<li>Use <code>&lt;scenetrans&gt;</code>, <code>&lt;cutoff&gt;</code>, and the corresponding continuity descriptions for dialogue crossing a cut, speech truncated by the video ending, and continuous audio across shots.</li>
+</ul>
+<p>For complete rules and examples covering camera vocabulary, group speech, voice-over, dialogue across cuts, and visible text, see the <a href="#part-a">Video Prompt Writing Guide (T2VA / I2VA / FL2VA / L2VA)</a>.</p></section><section class="chunk lvl3" id="b-5-2-full-reference-mode-differences" data-toc="b-5-2-full-reference-mode-differences"><h3 class="head"><span class="num">5.2</span><span class="htext">Full-Reference Mode Differences</span><a class="anchor" href="#b-5-2-full-reference-mode-differences" aria-label="Link to this section">#</a></h3><table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>T2VA</th>
+<th>Full-reference mode</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Main field</td>
+<td><code>integrated_multimodal_description</code></td>
+<td><code>detailed_description</code></td>
+</tr>
+<tr>
+<td>Style opening</td>
+<td>Written after <code>[Shot 1]</code></td>
+<td>Established in one or two English sentences before <code>[Shot 1]</code></td>
+</tr>
+<tr>
+<td>Reference information</td>
+<td>Does not use full-reference labels</td>
+<td>Inserts <code>&lt;Subject N&gt;</code>, <code>&lt;Picture N&gt;</code>, <code>&lt;Video N&gt;</code>, and <code>&lt;Audio N&gt;</code> at their first appearance and where their roles apply</td>
+</tr>
+<tr>
+<td>Audio relationships</td>
+<td>Describes the target video's own sound</td>
+<td>Cites <code>&lt;Audio N&gt;</code> in the corresponding shot or audio phase and states whether the signal is copied or referenced</td>
+</tr>
+</tbody>
+</table>
+<p>Opening example:</p>
+<pre><code class="language-text">The target video is in a cinematic, literary music-video style with soft lighting and a slightly desaturated color palette.
+[Shot 1] The scene opens in a crowded urban street...
+[Shot 2] At 00:09.000, the shot cuts to an extreme close-up...
+</code></pre>
+<p>For generation tasks, <code>detailed_description</code> is normally 350-500 English words. Dialogue-dense content prioritizes fitting the complete spoken timeline rather than mechanically reaching a word count. Video-editing descriptions scale with the complexity of the source video and do not have to follow the generation-task range. A single shot does not automatically justify a shorter description; distribute detail across multiple shots according to their information load.</p></section><section class="chunk lvl3" id="b-5-3-using-reference-labels-in-shots" data-toc="b-5-3-using-reference-labels-in-shots"><h3 class="head"><span class="num">5.3</span><span class="htext">Using Reference Labels in Shots</span><a class="anchor" href="#b-5-3-using-reference-labels-in-shots" aria-label="Link to this section">#</a></h3><p>At the first clear appearance of an important <code>&lt;Subject N&gt;</code>, describe its referenced characteristics, position in the frame, and current action within what is actually visible in the shot. Continue using the same label in later shots without redefining what the label represents.</p>
+<p>Use natural phrasing for concrete frame anchors:</p>
+<pre><code class="language-text">the shot begins from &lt;Picture 1&gt;
+the shot's keyframe corresponds to &lt;Picture 2&gt;
+the shot ends on &lt;Picture 3&gt;
+</code></pre>
+<p>When editing or continuing an original video, cite <code>&lt;Video N&gt;</code> naturally where its source state, structure, or continuation relationship applies. Cite <code>&lt;Audio N&gt;</code> in the shot or semantic phase where the audio relationship is active.</p></section><section class="chunk lvl3" id="b-5-4-speakers-audio-sources-and-dialogue" data-toc="b-5-4-speakers-audio-sources-and-dialogue"><h3 class="head"><span class="num">5.4</span><span class="htext">Speakers, Audio Sources, and Dialogue</span><a class="anchor" href="#b-5-4-speakers-audio-sources-and-dialogue" aria-label="Link to this section">#</a></h3><p>The basic speaker-ID and <code>&lt;d&gt;</code> formats follow T2VA. When a referenced subject physically speaks, retain both the visual reference label and the speaker ID:</p>
+<pre><code class="language-text">&lt;Subject 2&gt; (S1) turns toward the woman and says, &lt;d&gt;[English] Last summer, I went to my grandfather's house. He talked about you.&lt;/d&gt;
+</code></pre>
+<p><code>&lt;Subject N&gt;</code> identifies the referenced subject, while <code>(Sx)</code> identifies the actual speaker. When the subject speaks, write <code>&lt;Subject N&gt; (Sx)</code>. If the same subject speaks off-screen, keep the same form and mark it as <code>off-screen</code>. When the speaker does not correspond to a defined subject, use a stable voice description followed by <code>(Sx)</code>.</p>
+<p>When verbal content is only a cue within a directly reused BGM or complete soundtrack, and no person, character, narrator, or other independent vocal source physically produces it, use <code>&lt;Audio N&gt;</code> as the audible source and do not invent an additional <code>(Sx)</code>. If a concrete person, character, narrator, or other independent vocal source produces the voice, assign and reuse <code>(Sx)</code> for that source:</p>
+<pre><code class="language-text">When &lt;Audio 1&gt; reaches the phrase &lt;d&gt;[English] I'm lonely lonely lonely lonely lonely I'm lonely&lt;/d&gt;, &lt;Subject 1&gt; performs the corresponding hand gesture without becoming a separate speaker source.
+</code></pre>
+<p>When dialogue, narration, or lyrics from reference audio are directly reused, or when the input prompt explicitly requests their reperformance, preserve the exact source words and original language inside <code>&lt;d&gt;</code>. Write <code>[unclear]</code> for unintelligible spans instead of guessing or paraphrasing them. Standardize punctuation to the basic written marks needed to express the sentence, such as <code>,</code>, <code>.</code>, <code>?</code>, and <code>!</code>; remove repeated tildes, emoji, bullets, and repeated or decorative punctuation. End complete statements, questions, and exclamations with <code>.</code>, <code>?</code>, or <code>!</code> respectively before <code>&lt;/d&gt;</code>.</p>
+<p>When only timbre, rhythm, emotion, or delivery is referenced, do not carry the original dialogue from the reference audio into the target video.</p>
+<p>Assign <code>(Sx)</code> once according to the order of actual vocal events in the target video. Reuse the corresponding ID at every actual vocal event in <code>detailed_description</code>; an <code>&lt;Audio N&gt;</code> definition bound to a target speaker in <code>subject_definitions</code> also reuses the same <code>(Sx)</code> but never assigns a new one independently. Do not write <code>(Sx)</code> in <code>retention_analysis</code>. Verbal cues that exist only within a directly reused BGM or complete soundtrack use <code>&lt;Audio N&gt;</code>; voices physically produced by a concrete person, character, narrator, or other independent vocal source use <code>(Sx)</code>.</p></section><section class="chunk lvl2" id="b-6-overall-soundscape-and-non-diegetic-music" data-toc="b-6-overall-soundscape-and-non-diegetic-music"><h2 class="head"><span class="num">6</span><span class="htext"><code>overall_soundscape</code> and <code>non_diegetic_music</code></span><a class="anchor" href="#b-6-overall-soundscape-and-non-diegetic-music" aria-label="Link to this section">#</a></h2><p>The definitions of these two sound categories follow the <a href="#part-a">Video Prompt Writing Guide (T2VA / I2VA / FL2VA / L2VA)</a>.</p>
+<p><code>overall_soundscape</code> summarizes ambience and physical sounds across the full video. Dialogue, singing, and sound events synchronized to a particular shot remain in <code>detailed_description</code>:</p>
+<pre><code class="language-text">overall_soundscape: Quiet indoor room tone and a low ventilation hum continue throughout the video.
+</code></pre>
+<p><code>non_diegetic_music</code> describes background music that the characters cannot hear and that is audible only to the audience. When music is present, state its instrumentation, tempo, and dynamic development:</p>
+<pre><code class="language-text">non_diegetic_music: A restrained solo-piano score at a slow tempo, with sustained low cello underneath and no swell.
+</code></pre>
+<p>When reference audio is used, state its copy or reference relationship only in the section that matches the audible layer: ambience and sound effects belong in <code>overall_soundscape</code>, while audience-only score belongs in <code>non_diegetic_music</code>. If the same audio provides both kinds of content, describe the corresponding relationship in each section:</p>
+<pre><code class="language-text">overall_soundscape: The copied ambience layer from &lt;Audio 1&gt; continues throughout the target video.
+non_diegetic_music: &lt;Audio 2&gt; is directly reused as the complete audience-only score.
+</code></pre>
+<p>Write complete dialogue and lyrics only inside <code>&lt;d&gt;</code> in <code>detailed_description</code>; do not repeat them in these two sections.</p></section><section class="chunk lvl2" id="b-7-complete-example" data-toc="b-7-complete-example"><h2 class="head"><span class="num">7</span><span class="htext">Complete Example</span><a class="anchor" href="#b-7-complete-example" aria-label="Link to this section">#</a></h2><details>
+<summary>Show the complete example</summary>
+
+
+<pre><code class="language-text">subject_definitions:
+&lt;Subject 1&gt; is the coffee-shop environment in &lt;Picture 1&gt;, featuring an exposed brick wall, an orange tufted sofa with patterned pillows, a neon sign, and a wooden coffee table.
+&lt;Subject 2&gt; is the fluffy white Samoyed in &lt;Picture 2&gt;, &lt;Picture 3&gt;, and &lt;Picture 4&gt;, with thick white fur, pointed ears, a dark nose, and a curved tail.
+&lt;Subject 3&gt; is the young blonde woman in &lt;Video 1&gt;, with long blonde hair and a light-pink button-down shirt with rolled-up sleeves.
+&lt;Subject 4&gt; is the young man in &lt;Video 2&gt;, with short wavy brown hair and a dark-grey hoodie with drawstrings.
+&lt;Audio 1&gt; is the voice-timbre reference for &lt;Subject 3&gt; (S1), containing a spoken English vocal layer.
+
+summary:
+[reference generation + audio reference] The target video shows &lt;Subject 3&gt; eating a cookie in &lt;Subject 1&gt;. &lt;Subject 4&gt; enters with &lt;Subject 2&gt;, which lunges toward the cookie. The three-shot exchange uses &lt;Audio 1&gt; as the voice-timbre reference for &lt;Subject 3&gt; and ends with a canned audience laugh.
+
+retention_analysis:
+&lt;Subject 1&gt; (appears in [Shot 1], [Shot 2], [Shot 3]): fully_preserved - the exposed brick wall, orange tufted sofa, patterned pillows, neon sign, and wooden coffee table are retained.
+&lt;Subject 2&gt; (appears in [Shot 1], [Shot 2]): fully_preserved - the Samoyed's thick white fur, pointed ears, dark nose, and curved tail are retained.
+&lt;Subject 3&gt; (appears in [Shot 1], [Shot 2], [Shot 3]): fully_preserved - the blonde woman's identity, long hair, and light-pink shirt are retained.
+&lt;Subject 4&gt; (appears in [Shot 1], [Shot 2]): fully_preserved - the young man's short wavy brown hair and dark-grey hoodie are retained.
+&lt;Audio 1&gt;: reference - its vocal timbre guides the dialogue delivery of &lt;Subject 3&gt; without copying the original signal.
+
+detailed_description:
+The target video uses a realistic multi-camera sitcom style with warm indoor lighting.
+[Shot 1] A medium shot establishes &lt;Subject 1&gt;, the coffee shop with its exposed brick wall, orange tufted sofa, patterned pillows, neon sign, and wooden coffee table. &lt;Subject 3&gt; (S1), the young woman with long blonde hair and a light-pink button-down shirt with rolled-up sleeves, sits on the sofa holding a chocolate-chip cookie. From the left, &lt;Subject 4&gt;, the young man with short wavy brown hair and a dark-grey hoodie with drawstrings, enters holding the leash of &lt;Subject 2&gt;, the thick-furred white Samoyed with pointed ears, a dark nose, and a curved tail. The dog lunges toward the cookie and pulls the leash taut. &lt;Subject 3&gt; (S1) jerks her hand back and, using the clear youthful voice timbre referenced from &lt;Audio 1&gt;, exclaims with light annoyance, &lt;d&gt;[English] Hey! Watch your dog!&lt;/d&gt; She closes her lips and guards the cookie while &lt;Subject 4&gt; pulls the dog back.
+[Shot 2] At 00:03.000, the shot cuts to a close-up of &lt;Subject 4&gt; (S2), the young man in the dark-grey hoodie from Shot 1, sitting beside &lt;Subject 3&gt; on the sofa and holding &lt;Subject 2&gt; securely in his arms. &lt;Subject 4&gt; (S2) says in a casual young male voice with a playful tone and an easy conversational pace, &lt;d&gt;[English] He just likes cookies more than me.&lt;/d&gt; He closes his mouth into an apologetic smile and strokes the dog's thick white fur.
+[Shot 3] At 00:05.000, the shot cuts to a close-up of &lt;Subject 3&gt; (S1), the blonde woman in the light-pink shirt from Shot 1. Her annoyance softens as she looks toward the Samoyed. &lt;Subject 3&gt; (S1) replies in the same clear youthful voice referenced from &lt;Audio 1&gt; with an amused cadence, &lt;d&gt;[English] Well, he has good taste at least.&lt;/d&gt; She smiles and raises the cookie in a small toast-like gesture. A classic canned audience laugh begins immediately after the line and continues through the final frame.
+
+overall_soundscape:
+Soft indoor coffee-shop room tone continues throughout the scene.
+
+non_diegetic_music:
+N/A
+</code></pre>
+
+
+</details></section></article>
+<article class="part part-c" id="part-c"><header class="part-head"><div class="part-row"><span class="part-key">Part C</span><span class="part-label">Prompt Builder</span><span class="part-blurb">Using this pack's editor to write, check and save prompts.</span></div><p class="part-source">Fantastic H3 Prompt Builder<span class="file">README.md</span></p></header>
+<section class="chunk chunk-intro" id="c-top" data-toc="c-top"><blockquote><p>Parts C and D are about this pack, not MiniMax's published guide. Parts A and B say what a good prompt contains. These two show how <strong>MiniMax H3 Prompt Studio</strong> writes it with you.</p>
+<p>These two parts came from <a href="https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder">the original pack</a>, where the editor and the media panel are two separate nodes &mdash; a Prompt Builder and a Media Loader. Here they are the one Prompt Studio node, with the panel built in. Where the text below says &ldquo;the Prompt Builder&rdquo; or &ldquo;the Media Loader&rdquo;, read it as the one node you have; nothing else differs.</p></blockquote>
+<p>The Prompt Builder is an editor with a field for every part of the prompt. It fills in the fixed wording, like instruction lines, timing values and section headers, so you only write the description. The finished prompt builds live beside the fields, and the editor checks it as you type.</p></section>
+<section class="chunk lvl2" id="c-1-getting-started" data-toc="c-1-getting-started"><h2 class="head"><span class="num">1</span><span class="htext">Getting Started</span><a class="anchor" href="#c-1-getting-started" aria-label="Link to this section">#</a></h2><p>The pack adds these nodes under <strong>conditioning → video_models</strong>:</p>
+<table>
+<thead><tr><th>Node</th><th>What it's for</th></tr></thead>
+<tbody>
+<tr><td>MiniMax H3 Prompt Studio</td><td>The editor and the drag-and-drop media panel in one node. Writes and checks the prompt, shows which tag each reference gets, and passes them on.</td></tr>
+<tr><td>Fantastic H3 RefMod Stack and RefMod Text Encode <em>(the original pack)</em></td><td>Saved references. See <a href="#d-top">Part D</a>.</td></tr>
+<tr><td>Fantastic H3 Create / Inspect / Edit RefMod <em>(the original pack)</em></td><td>Make and look after RefMod files. Normally reached through the library window rather than wired by hand.</td></tr>
+<tr><td>Fantastic H3 Edit Composite <em>(the original pack)</em></td><td>For masked edits. Pastes the regenerated area into the original frames. See <a href="#e-top">Part E</a>.</td></tr>
+<tr><td>Fantastic H3 Video Edit Latent <em>(the original pack)</em></td><td>Optional. A masked-edit latent from frames and a mask made elsewhere.</td></tr>
+</tbody>
+</table></section>
+<section class="chunk lvl3" id="c-1-1-quick-start" data-toc="c-1-1-quick-start"><h3 class="head"><span class="num">1.1</span><span class="htext">Quick Start</span><a class="anchor" href="#c-1-1-quick-start" aria-label="Link to this section">#</a></h3><p>Build the workflow first, then write the prompt into it.</p>
+<ol>
+<li>Start from ComfyUI's own MiniMax H3 template for your mode. It already has the loaders, sampler, decode and save nodes.</li>
+<li>Add a <strong>Fantastic H3 Prompt Builder</strong>. Connect its <code>prompt</code> output to the <code>prompt</code> input of the template's H3 node: <strong>MiniMax H3 Image to Video</strong> for T2VA, I2VA, FL2VA and L2VA, or <strong>MiniMax H3 Reference to Video</strong> for reference mode. If <code>prompt</code> shows as a widget, right-click it and choose <em>Convert widget to input</em>.</li>
+<li>Wire whatever your mode needs, from the table below.</li>
+<li>Set <code>width</code>, <code>height</code> and <code>length</code> on the H3 node.</li>
+<li>Click <strong>Edit prompt…</strong> on the builder, pick the same mode along the top, and fill in the fields. For first- and last-frame modes the editor shows the exact frame count, already rounded to a value H3 accepts, so match <code>length</code> to it.</li>
+<li>Click <strong>Save to node</strong>, then queue it.</li>
+</ol>
+<table>
+<thead><tr><th>Mode</th><th>Wire</th></tr></thead>
+<tbody>
+<tr><td>T2VA</td><td>Nothing else. The prompt is the whole input.</td></tr>
+<tr><td>I2VA</td><td>Your picture → <code>first_frame</code></td></tr>
+<tr><td>FL2VA</td><td>First picture → <code>first_frame</code>, second picture → <code>last_frame</code></td></tr>
+<tr><td>L2VA</td><td>Your picture → <code>last_frame</code></td></tr>
+<tr><td>Reference</td><td>See <a href="#c-3-reference-mode">3 Reference Mode</a></td></tr>
+</tbody>
+</table>
+
+<p>Pictures can come from ComfyUI's own <strong>Load Image</strong> nodes or from the <strong>Media Loader</strong>. Routing them through the builder, into its <code>picture_1</code> input and out of the matching output, is what gives you thumbnails while you write, so wire them before you open the editor.</p></section>
+<section class="chunk lvl2" id="c-2-the-editor" data-toc="c-2-the-editor"><h2 class="head"><span class="num">2</span><span class="htext">The Editor</span><a class="anchor" href="#c-2-the-editor" aria-label="Link to this section">#</a></h2><p>Click <strong>Edit prompt…</strong> on the node. The editor opens over the canvas, with the fields on the left and the finished prompt building on the right.</p></section>
+<section class="chunk lvl3" id="c-2-1-modes" data-toc="c-2-1-modes"><h3 class="head"><span class="num">2.1</span><span class="htext">Modes</span><a class="anchor" href="#c-2-1-modes" aria-label="Link to this section">#</a></h3><table>
+<thead><tr><th>Mode</th><th>You give it</th><th>Good for</th></tr></thead>
+<tbody>
+<tr><td>T2VA</td><td>Just text</td><td>Building a scene from scratch</td></tr>
+<tr><td>I2VA</td><td>A first frame</td><td>Animating forward from an image</td></tr>
+<tr><td>FL2VA</td><td>First and last frames</td><td>Getting from A to B</td></tr>
+<tr><td>L2VA</td><td>A last frame</td><td>Working back to a known ending</td></tr>
+<tr><td>Reference</td><td>Any mix of pictures, clips, audio and RefMods</td><td>Keeping a character, style, voice or motion</td></tr>
+</tbody>
+</table>
+
+<p>The four base modes follow the structure in <a href="#a-2-final-prompt-structure">Part A, 2</a>. Reference mode has the six sections from <a href="#b-1-overall-structure">Part B, 1</a>.</p></section>
+<section class="chunk lvl3" id="c-2-2-the-header" data-toc="c-2-2-the-header"><h3 class="head"><span class="num">2.2</span><span class="htext">The Header</span><a class="anchor" href="#c-2-2-the-header" aria-label="Link to this section">#</a></h3><table>
+<thead><tr><th>Button</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>📖 Guide</td><td>Opens this guide in a new tab.</td></tr>
+<tr><td>Draft ▶</td><td>Switches to a scratchpad for your next prompt. See <a href="#c-5-draft-mode">5 Draft Mode</a>.</td></tr>
+<tr><td>▣ Media</td><td>Opens the connected Media Loader on top of the editor.</td></tr>
+<tr><td>◈ RefMods</td><td>Opens the RefMod Stack this prompt's references come from.</td></tr>
+<tr><td>☰ Library</td><td>Browses your saved prompts.</td></tr>
+<tr><td>Clear</td><td>Empties every field and starts over in the same mode, after asking.</td></tr>
+<tr><td>⚙</td><td>Settings: node and text size, chips or plain text, what closing does, and the subject name prefix.</td></tr>
+<tr><td>Copy prompt</td><td>Copies the finished prompt.</td></tr>
+<tr><td>Save to node</td><td>Gives the node your changes. Nothing reaches the node until you press it.</td></tr>
+<tr><td>Cancel</td><td>Closes without giving the node your changes.</td></tr>
+</tbody>
+</table>
+
+<p>Closing with unsaved changes asks first: <strong>Save to node</strong>, <strong>Discard</strong> or <strong>Keep editing</strong>. The ⚙ menu can make closing save instead, or turn the question off.</p></section>
+<section class="chunk lvl3" id="c-2-3-writing-tools" data-toc="c-2-3-writing-tools"><h3 class="head"><span class="num">2.3</span><span class="htext">Writing Tools</span><a class="anchor" href="#c-2-3-writing-tools" aria-label="Link to this section">#</a></h3><ul>
+<li><strong>Tag chips.</strong> Your references show as thumbnails labelled with the tag each one gets. Click one to insert its tag, like <code>&lt;Picture 2&gt;</code>, at the caret. In the text, tags show as colour-coded chips, and hovering one shows its thumbnail.</li>
+<li><strong>Right-click a tag</strong> to put another of the same kind in its place, swap the two, or remove it. <strong>This tag</strong>, <strong>Field</strong> and <strong>Everywhere</strong> set how far the change reaches, with a count of the copies each would change, and tags the prompt doesn't cite yet are listed first. Removing a subject or media tag everywhere also deletes the lines that define it. Speaker IDs like <code>(S1)</code> work the same way, inside group tags like <code>(S1,S2)</code> too. A line inserted with a speaker button's voice option takes the new speaker's name and voice clause with the ID.</li>
+<li><strong>Right-click selected text</strong> in any field for <strong>Copy</strong>, <strong>Cut</strong>, <strong>Paste</strong> and <strong>Remove</strong>, or to save it as a phrase. Ctrl+Z undoes Cut, Paste and Remove.</li>
+<li><strong>+ Shot</strong> inserts the next <code>[Shot N]</code> with a correctly formatted cut time.</li>
+<li><strong>+ Camera</strong> writes a camera move as a full sentence, using the vocabulary in <a href="#a-4-3-camera-motion-motion-type-amplitude-speed">Part A, 4.3</a>.</li>
+<li><strong>The dialogue row</strong> has a language picker and a button for each speaker already in the prompt, plus the next unused ID. It wraps the line in <code>&lt;d&gt;</code> with the language tag and speaker ID. In Reference mode, a speaker with a described voice gets a split button that can put that voice into the line; see <a href="#d-6-3-describing-the-subject">Part D, 6.3</a>.</li>
+<li><strong>+ Voiceover</strong> writes the guide's voiceover wording, lips-closed clause included.</li>
+<li><strong>Spoken lines are shaded</strong>, so you can see what the model will actually say and spot delivery notes that slipped inside the tags.</li>
+</ul></section>
+<section class="chunk lvl3" id="c-2-4-checks" data-toc="c-2-4-checks"><h3 class="head"><span class="num">2.4</span><span class="htext">Checks</span><a class="anchor" href="#c-2-4-checks" aria-label="Link to this section">#</a></h3><p>The editor checks the prompt as you type:</p>
+<ul>
+<li>Shots numbered in order, with no timestamp on <code>[Shot 1]</code>.</li>
+<li>Cut times increasing and inside the video's length.</li>
+<li>Dialogue tags balanced and labelled.</li>
+<li>References you connected but never mentioned, and tags with nothing behind them.</li>
+<li>In reference mode, every subject having a matching retention entry.</li>
+</ul>
+<p>Amber warnings are advice, and the prompt saves anyway. Red errors are worth fixing before you render.</p></section>
+<section class="chunk lvl2" id="c-3-reference-mode" data-toc="c-3-reference-mode"><h2 class="head"><span class="num">3</span><span class="htext">Reference Mode</span><a class="anchor" href="#c-3-reference-mode" aria-label="Link to this section">#</a></h2><p>Reference mode takes the pictures, clips and audio the model draws a character, style, voice or motion from. It uses <strong>MiniMax H3 Reference to Video</strong> with a ref2va or hybrid model.</p>
+<p><strong>⫼ Columns</strong> in the editor's header (Reference mode only) splits the form in two: subject_definitions, the summary and retention_analysis on the left, detailed_description and the two audio sections on the right. Each column scrolls on its own, the window widens to fit, and on a screen too narrow for two the form folds back into one column.</p>
+<blockquote><p><strong>Using the same character again and again?</strong> Save it as a <strong>RefMod</strong>. A RefMod is a reference you make once from photos, a clip or a voice, then add to any prompt without re-uploading or re-cropping. Click <strong>+ RefMods</strong> on the builder to add a RefMod Stack, and swap Reference to Video for the <strong>RefMod Text Encode</strong>. RefMods show up as chips next to your media, and <strong>◈ Draft from RefMods</strong> can write their definition and retention lines for you.</p>
+<p>See <a href="#d-2-setting-up">Setting up</a>, <a href="#d-3-making-a-refmod">Making a RefMod</a> and <a href="#d-6-using-refmods-in-a-prompt">Using RefMods in a prompt</a> in Part D.</p></blockquote></section>
+<section class="chunk lvl3" id="c-3-1-getting-media-in" data-toc="c-3-1-getting-media-in"><h3 class="head"><span class="num">3.1</span><span class="htext">Loading Media</span><a class="anchor" href="#c-3-1-getting-media-in" aria-label="Link to this section">#</a></h3><ol>
+<li>On the Prompt Builder, click <strong>+ Media loader</strong>. A Media Loader appears, already connected.</li>
+<li>Drop your files on it, or click <strong>Load files…</strong>. Pictures, clips and audio can all go in at once.</li>
+<li>Connect the builder's media outputs to the matching slots on Reference to Video, alongside <code>prompt</code>. With RefMods, the RefMod Text Encode takes the builder's <code>references</code> output instead, and <strong>+ Media loader</strong> connects it for you.</li>
+<li>Open <strong>Edit prompt…</strong> and switch to <strong>Reference</strong>. Your media shows as clickable thumbnails with the tags it will really get.</li>
+<li>Fill in the six sections, then click <strong>Save to node</strong> and queue it.</li>
+</ol>
+<table>
+<thead><tr><th>From Prompt Builder</th><th>To MiniMax H3 Reference to Video</th></tr></thead>
+<tbody>
+<tr><td><code>prompt</code></td><td><code>prompt</code></td></tr>
+<tr><td><code>picture_1</code> … <code>picture_9</code></td><td><code>ref_images</code> slots</td></tr>
+<tr><td><code>video_1</code> … <code>video_3</code></td><td><code>ref_videos</code> slots</td></tr>
+<tr><td><code>video_audio_1</code> … <code>video_audio_3</code></td><td><code>ref_video_audios</code> slots</td></tr>
+<tr><td><code>audio_1</code> … <code>audio_3</code></td><td><code>ref_audios</code> slots</td></tr>
+</tbody>
+</table>
+
+<p>The native node's slots start at 0 and the builder's start at 1, so <code>picture_1</code> goes to <code>ref_image_0</code>.</p></section>
+<section class="chunk lvl3" id="c-3-2-trimming-and-cropping" data-toc="c-3-2-trimming-and-cropping"><h3 class="head"><span class="num">3.2</span><span class="htext">Trimming and Cropping</span><a class="anchor" href="#c-3-2-trimming-and-cropping" aria-label="Link to this section">#</a></h3><p>The ✂ button on a video or audio row, and ▣ on a picture, open an editor. The file itself is never changed. What you set is applied when the media is decoded, and it travels with presets and saved workflows.</p>
+<ul>
+<li><strong>Trim</strong> by dragging the two handles on the timeline. <strong>2s⇥</strong> and <strong>3s⇥</strong> keep a clip's last seconds, which is what a continuation wants. Beside the playhead time, <strong>from start</strong> says how far the playhead is past the first kept frame.</li>
+<li><strong>Zoom</strong> the timeline with <strong>−</strong> and <strong>+</strong> or the slider above it, around the playhead, or scroll on it, around the pointer (Shift+scroll moves along it). <strong>⤢ Kept range</strong> fits the trim, and a short trim of a long clip opens zoomed. While zoomed, the strip beside the zoom controls shows the whole clip; drag it to move along.</li>
+<li><strong>Crop</strong>, <strong>rotate</strong> and <strong>mirror</strong> change what's sent without re-exporting. Mirroring swaps side details like a parting or a scar, so avoid it for identity references.</li>
+<li><strong>Size</strong> caps the long edge of what's decoded, from a preset or <strong>custom…</strong> for any long edge you type. A 15-second 1080p clip takes about 9 GB at full size and about 2.5 GB capped at 1024 px. Keep a <code>first_frame</code> or <code>last_frame</code> picture at least as large as your generation.</li>
+<li><strong>📷 Use frame</strong> captures the frame on screen as a new picture reference. <strong>🎵 Use audio</strong> saves the kept range as its own audio reference.</li>
+<li>The <strong>◐ Mask</strong> tab marks part of a clip to regenerate. See <a href="#e-top">Part E</a>.</li>
+</ul>
+<p>Each row on the loader shows the length it sends beside its ✂, like ✂ 10.5s: the kept span once trimmed, the whole clip until then. Closing with unsaved changes asks first: <strong>Apply</strong>, <strong>Close without applying</strong> or <strong>Keep editing</strong>.</p>
+<table>
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td>← →</td><td>Step one frame (hold shift for ten)</td></tr>
+<tr><td>space</td><td>Play or pause the selected span</td></tr>
+<tr><td><code>[</code> <code>]</code></td><td>Set start or end to the playhead</td></tr>
+<tr><td>home / end</td><td>Jump to the start or end of the selection</td></tr>
+<tr><td><code>-</code> <code>=</code></td><td>Zoom the timeline out or in</td></tr>
+<tr><td>M</td><td>Mute or unmute the preview</td></tr>
+<tr><td>A</td><td>Save the kept range as an audio reference</td></tr>
+<tr><td>C</td><td>Capture the current frame (video only)</td></tr>
+<tr><td>esc</td><td>Close (with unsaved changes it asks first)</td></tr>
+</tbody>
+</table></section>
+<section class="chunk lvl3" id="c-3-3-how-tags-get-their-numbers" data-toc="c-3-3-how-tags-get-their-numbers"><h3 class="head"><span class="num">3.3</span><span class="htext">How Tags Get Their Numbers</span><a class="anchor" href="#c-3-3-how-tags-get-their-numbers" aria-label="Link to this section">#</a></h3><p>H3 numbers references by the order they arrive, not by the slot they're plugged into.</p>
+<ul>
+<li><strong>Gaps close up.</strong> Fill only <code>picture_2</code> and <code>picture_5</code> and they become <code>&lt;Picture 1&gt;</code> and <code>&lt;Picture 2&gt;</code>.</li>
+<li><strong>A video's soundtrack comes before standalone audio.</strong> With one video that has sound and one audio file, the soundtrack is <code>&lt;Audio 1&gt;</code> and the file is <code>&lt;Audio 2&gt;</code>.</li>
+<li><strong>Reordering or switching media off renumbers it.</strong> Your prompt isn't rewritten to match, so check your tags after changing the loader.</li>
+</ul>
+<p>The Media Loader shows the tag order along the bottom of the node, and the editor's thumbnails carry the tag each one really gets. Go by those.</p></section>
+<section class="chunk lvl3" id="c-3-4-picture-roles" data-toc="c-3-4-picture-roles"><h3 class="head"><span class="num">3.4</span><span class="htext">Picture Roles</span><a class="anchor" href="#c-3-4-picture-roles" aria-label="Link to this section">#</a></h3><p>Start a definition line with <code>&lt;Picture N&gt;</code> and role chips appear under it. Each one writes the definition, sets the matching retention marker, and adds the summary task type.</p>
+<table>
+<thead><tr><th>Chip</th><th>Marker</th><th>Task type</th></tr></thead>
+<tbody>
+<tr><td>First frame</td><td><code>fully_preserved</code></td><td>keyframe completion</td></tr>
+<tr><td>Last frame</td><td><code>fully_preserved</code></td><td>keyframe completion</td></tr>
+<tr><td>Composition</td><td><code>weak_reference</code></td><td>reference generation</td></tr>
+<tr><td>Look / style</td><td><code>weak_reference</code></td><td>reference generation</td></tr>
+<tr><td>Setting</td><td><code>partially_preserved</code></td><td>reference generation</td></tr>
+<tr><td>Attribute → subject</td><td><code>attribute_transfer</code></td><td>reference generation</td></tr>
+<tr><td>Storyboard</td><td><code>weak_reference</code></td><td>reference generation</td></tr>
+</tbody>
+</table>
+
+<p>There's no identity chip on purpose. A picture that shows what a character looks like belongs inside that subject's line, as in <code>&lt;Subject 1&gt; is the woman in &lt;Picture 1&gt;</code>. Standalone picture lines are for pictures with a role of their own.</p></section>
+<section class="chunk lvl3" id="c-3-5-naming-a-subject" data-toc="c-3-5-naming-a-subject"><h3 class="head"><span class="num">3.5</span><span class="htext">Naming a Subject</span><a class="anchor" href="#c-3-5-naming-a-subject" aria-label="Link to this section">#</a></h3><p>Every <code>&lt;Subject N&gt;</code> line has a small name box. Type a one-word name, like <code>Bob</code>, and two things happen:</p>
+<ul>
+<li>The prompt adds <em>Their name is Bob.</em> to that definition line.</li>
+<li><code>!Bob</code> works as shorthand in every other field. It becomes <code>&lt;Subject 1&gt; Bob</code> in the prompt, and just <code>Bob</code> inside a spoken line, so nobody says a label out loud.</li>
+</ul>
+<pre><code class="language-text">Written in the editor:
+[Shot 1] !Bob (S1) waves at the camera and says, &lt;d&gt;[English] Hi there.&lt;/d&gt;
+
+Sent to the model:
+[Shot 1] &lt;Subject 1&gt; Bob (S1) waves at the camera and says, &lt;d&gt;[English] Hi there.&lt;/d&gt;
+</code></pre>
+
+<p>Names use letters, digits, <code>-</code> and <code>_</code>, start with a letter, and ignore case. Start typing one, like <code>!cas</code> for <code>castle_with_moat</code>, and the rest appears in grey: press <strong>Tab</strong> to fill it in. Hover a <code>!Bob</code> tag to see the subject's card. The ⚙ menu can swap the <code>!</code> for another character. A RefMod can carry its own name, which drafting fills in for you. See <a href="#d-6-5-subject-names">Part D, 6.5</a>.</p></section>
+<section class="chunk lvl3" id="c-3-6-switching-lines-off" data-toc="c-3-6-switching-lines-off"><h3 class="head"><span class="num">3.6</span><span class="htext">Switching Lines Off</span><a class="anchor" href="#c-3-6-switching-lines-off" aria-label="Link to this section">#</a></h3><p>Every definition line and retention row has a ◉ switch. A switched-off line greys out and drops out of the prompt, but stays where it is in the editor. Use it when you pull a reference out to try something, then switch the lines back on.</p>
+<p>Whole sections have the same switch on their heading, except <code>summary</code> and the description, since there's no prompt without them. A switched-off definition doesn't count as defined, so the checks won't ask for its retention entry.</p></section>
+<section class="chunk lvl2" id="c-4-saving-your-work" data-toc="c-4-saving-your-work"><h2 class="head"><span class="num">4</span><span class="htext">Saving Your Work</span><a class="anchor" href="#c-4-saving-your-work" aria-label="Link to this section">#</a></h2><p>Prompts, phrases and media presets are stored with ComfyUI rather than inside a workflow, so they follow your install and are shared by every workflow.</p></section>
+<section class="chunk lvl3" id="c-4-1-prompt-library" data-toc="c-4-1-prompt-library"><h3 class="head"><span class="num">4.1</span><span class="htext">Prompt Library</span><a class="anchor" href="#c-4-1-prompt-library" aria-label="Link to this section">#</a></h3><p>Click <strong>☰ Library</strong> in the editor header. <strong>Save current prompt</strong> stores the whole editor state under a name and an optional category, so loading it puts every field back exactly as you left it.</p>
+<ul>
+<li><strong>Search</strong> by name, category, mode or the prompt text.</li>
+<li><strong>Categories</strong> filter the list. Pick one and click ✎ to rename or clear it. The prompts in it are never deleted.</li>
+<li><strong>Star</strong> favourites to sort them to the top.</li>
+<li><strong>Load</strong> replaces what's in the editor, and asks first if you'd lose work.</li>
+</ul>
+<p>Saving under the same name updates that prompt. After loading one, saving under a new name offers <strong>Save as new</strong>, which keeps both, or <strong>Rename</strong>, which moves it.</p></section>
+<section class="chunk lvl3" id="c-4-2-linking-a-prompt-to-its-media" data-toc="c-4-2-linking-a-prompt-to-its-media"><h3 class="head"><span class="num">4.2</span><span class="htext">Linking a Prompt to Its Media</span><a class="anchor" href="#c-4-2-linking-a-prompt-to-its-media" aria-label="Link to this section">#</a></h3><p>When you save, the form offers to link the prompt to your current media as a preset, so the prompt and its references travel together. Linked prompts show a badge in the library with what the preset holds.</p>
+<p>Loading a linked prompt never changes your media without asking. A strip offers <strong>Load the media too</strong> or <strong>Prompt only</strong>, and warns if the preset was edited since, because tag numbers follow the order of the media.</p></section>
+<section class="chunk lvl3" id="c-4-3-phrases" data-toc="c-4-3-phrases"><h3 class="head"><span class="num">4.3</span><span class="htext">Phrases</span><a class="anchor" href="#c-4-3-phrases" aria-label="Link to this section">#</a></h3><p>Wording you use over and over, like a house style line or a favourite camera move, can be saved once and inserted with a click. The <strong>Phrases</strong> row sits under the dialogue controls.</p>
+<ul>
+<li><strong>+ New</strong> saves a phrase, prefilled with any text you had selected. Right-clicking a selection offers the same thing.</li>
+<li>Pick a category and a phrase, then <strong>+ Phrase</strong> drops it in at the caret. Line breaks are flattened, because the model reads them as cuts.</li>
+</ul></section>
+<section class="chunk lvl3" id="c-4-3b-subject-masking" data-toc="c-4-3b-subject-masking"><h3 class="head"><span class="htext">Masking a Picture's Subject</span><a class="anchor" href="#c-4-3b-subject-masking" aria-label="Link to this section">#</a></h3><p>A picture sent as a reference can have its background blurred around its subject, or be cropped to it, so the model takes the person or object and not what's behind them. Click ▣ on the picture (or right-click it): <strong>▶ Auto mask</strong> finds the subject with SAM 3.1 from a word, <strong>◉ Dots</strong> steer it and the <strong>✎ Brush</strong> corrects it; <strong>Blur background</strong>, <strong>Grow</strong>, <strong>Edge</strong> and <strong>Crop to subject</strong> set what's done. <strong>◐ Mask all</strong> in the pictures heading does every picture at once. It applies in Reference mode only: as a keyframe the picture is sent as edited. Auto mask needs the original pack and the SAM 3.1 checkpoint.</p></section>
+<section class="chunk lvl3" id="c-4-4-media-presets" data-toc="c-4-4-media-presets"><h3 class="head"><span class="num">4.4</span><span class="htext">Media Presets</span><a class="anchor" href="#c-4-4-media-presets" aria-label="Link to this section">#</a></h3><p>The Media Loader saves its current references, their order and each video's audio setting under a name, and reloads them from the preset picker. Presets can be filed into categories and searched like the library.</p>
+<p>Presets point at files you already uploaded instead of copying them. If a file goes missing, loading skips it and says which. Deleting a preset never deletes your media.</p></section>
+<section class="chunk lvl2" id="c-5-draft-mode" data-toc="c-5-draft-mode"><h2 class="head"><span class="num">5</span><span class="htext">Draft Mode</span><a class="anchor" href="#c-5-draft-mode" aria-label="Link to this section">#</a></h2><p>Queue a generation, then start your next prompt without touching the one that's running. <strong>Draft ▶</strong> switches the editor to a scratchpad. The window turns teal and a banner says it plainly: the node still holds the Live prompt, and nothing in the draft runs until you commit it.</p>
+<p>The draft saves to disk as you type, so a browser crash costs a second or two at most. Closing the editor while drafting reopens it in draft mode. <strong>Save to node</strong> is greyed out, since only a commit can reach the node.</p></section>
+<section class="chunk lvl3" id="c-5-1-media-and-refmods-in-a-draft" data-toc="c-5-1-media-and-refmods-in-a-draft"><h3 class="head"><span class="num">5.1</span><span class="htext">Media and RefMods in a Draft</span><a class="anchor" href="#c-5-1-media-and-refmods-in-a-draft" aria-label="Link to this section">#</a></h3><p>A draft's media is in one of three states, and the banner always says which:</p>
+<ul>
+<li><strong>Following the node's media.</strong> The draft shows whatever the Media Loader holds.</li>
+<li><strong>Showing media as of when the draft started.</strong> The draft remembers the references it began with, so its tags keep meaning the same files while you change the loader.</li>
+<li><strong>Has its own media.</strong> You edited the draft's set through <strong>▣ Media</strong>. Only this state changes the Media Loader when you commit.</li>
+</ul>
+<p>RefMods work the same way. <strong>◈ RefMods</strong> while drafting edits the draft's own copy of the stack, and the live stack isn't touched until you commit.</p></section>
+<section class="chunk lvl3" id="c-5-2-commit-pull-and-clear" data-toc="c-5-2-commit-pull-and-clear"><h3 class="head"><span class="num">5.2</span><span class="htext">Commit, Pull and Clear</span><a class="anchor" href="#c-5-2-commit-pull-and-clear" aria-label="Link to this section">#</a></h3><table>
+<thead><tr><th>Button</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>⇣ Pull from Live</td><td>Copies the Live prompt into the draft. <em>Cast and setup only</em> keeps the subjects and setup with empty descriptions, for the next shot in a scene. <em>Everything</em> copies it all, for a variant.</td></tr>
+<tr><td>Commit to Live</td><td>Overwrites the node's prompt with the draft and applies the draft's own media. It offers to save unsaved Live work to the library first.</td></tr>
+<tr><td>Clear draft</td><td>Throws the scratchpad away and starts a blank one.</td></tr>
+</tbody>
+</table>
+
+<p>You can also save a draft to the library at any time without committing it.</p></section>
+</article>
+<article class="part part-d" id="part-d"><header class="part-head"><div class="part-row"><span class="part-key">Part D</span><span class="part-label">RefMods</span><span class="part-blurb">Saved references you can reuse in any prompt.</span></div><p class="part-source">RefMods how-to guide<span class="file">REFMODS.md</span></p></header>
+<section class="chunk chunk-intro" id="d-top" data-toc="d-top"><p>A <strong>RefMod</strong> is a saved reference. It uses MiniMax H3's reference functionality to save characters or concepts as a bundled package quickly. Much like a LoRA, but without the training cost, and you can adjust your dataset quickly and easily.</p>
+<p>Make one from a few photos of a character, a clip of a place, or a recording of a voice, and it's ready for any prompt from then on. No re-uploading, no re-cropping, and it looks the same every time you use it.</p></section>
+<section class="chunk lvl2" id="d-1-before-you-start" data-toc="d-1-before-you-start"><h2 class="head"><span class="num">1</span><span class="htext">Before You Start</span><a class="anchor" href="#d-1-before-you-start" aria-label="Link to this section">#</a></h2><p>You need:</p>
+<ul>
+<li><strong>A ref2va H3 model.</strong> RefMods are references, and ref2va is the model trained on references. The standard fl2va model still runs with them, but expect weaker results. MiniMax has admitted faults with the open-weight ref2va model, so we strongly encourage a fl2va/ref2va hybrid model, which gives reference capabilities with fl2va quality. Hybrids are direct drop-ins for ref2va workflows: no special nodes, just select the hybrid instead. Testing was done with the "20-49" model from <a href="https://huggingface.co/smhfacct/Minimax-H3-fl2va-ref2va-hybrid-models">this repo</a>.</li>
+<li><strong>The H3 video VAE</strong> for anything with pictures, and <strong>the H3 audio VAE</strong> for voices.</li>
+</ul>
+<p>RefMods are saved in <code>ComfyUI/models/refmods</code>. You never have to go there yourself, but it's handy for backups and sharing.</p>
+<p>Two ready-made workflows are in the pack's <code>example_workflows</code> folder. <strong>MMH3_RefMod_Vanilla_Stack_Example</strong> uses only the original pack and ComfyUI's own nodes. <strong>MMH3_RefMod_Fully_Fantastic_Example</strong> adds the Fantastic LoRA loader and seed nodes from the comfyui-fantastic-loras pack.</p></section>
+<section class="chunk lvl2" id="d-2-setting-up" data-toc="d-2-setting-up"><h2 class="head"><span class="num">2</span><span class="htext">Setting Up</span><a class="anchor" href="#d-2-setting-up" aria-label="Link to this section">#</a></h2><p>This pack installs only Prompt Studio; the RefMod nodes below are the <a href="https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder">original pack's</a>, so install it alongside. Click <strong>◈</strong> at the left of the Prompt Studio node's toolbar: it swaps the node's media for this prompt's RefMods, with nothing to add or wire, and the ◈ at the left of the RefMods toolbar swaps back. <strong>◈ RefMods</strong> in the prompt editor's header opens the same picks in a window. If the workflow already has a RefMod Text Encode, the button connects that too.</p>
+<p>The RefMods panel has three buttons at the top, after the ◈: <strong>Browse library…</strong> opens your saved RefMods, <strong>Create…</strong> opens the library on the Create tab, and <strong>Refresh</strong> re-reads the folder if you added files by hand. It has twelve fixed slots and never resizes the node. The original pack's <strong>Fantastic H3 RefMod Stack</strong> node is there for sharing one set of RefMods across several prompts: wired into Prompt Studio's <code>mods</code> input, its RefMods are sent first and the node's own follow.</p></section>
+<section class="chunk lvl3" id="d-2-1-the-three-nodes" data-toc="d-2-1-the-three-nodes"><h3 class="head"><span class="num">2.1</span><span class="htext">The Three Nodes</span><a class="anchor" href="#d-2-1-the-three-nodes" aria-label="Link to this section">#</a></h3><table>
+<thead><tr><th>Node</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td>MiniMax H3 Prompt Studio</td><td>Where you write the prompt, load your media and pick your RefMods (◈ swaps its panel to them). Shows your RefMods as chips and passes them on.</td></tr>
+<tr><td>Fantastic H3 RefMod Stack</td><td>Optional: one set of RefMods shared by several prompts, wired into Prompt Studio's <code>mods</code> input.</td></tr>
+<tr><td>Fantastic H3 RefMod Text Encode</td><td>Takes the place of the native <strong>MiniMax H3 Reference to Video</strong> node. Use one or the other, not both.</td></tr>
+</tbody>
+</table></section>
+<section class="chunk lvl3" id="d-2-2-refmod-text-encode" data-toc="d-2-2-refmod-text-encode"><h3 class="head"><span class="num">2.2</span><span class="htext">RefMod Text Encode</span><a class="anchor" href="#d-2-2-refmod-text-encode" aria-label="Link to this section">#</a></h3><p>The Text Encode node does everything Reference to Video did, and it understands RefMods.</p>
+<table>
+<thead><tr><th>Connection</th><th>What goes there</th></tr></thead>
+<tbody>
+<tr><td><code>clip</code>, <code>vae</code>, <code>audio_vae</code></td><td>The H3 text encoder and VAEs, as for Reference to Video. The audio VAE is only needed for voices.</td></tr>
+<tr><td><code>prompt</code>, <code>mods</code>, <code>references</code></td><td>The Prompt Builder's outputs of the same names. <strong>+ RefMods</strong> and <strong>+ Media loader</strong> connect them.</td></tr>
+<tr><td><code>width</code>, <code>height</code>, <code>length</code>, <code>ref_image_size</code></td><td>The same settings as Reference to Video.</td></tr>
+<tr><td><code>voice_description_at_label</code></td><td>Off by default. On, each voice RefMod's saved Voice description is also written right after its <code>&lt;Audio n&gt;:</code> label, where the encoder is introduced to the reference. A RefMod set to identity with a subject name also says whose voice it is: <code>&lt;Audio 1&gt;: It is Kate's voice: …</code> Your voices are used either way.</td></tr>
+<tr><td><code>stack_pictures</code></td><td>Experimental. How many pictures of a RefMod made from several the text encoder sees: every 4th (the default), up to N (<code>stack_pictures_n</code> sets N, 8 by default), or all. More may help lock in identity and reduce bleeding between RefMods, but cost memory and generation time.</td></tr>
+<tr><td><code>conditioning</code></td><td>To your sampler or guider.</td></tr>
+<tr><td><code>latent</code></td><td>The empty video to sample into, so no separate Empty Latent node is needed.</td></tr>
+<tr><td><code>reference_map</code></td><td>Text listing every label and where it came from. Handy with a preview node. <strong>Fantastic H3 Reference Map</strong> gives the same text without encoding. It shows it as you edit the graph, before anything is queued, with <strong>⧉ Copy</strong> for pasting it into an LLM, and outputs it for an LLM node writing the prompt.</td></tr>
+</tbody>
+</table>
+<p>Below its settings, the node lists its references in the order the model reads them: each label and the file or RefMod it stands for, media first and then RefMods. It updates as you change the graph, so you can check the order without queueing a run. Click the heading to fold it away. <strong>▦ Thumbnails…</strong> on the heading shows every reference as a small preview in the same order, each RefMod with its tags and tokens.</p>
+
+<p>RefMods made or edited with a VAE keep the pictures the text encoder is shown inside their file, so the Text Encode never has to decode them. Older ones get them from the library's <strong>Store encoder frames</strong>; until then each is decoded the first time it's used and kept in <code>input/minimax_h3_plus/cache</code>.</p>
+<p>Media from a Media Loader still works through it, so you can mix RefMods with one-off pictures and clips. See <a href="#d-6-6-refmods-with-regular-media">6.6</a>.</p></section>
+<section class="chunk lvl2" id="d-3-making-a-refmod" data-toc="d-3-making-a-refmod"><h2 class="head"><span class="num">3</span><span class="htext">Making a RefMod</span><a class="anchor" href="#d-3-making-a-refmod" aria-label="Link to this section">#</a></h2><p>Click <strong>Create…</strong> on the stack, or open the library and choose the <strong>Create</strong> tab.</p></section>
+<section class="chunk lvl3" id="d-3-1-add-your-media" data-toc="d-3-1-add-your-media"><h3 class="head"><span class="num">3.1</span><span class="htext">Add Your Media</span><a class="anchor" href="#d-3-1-add-your-media" aria-label="Link to this section">#</a></h3><p>Drag pictures, clips or audio anywhere onto the window, or click the drop area to pick files. Already have them trimmed and cropped in a Media Loader? Choose it under <strong>From loader</strong> and click <strong>Pull</strong>, or right-click the Media Loader and pick <strong>RefMod library</strong>.</p></section>
+<section class="chunk lvl3" id="d-3-2-one-refmod-or-several" data-toc="d-3-2-one-refmod-or-several"><h3 class="head"><span class="num">3.2</span><span class="htext">One RefMod or Several</span><a class="anchor" href="#d-3-2-one-refmod-or-several" aria-label="Link to this section">#</a></h3><ul>
+<li><strong>One RefMod from all</strong>, the default, combines everything into a single RefMod. Use it for several photos of the same character or place. More angles usually give a better likeness.</li>
+<li><strong>One per source</strong> makes a separate RefMod from each item.</li>
+</ul>
+<p>Give it a <strong>name</strong>. If it's a character, also give it a <strong>Subject name</strong>, like <code>Bob</code>, in the settings on the right. That's the name the prompt uses for them. You can also describe their <strong>Appearance</strong> and, when there's audio, their <strong>Voice</strong>. Drafting puts both into the prompt. With One per source, the settings list these boxes for each item.</p></section>
+<section class="chunk lvl3" id="d-3-3-check-the-framing" data-toc="d-3-3-check-the-framing"><h3 class="head"><span class="num">3.3</span><span class="htext">Check the Framing</span><a class="anchor" href="#d-3-3-check-the-framing" aria-label="Link to this section">#</a></h3><p>When you combine photos, they all take the resolution and aspect ratio of the first one. It's marked <em>Sets dataset size and aspect ratio</em>.</p>
+<ul>
+<li>Put your best-framed photo at the top. Drag rows to reorder.</li>
+<li>Each preview shows what will be cut off to fit.</li>
+<li><strong>Crop and mask…</strong> lets you choose which part is kept. The crop box is locked to the right aspect ratio.</li>
+</ul></section>
+<section class="chunk lvl3" id="d-3-4-crop-to-the-subject" data-toc="d-3-4-crop-to-the-subject"><h3 class="head"><span class="num">3.4</span><span class="htext">Crop to the Subject</span><a class="anchor" href="#d-3-4-crop-to-the-subject" aria-label="Link to this section">#</a></h3><p><strong>Batch Masking</strong> in the settings finds who or what the RefMod is of in every picture and clip, using SAM 3.1. It needs <code>sam3.1_multiplex_fp16.safetensors</code> in <code>models/checkpoints</code>, the same file <strong>Mask for editing</strong> uses. Nothing is downloaded for you.</p>
+<ul>
+<li>Type what to mask, like <code>person</code>, and click <strong>Find and Mask All</strong>. For the identity and pose/motion concepts, the box starts as <code>person</code>. Each picture keeps its largest match; tick <strong>Keep every match</strong> for a RefMod of more than one person. A picture with its own word uses that, and pictures you brushed are left alone.</li>
+<li><strong>Crop to subject</strong> crops each picture and clip around what was found, with room around it set by <strong>Margin</strong>. In a stack the crop takes the first photo's shape and only grows to fit it. A crop you move by hand stays as you left it; <strong>Back to auto</strong> on its row hands it back.</li>
+<li><strong>Blur background</strong> blurs everything but the subject before it's encoded. <strong>Blur</strong> sets how strong it is, <strong>Grow</strong> widens the subject first so hair and edges stay sharp, and <strong>Edge</strong> softens the border. The blur doesn't change the token count.</li>
+</ul>
+<p><strong>Crop and mask…</strong> on a row (<strong>Trim, crop and mask…</strong> on a clip) opens the editor with the mask drawn over the picture. <strong>‹ ›</strong>, <code>,</code> and <code>.</code>, or PgUp and PgDn step through every source. Its masking bar works on that picture alone:</p>
+<ul>
+<li><strong>What to mask</strong>: left empty, it uses Batch Masking's word. Type in it to give this picture its own; Enter runs Auto mask.</li>
+<li><strong>▶ Auto mask</strong> masks the picture with SAM from the word and any dots. <strong>◉ Dots</strong> steers it: left-click what to mask, right-click what to leave out. It starts fresh: brush strokes on the picture are dropped.</li>
+<li><strong>✎ Brush</strong> paints the mask by hand: <strong>Paint</strong> adds, <strong>Erase</strong> takes away, <strong>Size</strong> sets the brush. Ctrl+Z undoes a stroke and <strong>Clear brush</strong> removes them all. On a clip, a stroke covers every frame. It works without Auto mask too.</li>
+<li><strong>Mask | Result</strong> switches between the mask and the blurred result.</li>
+<li>Under them are the picture's own settings. Each follows Batch Masking until you change it here; a changed one is marked, and <strong>Use batch settings</strong> hands them all back.</li>
+</ul>
+<p><strong>Apply</strong> or <strong>‹ ›</strong> keeps what you did in the window. Closing it with unsaved changes asks first.</p>
+<p>Rows flag a <strong>small crop</strong> (under 60% of the resolution), a <strong>subject cut off</strong> by the stack's shape, <strong>no subject found</strong> (kept whole, not blurred), <strong>nothing left masked</strong> after the brush, and masks to redo with <strong>Auto mask</strong>. The masks are temporary and are deleted once the RefMod is made. The RefMod's card shows <strong>bg blurred</strong>, and editing it later starts from Batch Masking's settings.</p></section>
+<section class="chunk lvl3" id="d-3-5-clips" data-toc="d-3-5-clips"><h3 class="head"><span class="num">3.5</span><span class="htext">Clips</span><a class="anchor" href="#d-3-5-clips" aria-label="Link to this section">#</a></h3><p>A clip becomes a short run of stored frames, so the model can read a motion or a look in movement.</p>
+<ul>
+<li><strong>Trim first.</strong> Only the start of the clip is used, so trim it to the moment you want.</li>
+<li><strong>Clip frames</strong> is how many frames are taken from that start. H3 stores frames in chunks: 2 stored frames for anything up to 17, then 5 more for each further 17. So 22 frames store 7, 39 store 12, and 56 store 17. The line under the setting shows the result.</li>
+</ul>
+<p>Use Full for motion. Compressed keeps the overall look but not enough detail to carry movement.</p></section>
+<section class="chunk lvl3" id="d-3-6-full-or-compressed" data-toc="d-3-6-full-or-compressed"><h3 class="head"><span class="num">3.6</span><span class="htext">Full or Compressed</span><a class="anchor" href="#d-3-6-full-or-compressed" aria-label="Link to this section">#</a></h3><table>
+<thead><tr><th>Mode</th><th>Keeps</th><th>Use it for</th></tr></thead>
+<tbody>
+<tr><td>Full</td><td>As much detail as possible. Generation is slower.</td><td>Faces, specific characters, products, readable text, motion</td></tr>
+<tr><td>Compressed</td><td>The overall look: colours, layout, shapes, style. Much lighter.</td><td>Settings, styles, moods, or many references at once</td></tr>
+</tbody>
+</table>
+
+<p>Not sure? Make one of each and try them with the same prompt.</p></section>
+<section class="chunk lvl3" id="d-3-7-voices" data-toc="d-3-7-voices"><h3 class="head"><span class="num">3.7</span><span class="htext">Voices</span><a class="anchor" href="#d-3-7-voices" aria-label="Link to this section">#</a></h3><p>Add an audio file, or tick <strong>include its soundtrack as a voice</strong> on a clip. The voice is saved with the look as part of the same RefMod. <strong>Voice seconds</strong> sets how much is kept, counted from the start. To keep a particular stretch instead, click <strong>Trim…</strong> on the voice's row: a trimmed voice keeps its whole trim. The line under Create adds the voice's tokens, about 80 a second. A clean recording of one voice, without music or background noise, works best.</p></section>
+<section class="chunk lvl3" id="d-3-8-create" data-toc="d-3-8-create"><h3 class="head"><span class="num">3.8</span><span class="htext">Create</span><a class="anchor" href="#d-3-8-create" aria-label="Link to this section">#</a></h3><p>Pick the H3 video VAE, and the audio VAE for voices, under Models, then click <strong>Create</strong>. The line under the button shows how big the result will be. If it's over your token limit, the button stays locked and says why: lower the resolution, switch to Compressed, raise the limit, or leave a source out.</p>
+<p>Creating runs in the ComfyUI queue like any other job. When it's done, the new RefMod appears in the library.</p></section>
+<section class="chunk lvl2" id="d-4-the-library" data-toc="d-4-the-library"><h2 class="head"><span class="num">4</span><span class="htext">The Library</span><a class="anchor" href="#d-4-the-library" aria-label="Link to this section">#</a></h2><p>Everything you create is saved automatically. <strong>Browse library…</strong> shows it all.</p>
+<ul>
+<li><strong>Search</strong> by name, folder, description or subject name.</li>
+<li><strong>Filter</strong> by Image, Video or Audio, and sort by name, size or newest.</li>
+<li><strong>Folders</strong> on the left list any subfolders, like <code>characters</code> or <code>places</code>. Click one to show only what's in it.</li>
+</ul></section>
+<section class="chunk lvl3" id="d-4-1-the-details-panel" data-toc="d-4-1-the-details-panel"><h3 class="head"><span class="num">4.1</span><span class="htext">The Details Panel</span><a class="anchor" href="#d-4-1-the-details-panel" aria-label="Link to this section">#</a></h3><p>Click <strong>Details</strong> on a card. From there you can:</p>
+<ul>
+<li>Change the <strong>RefMod name</strong>, or type a folder to move it, like <code>characters/jodi</code>.</li>
+<li>Add a <strong>description</strong> and pick a <strong>concept</strong>, like identity, clothing, background, voice or style.</li>
+<li>Set the <strong>Subject name</strong>. It's saved inside the RefMod file.</li>
+<li>Describe its <strong>Appearance</strong>, <strong>Retained attributes</strong> and <strong>Voice</strong>. All three are saved inside the file, and drafting puts them into the prompt.</li>
+<li><strong>Replace preview</strong> to set a nicer thumbnail.</li>
+<li><strong>Store encoder frames</strong>, for a RefMod saved before RefMods kept the pictures the text encoder is shown, so the Text Encode doesn't have to decode it. The button beside the sort menu does every RefMod still missing them.</li>
+<li><strong>Delete</strong> it. You'll be asked to click twice.</li>
+</ul>
+<p>Click <strong>Save changes</strong> when you're done. A RefMod's name and description are your own notes and never go into a prompt.</p></section>
+<section class="chunk lvl2" id="d-5-editing-a-refmod" data-toc="d-5-editing-a-refmod"><h2 class="head"><span class="num">5</span><span class="htext">Editing a RefMod</span><a class="anchor" href="#d-5-editing-a-refmod" aria-label="Link to this section">#</a></h2><p>Viewing or editing a RefMod's contents runs through the ComfyUI queue, so it can take a moment and waits for any jobs already running.</p></section>
+<section class="chunk lvl3" id="d-5-1-see-whats-stored" data-toc="d-5-1-see-whats-stored"><h3 class="head"><span class="num">5.1</span><span class="htext">See What&#x27;s Stored</span><a class="anchor" href="#d-5-1-see-whats-stored" aria-label="Link to this section">#</a></h3><p>In the details panel, click <strong>Show what's stored</strong>. It shows what the model actually receives: each frame as a thumbnail, or played as a clip, and the voice as an audio player. The <strong>Strength</strong> slider previews what a lower weight looks like.</p></section>
+<section class="chunk lvl3" id="d-5-2-edit-the-dataset" data-toc="d-5-2-edit-the-dataset"><h3 class="head"><span class="num">5.2</span><span class="htext">Edit the Dataset</span><a class="anchor" href="#d-5-2-edit-the-dataset" aria-label="Link to this section">#</a></h3><p>Click <strong>Edit frames &amp; voice…</strong>. The RefMod opens in the Create tab with its saved frames listed first, marked <strong>STORED</strong>.</p>
+<ul>
+<li><strong>Remove a frame</strong>: untick it, or click ×.</li>
+<li><strong>Reorder</strong>: drag the rows.</li>
+<li><strong>Add photos or clips</strong>: drop them in. They're fitted to the RefMod's existing resolution and aspect ratio.</li>
+<li><strong>Replace the voice</strong>: drop in a new audio file. <strong>Remove it</strong>: untick the stored voice row.</li>
+<li><strong>Name and describe the subject</strong>: fill in or clear <strong>Subject name</strong>, <strong>Appearance</strong>, <strong>Retained attributes</strong> and <strong>Voice</strong> in the settings. If that's all you change, only the file's header is rewritten.</li>
+<li><strong>Blur the background of stored frames</strong> (Full RefMods only): click <strong>Find and Mask All</strong> in Batch Masking, and the stored frames are blurred when you save. <strong>Background kept</strong> sets how much stays. <strong>Mask…</strong> on a stored frame opens it in the same window, with Auto mask, the brush, and Background kept and Grow for that frame alone; <strong>Result</strong> decodes it so you can check it first.</li>
+</ul>
+<p>Editing never re-encodes what's already in a RefMod. Frames you keep are copied exactly, unless you blur their background, and only what you add gets encoded.</p>
+<blockquote><p><strong>RefMods made from a clip:</strong> a clip's frames were encoded together and are marked <em>part of a clip</em>. Keep them together and in order. Removing or reordering them breaks up the motion, and the editor warns you. To change a clip, re-trim it and create the RefMod again. Adding or removing whole photos is always safe.</p></blockquote></section>
+<section class="chunk lvl3" id="d-5-3-save-over-it-or-save-a-copy" data-toc="d-5-3-save-over-it-or-save-a-copy"><h3 class="head"><span class="num">5.3</span><span class="htext">Save Over It, or Save a Copy</span><a class="anchor" href="#d-5-3-save-over-it-or-save-a-copy" aria-label="Link to this section">#</a></h3><ul>
+<li><strong>Save changes</strong> updates the RefMod.</li>
+<li>Tick <strong>Save as a copy</strong> and give it a new name to keep the original and save your edit alongside it.</li>
+<li><strong>Cancel</strong> leaves without changing anything.</li>
+</ul></section>
+<section class="chunk lvl2" id="d-6-using-refmods-in-a-prompt" data-toc="d-6-using-refmods-in-a-prompt"><h2 class="head"><span class="num">6</span><span class="htext">Using RefMods in a Prompt</span><a class="anchor" href="#d-6-using-refmods-in-a-prompt" aria-label="Link to this section">#</a></h2></section>
+<section class="chunk lvl3" id="d-6-1-the-stack" data-toc="d-6-1-the-stack"><h3 class="head"><span class="num">6.1</span><span class="htext">The Stack</span><a class="anchor" href="#d-6-1-the-stack" aria-label="Link to this section">#</a></h3><p>In the library, click <strong>Add</strong> on a card. Cards already in the stack show <strong>✓ Add again</strong>. Close the library and each one fills a slot on the stack. Clicking an empty slot opens the library too. Each card has:</p>
+<ul>
+<li><strong>A weight slider per channel</strong>, labelled with the tag it gets, like <code>&lt;Video 1&gt;</code> for the look and <code>&lt;Audio 1&gt;</code> for the voice. 1 is normal strength. Below 1 is softer. Above 1 adds copies: 2 means two copies, which pushes the model harder toward that reference and makes generation heavier.</li>
+<li><strong>An on/off switch</strong> to leave a RefMod out without removing it.</li>
+<li><strong>⋯</strong> for strength-times-copies mode and details, and <strong>×</strong> to remove it. Drag the handle to reorder.</li>
+</ul>
+<p>The header shows how many of the twelve slots are used and the token total. The footer lists the labels the prompt should use.</p>
+<p><strong>Presets</strong> save the whole stack, weights and switches included, and load it back into any stack node. A prompt saved to the library can be linked to the preset its stack matches, and loading the prompt offers to load the RefMods too.</p>
+<p><strong>Chaining.</strong> Wire one stack's <code>mods</code> output into another's <code>mods</code> input for more than twelve RefMods or a shared set. The second stack sends both on, reads <em>stack 2 / 2</em>, and lists the first stack's labels first, dimmed.</p></section>
+<section class="chunk lvl3" id="d-6-2-citing-the-labels" data-toc="d-6-2-citing-the-labels"><h3 class="head"><span class="num">6.2</span><span class="htext">Citing the Labels</span><a class="anchor" href="#d-6-2-citing-the-labels" aria-label="Link to this section">#</a></h3><p>In <strong>Edit prompt…</strong>, your RefMods show up as chips with their labels, like <code>&lt;Video 1&gt;</code> and <code>&lt;Audio 1&gt;</code>. Click a chip to insert its label.</p>
+<ul>
+<li><strong>Several photos combined into one RefMod appear as a <code>&lt;Video&gt;</code></strong>. A single photo appears as a <code>&lt;Picture&gt;</code>.</li>
+<li><strong>A RefMod's voice is a separate <code>&lt;Audio&gt;</code> label.</strong></li>
+<li><strong>Copies share a label.</strong> A weight of 3 shows as <code>&lt;Video 1–3&gt;</code>. Citing <code>&lt;Video 1&gt;</code> is enough.</li>
+<li><strong>Order sets the numbers.</strong> Reordering the stack renumbers the labels, so check your prompt afterwards.</li>
+</ul>
+<pre><code class="language-text">subject_definitions:
+&lt;Subject 1&gt; is the woman in &lt;Video 1&gt;.
+&lt;Audio 1&gt; is the voice-timbre reference for &lt;Subject 1&gt; (S1), guiding delivery and speaking rate without copying the original signal.
+
+retention_analysis:
+&lt;Subject 1&gt; (appears in [Shot 1]): fully_preserved - the woman&#x27;s identity is retained. Face, facial features, body type.
+&lt;Audio 1&gt;: reference - its vocal timbre guides the dialogue delivery of &lt;Subject 1&gt; without copying the original signal.
+</code></pre></section>
+<section class="chunk lvl3" id="d-6-3-describing-the-subject" data-toc="d-6-3-describing-the-subject"><h3 class="head"><span class="num">6.3</span><span class="htext">Describing the Subject</span><a class="anchor" href="#d-6-3-describing-the-subject" aria-label="Link to this section">#</a></h3><p>A RefMod shows the model what someone looks and sounds like. Describing it in words as well locks that identity in. The words give the model something to match the reference against, so the likeness holds through motion, new angles and busy scenes.</p><ul><li><strong>Physical traits</strong> go in the subject's definition line: hair colour and style, face, build, age, clothing, and anything distinctive like glasses, tattoos or a scar.</li><li><strong>Vocal traits</strong> go in the subject's <code>&lt;Audio N&gt;</code> line in <code>subject_definitions</code>, and again in the prose before each spoken line: pitch, pace, texture and accent, like <em>a low, husky voice with a slow, warm pace</em>.</li><li><strong>Repeat a short version</strong> when the subject first appears in a shot, such as <em>the auburn-haired woman in the green coat</em>.</li><li><strong>Stay true to the reference.</strong> Describe what the photos and recording actually show. Words that contradict the RefMod pull the result away from it.</li></ul><p>This matters most with Compressed RefMods, weights below 1, and scenes with more than one person, where the model has less to go on. For two speakers, see <a href="#d-6-7-two-speakers">6.7 Two Speakers</a>.</p>
+<p><strong>Save them with the RefMod</strong> and you only write them once. Its <strong>Appearance</strong> is drafted straight into the subject line. Its <strong>Retained attributes</strong>, small details like a tattoo or a scar, are added to the end of the subject's <code>retention_analysis</code> note. Its <strong>Voice</strong> goes in the voice box beside the <code>&lt;Audio N&gt;</code> line, and the prompt adds <em>It is a …</em> after it, or <em>It is Ann's voice: …</em> when the subject has a name.</p>
+<p>The speaker button for that voice then gets an arrow. <strong>Just (S1)</strong> inserts a plain spoken line, and <strong>(S1) with voice</strong> inserts one that says <em>in the low, husky voice referenced from <code>&lt;Audio 1&gt;</code></em>. Clicking the button itself repeats your last choice for that speaker, with or without voiceover. Each speaker remembers its own.</p><pre><code class="language-text">subject_definitions:
+&lt;Subject 1&gt; is the woman in &lt;Video 1&gt;, with shoulder-length auburn hair, a freckled face, a slim build and a green wool coat. Their name is Ann.
+&lt;Audio 1&gt; is the voice-timbre reference for &lt;Subject 1&gt; (S1), guiding delivery and speaking rate without copying the original signal. It is Ann's voice: low, husky voice with a slow, warm pace.
+
+detailed_description:
+[Shot 1] A medium shot of &lt;Subject 1&gt; Ann, the auburn-haired woman in the green wool coat, standing by a rain-streaked window. &lt;Subject 1&gt; Ann (S1) turns to the camera and, in her low, husky voice with a slow and warm pace referenced from &lt;Audio 1&gt;, says &lt;d&gt;[English] Hi there.&lt;/d&gt;
+</code></pre>
+</section>
+<section class="chunk lvl3" id="d-6-4-draft-from-refmods" data-toc="d-6-4-draft-from-refmods"><h3 class="head"><span class="num">6.4</span><span class="htext">Draft From RefMods</span><a class="anchor" href="#d-6-4-draft-from-refmods" aria-label="Link to this section">#</a></h3><p>In Reference mode, click <strong>◈ Draft from RefMods</strong> under <code>subject_definitions</code>. It writes a definition line and a matching retention entry for every RefMod in the stack, and ticks the right task types in the summary. How each one is written depends on its concept:</p>
+<table>
+<thead><tr><th>Concept</th><th>Drafted as</th></tr></thead>
+<tbody>
+<tr><td>Identity</td><td>A <code>&lt;Subject&gt;</code>: the person in the RefMod's label.</td></tr>
+<tr><td>Clothing or background</td><td>A <code>&lt;Subject&gt;</code> described as the outfit or the environment.</td></tr>
+<tr><td>Style or pose and motion</td><td>Its own line saying what it guides, without copying its content.</td></tr>
+<tr><td>Voice</td><td>Tied to the subject from the same RefMod, with its own speaker ID.</td></tr>
+<tr><td>Singing, music style, sound effects, ambience</td><td>Each with its own wording.</td></tr>
+</tbody>
+</table>
+
+<ul>
+<li><strong>No concept set?</strong> A small window asks what the RefMod is. Leave <em>Save the answers to the library</em> ticked and you won't be asked again.</li>
+<li><strong>Lines already there?</strong> <strong>Add missing</strong> keeps your lines and drafts only the RefMods without one. <strong>Start over</strong> clears all of both sections, including lines for other media, and drafts fresh. If every RefMod already has a line, it offers Start over on its own, plus <strong>Fill names and voices</strong> when a saved subject name or voice can fill an empty box.</li>
+<li><strong>Loose media is left alone.</strong> Only RefMods are drafted, since nothing is saved about one-off pictures and clips.</li>
+</ul>
+<p>The drafted lines are a starting point. Add the details that matter for your shot, like hair, clothing or where the subject appears.</p></section>
+<section class="chunk lvl3" id="d-6-5-subject-names" data-toc="d-6-5-subject-names"><h3 class="head"><span class="num">6.5</span><span class="htext">Subject Names</span><a class="anchor" href="#d-6-5-subject-names" aria-label="Link to this section">#</a></h3><p>If a RefMod has a Subject name, drafting fills the name box on its <code>&lt;Subject N&gt;</code> line, so <em>Their name is Bob.</em> is added and <code>!Bob</code> works straight away. Press <strong>◈ Draft from RefMods</strong> again later and choose <strong>Fill names and voices</strong> to fill any name or voice box left blank. A name you typed yourself stays. See <a href="#c-3-5-naming-a-subject">Part C, 3.5</a> for how names work in the prompt.</p></section>
+<section class="chunk lvl3" id="d-6-6-refmods-with-regular-media" data-toc="d-6-6-refmods-with-regular-media"><h3 class="head"><span class="num">6.6</span><span class="htext">RefMods With Regular Media</span><a class="anchor" href="#d-6-6-refmods-with-regular-media" aria-label="Link to this section">#</a></h3><p>A Media Loader and RefMods work together. Media from the loader is numbered first, then the RefMods. One picture in the loader plus a RefMod gives <code>&lt;Picture 1&gt;</code> from the loader, then <code>&lt;Video 1&gt;</code> and <code>&lt;Audio 1&gt;</code> from the RefMod. The editor's chips and the stack's cards both show the real numbers, with or without the Prompt Builder in between. The stack's <code>labels</code> output counts the RefMods alone.</p>
+<p>Use <strong>+ Media loader</strong> and <strong>+ RefMods</strong> on the builder, and both get wired through.</p></section>
+<section class="chunk lvl3" id="d-6-7-two-speakers" data-toc="d-6-7-two-speakers"><h3 class="head"><span class="num">6.7</span><span class="htext">Two Speakers</span><a class="anchor" href="#d-6-7-two-speakers" aria-label="Link to this section">#</a></h3><p>Each RefMod voice reaches the model separately, but the prompt decides which voice goes with which line. With two similar voices, the model can settle on one timbre for both. Give it something to tell them apart:</p>
+<ul>
+<li>Bind each voice to its own subject and speaker ID in <code>subject_definitions</code>, and describe the voice on that same line.</li>
+<li>Mention the voice on each spoken line, like <em>in the voice referenced from <code>&lt;Audio 2&gt;</code></em>.</li>
+<li>Describe the voices differently in words: pitch, pace, texture or accent. A clear contrast, like a slow drawl against a quick, bright voice, keeps them apart best.</li>
+</ul>
+<p>Only the spoken words go inside <code>&lt;d&gt;</code>. Who speaks, and how they sound, goes in the prose before it.</p>
+<pre><code class="language-text">subject_definitions:
+&lt;Subject 1&gt; is the woman in &lt;Video 1&gt;. Their name is Ann.
+&lt;Audio 1&gt; is the voice-timbre reference for &lt;Subject 1&gt; (S1), guiding delivery and speaking rate without copying the original signal. It is Ann's voice: low, unhurried voice.
+&lt;Subject 2&gt; is the woman in &lt;Video 2&gt;. Their name is Jo.
+&lt;Audio 2&gt; is the voice-timbre reference for &lt;Subject 2&gt; (S2), guiding delivery and speaking rate without copying the original signal. It is Jo's voice: bright, quick voice.
+
+detailed_description:
+[Shot 1] A medium two-shot of &lt;Subject 1&gt; Ann on the left and &lt;Subject 2&gt; Jo on the right. &lt;Subject 1&gt; Ann (S1), in the low, unhurried voice referenced from &lt;Audio 1&gt;, says &lt;d&gt;[English] Hi there.&lt;/d&gt; &lt;Subject 2&gt; Jo (S2) answers in the bright, quick voice referenced from &lt;Audio 2&gt;, &lt;d&gt;[English] Oh, hey!&lt;/d&gt;
+</code></pre></section>
+<section class="chunk lvl3" id="d-6-8-character-bleeding" data-toc="d-6-8-character-bleeding"><h3 class="head"><span class="num">6.8</span><span class="htext">Character Bleeding</span><a class="anchor" href="#d-6-8-character-bleeding" aria-label="Link to this section">#</a></h3><p>As with LoRAs, RefMods can be subject to character bleed, where two characters' features blend together instead of staying distinct identities. Having each person properly described in <code>subject_definitions</code> greatly helps with this, and is another advantage RefMods have over LoRAs.</p><p>If multiple people look alike, it helps to describe the subtle differences between them, so the model can latch onto each identity. For example:</p><pre><code class="language-text">&lt;Subject 1&gt; is the person in &lt;Video 1&gt;, <strong><em>with a rounder face</em></strong>.
+&lt;Audio 1&gt; is the voice-timbre reference for &lt;Subject 1&gt; (S1), guiding delivery and speaking rate without copying the original signal. <strong><em>It is lower pitched and precise.</em></strong>
+
+&lt;Subject 2&gt; is the person in &lt;Video 2&gt;, <strong><em>with a more square face and dimpled cheeks</em></strong>.
+&lt;Audio 2&gt; is the voice-timbre reference for &lt;Subject 2&gt; (S2), guiding delivery and speaking rate without copying the original signal. <strong><em>It is higher pitched and energetic.</em></strong>
+</code></pre>
+<p>Pointing out differences helps the model tell similar subjects apart. Remember, though, that MiniMax H3 doesn't properly recognize negatives in prompts. Writing that <code>&lt;Subject 1&gt;</code> "does <em>not</em> wear makeup" won't guide the model very well. Instead, turn it into something positive about <code>&lt;Subject 2&gt;</code>, such as "she wears a subtle red blush on her cheeks".</p></section>
+<section class="chunk lvl3" id="d-6-9-drafts" data-toc="d-6-9-drafts"><h3 class="head"><span class="num">6.9</span><span class="htext">Drafts</span><a class="anchor" href="#d-6-9-drafts" aria-label="Link to this section">#</a></h3><p>In Draft mode, <strong>◈ RefMods</strong> edits the draft's own copy of the stack. The live stack isn't touched until you <strong>Commit to Live</strong>, and the draft banner says whether the draft is following the stack or has its own RefMods.</p></section>
+<section class="chunk lvl2" id="d-7-tips-and-fixes" data-toc="d-7-tips-and-fixes"><h2 class="head"><span class="num">7</span><span class="htext">Tips and Fixes</span><a class="anchor" href="#d-7-tips-and-fixes" aria-label="Link to this section">#</a></h2><p><strong>Generation got really slow, or memory spikes.</strong> Every reference adds work on every step. The usual causes are a long video left in the Media Loader, high weights, or several Full RefMods at once. Try Compressed, lower the weights, or trim clips to the moment you need.</p>
+<p><strong>The model seems to ignore a RefMod.</strong> Check that you're using a ref2va or hybrid model, and that the prompt cites the label. The editor warns you if it doesn't. A weight a little above 1 can help.</p>
+<p><strong>Photos came out cropped strangely.</strong> They all follow the first photo's resolution and aspect ratio. Put your best-framed photo first, or use <strong>Crop and mask…</strong> on the others.</p>
+<p><strong>The editor shows "No RefMods loaded".</strong> The stack is connected but empty, or every row is switched off.</p>
+<p><strong>The chips say something isn't reaching the Text Encode.</strong> Click <strong>+ RefMods</strong> or <strong>+ Media loader</strong> on the builder again to finish the connection.</p>
+<p><strong>A voice sounds wrong or empty.</strong> Open <strong>Show what's stored</strong> and listen. If it's silent or very short, edit the RefMod and drop the recording in again, and check that Voice seconds isn't set very low.</p>
+<p><strong>"Missing or stale session token" when dropping a file into Create, or dropping files into the library does nothing.</strong> You're most likely using ComfyUI through another front-end's embedded tab; SwarmUI is the one reported. Its proxy drops the header the pack's uploads need. Open ComfyUI's own page directly, at the address ComfyUI prints when it starts, and the same workflow works. The nodes still run fine from SwarmUI's queue.</p>
+<p><strong>Can I share RefMods?</strong> Yes. Copy the <code>.safetensors</code> files, and any preview image with the same name, into another ComfyUI's <code>models/refmods</code> folder.</p></section>
+<section class="chunk lvl2" id="d-8-credits" data-toc="d-8-credits"><h2 class="head"><span class="num">8</span><span class="htext">Credits</span><a class="anchor" href="#d-8-credits" aria-label="Link to this section">#</a></h2><p>The RefMod format, and the code that encodes and applies RefMods, come from <a href="https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod">ComfyUI-MiniMaxH3Mod</a> by Luisa (luisacaotica), MIT License. This pack carries its own copy of that runtime, and the files are the same format both ways. Single-file bundles from its 0.2.6 release show up in the library with a <em>bundle</em> badge and can be used and inspected; editing one saves a copy as standalone files and leaves the bundle as it is. The library's layout took cues from FranckyB's <a href="https://github.com/FranckyB/ComfyUI-H3RefMods">ComfyUI-H3RefMods</a>.</p></section>
+</article>
+<article class="part part-e" id="part-e"><header class="part-head"><div class="part-row"><span class="part-key">Part E</span><span class="part-label">Masked editing</span><span class="part-blurb">Change part of a clip and keep the rest as filmed.</span></div><p class="part-source">Editing a clip with a mask<span class="file">README.md</span></p></header>
+<section class="chunk chunk-intro" id="e-top" data-toc="e-top"><p>Replace, change or remove part of a clip and keep the rest as filmed. The mask decides where H3 may change anything; the prompt decides what that area becomes.</p>
+<p><strong>What you need:</strong> the SAM 3.1 checkpoint, <a href="https://huggingface.co/Comfy-Org/sam3.1/resolve/main/checkpoints/sam3.1_multiplex_fp16.safetensors"><code>sam3.1_multiplex_fp16.safetensors</code></a>, in <code>models/checkpoints</code>. The pack never downloads it. And <a href="https://github.com/Adudeguyman/ComfyUI-Fantastic-MiniMaxH3-PromptBuilder">the original pack</a>, installed alongside: Auto Mask runs its Object Mask, and its RefMod Text Encode and Edit Composite build and finish the edit.</p></section>
+<section class="chunk lvl2" id="e-1-masking-a-clip" data-toc="e-1-masking-a-clip"><h2 class="head"><span class="num">1</span><span class="htext">Masking a Clip</span><a class="anchor" href="#e-1-masking-a-clip" aria-label="Link to this section">#</a></h2><p>Right-click a video in Prompt Studio's media panel and choose <strong>◐ Mask for editing…</strong>, or open the <strong>◐ Mask</strong> tab in its trim editor. It works on the clip as you've trimmed, cropped and mirrored it there.</p>
+<p>The mask is built from <strong>layers</strong>, stacked beside the picture like an image editor's, new ones on top. Each one <strong>Add</strong>s its area or <strong>Cut</strong>s it out of the layers below it. The eye leaves one out, ⠇ drags to reorder, and ⋯ renames, duplicates or deletes. The selected layer is outlined in amber on the video, and hovering a row outlines that layer in white. It starts with an Auto Mask layer, ready for dots, and <strong>+ Add layer</strong> adds more:</p>
+<ul>
+<li><strong>Auto Mask with SAM</strong>: click what you want masked on a frame where it's clear, and right-click anything that shouldn't be included. A click alone can grab a whole person, so type what it is as well, like "green jacket", and just that part under your dots is masked. A name with no dots masks every match. <strong>▶ Run Auto</strong> runs SAM through the queue on its own, over the kept range only.</li>
+<li><strong>Ellipse</strong>, <strong>Rectangle</strong> and <strong>Polygon</strong>: drag to draw; for a polygon, click its points, then the first one again. Move, resize or turn it on another frame and it's keyed there, so it follows what it covers. <strong>Motion</strong> sets how it travels between keys: Smooth, Linear or Ease. A <strong>Hidden</strong> key takes it out of the mask until the next Shown key, for something that leaves the frame or comes back after a cut.</li>
+<li><strong>Brush</strong>: paint or erase by hand, on this frame, from here to the end, or on the whole clip.</li>
+</ul>
+<p>The layers play over the clip in cyan as you work. It's an approximate preview, and you can hide it from the right-click menu. <strong>Use this mask</strong> combines them over the kept range into the clip's mask and saves it with the layers, so they stay editable. The card then reads <strong>Video 1 · editing</strong>. Widen the trim later and the panel says the mask stops short; Use this mask again covers it. Ctrl+Z undoes within the session, and closing with unsaved changes asks first.</p></section>
+<section class="chunk lvl2" id="e-2-fixing-an-auto-mask" data-toc="e-2-fixing-an-auto-mask"><h2 class="head"><span class="num">2</span><span class="htext">Fixing an Auto Mask</span><a class="anchor" href="#e-2-fixing-an-auto-mask" aria-label="Link to this section">#</a></h2><p>Dots can go on several frames. Each marked frame seeds the tracking from there to the next one, so when a mask drifts, scrub to where it goes wrong, add a dot and run again. A frame needs a green dot. The layer's panel lists the frames with dots, and says <strong>run again</strong> once they or the name change.</p>
+<ul>
+<li><strong>Add</strong> and <strong>Cut</strong> run SAM and merge the result into that layer, or take it out. Green-dot the shirt under the jacket, type "shirt" and run with Add.</li>
+<li><strong>Look for it by name on every frame</strong> also re-finds a named object wherever tracking lost it, such as after a cut. It can pick up look-alikes.</li>
+</ul>
+<p>For what SAM can't get, add a shape or a brush layer.</p></section>
+<section class="chunk lvl2" id="e-3-shaping-the-mask" data-toc="e-3-shaping-the-mask"><h2 class="head"><span class="num">3</span><span class="htext">Shaping the Mask</span><a class="anchor" href="#e-3-shaping-the-mask" aria-label="Link to this section">#</a></h2><p>These settings apply to the combined mask.</p>
+<ul>
+<li><strong>grow</strong> widens the mask.</li>
+<li><strong>feather</strong> fades the regenerated area into the kept footage, so there's no hard seam. Its inside stays fully regenerated, and the fade is rounded up to whole 16-pixel latent cells at the sampling size.</li>
+<li><strong>invert</strong> keeps what's masked and regenerates everything else. grow then protects a margin around it.</li>
+<li><strong>crop to mask</strong> samples only the area around the mask, enlarged up to 4× at your pixel budget, for far more detail in small edits. <strong>context</strong> sets how much of the surroundings it keeps, and the dashed box shows it. It turns itself off when the mask covers most of the frame or is inverted.</li>
+</ul>
+<p>The overlay draws the mask grown and inverted as the edit uses it, and <strong>▦ regenerated</strong> shows the area H3 really regenerates, rounded out to the latent's 16-pixel cells at the sampling size.</p></section>
+<section class="chunk lvl2" id="e-4-citing-the-clip" data-toc="e-4-citing-the-clip"><h2 class="head"><span class="num">4</span><span class="htext">Citing the Clip</span><a class="anchor" href="#e-4-citing-the-clip" aria-label="Link to this section">#</a></h2><p>The clip is always sent as a reference too, so the prompt can cite it the way H3's editing prompts do: <code>&lt;Video 1&gt; is the source video for the target video edit.</code> and <code>[video editing] The target video is an edited version of &lt;Video 1&gt;.</code></p>
+<p>That costs a clip's worth of reference tokens. The builder and the mask panel show an estimate and warn past about 30,000. With crop to mask, only the cropped box is cited, which matches what's generated and costs far less.</p>
+<p>If an edit comes back as the clip unchanged, lower <strong>reference strength</strong> in the mask settings. The cited clip is then mixed toward a blurred copy, so it still gives the model the colours and placement, but not detail it can copy back.</p>
+<p><strong>Masked area in the reference</strong> is experimental, for replacing a whole person, where the original tends to creep back. <strong>blurred</strong> softens the masked area of the cited clip by the <strong>blur</strong> radius, and <strong>inverted</strong> turns it into a photographic negative that keeps shape, movement and expressions; <strong>blurred and inverted</strong> does both. Everything outside the mask stays as it is.</p>
+<p>Describe the finished clip, including what the masked area becomes. When removing something, describe what's there instead and don't name it.</p></section>
+<section class="chunk lvl2" id="e-5-generating" data-toc="e-5-generating"><h2 class="head"><span class="num">5</span><span class="htext">Generating</span><a class="anchor" href="#e-5-generating" aria-label="Link to this section">#</a></h2><p>The RefMod Text Encode builds the edit from the clip's mask settings, carried in Prompt Studio's <code>references</code> output: the clip at your width × height pixel budget, keeping its own shape and never enlarged, encoded, with the mask on H3's latent grid. It's saved the first time and loaded on later runs until a setting that changes it does; the prompt, seed and sampler don't. Cited reference clips are saved the same way.</p>
+<ul>
+<li>Wire the Text Encode's <code>latent</code> into the sampler.</li>
+<li>Put <strong>Fantastic H3 Edit Composite</strong> between VAE Decode and Create Video, fed the same <code>references</code>. It pastes exactly the area H3 regenerated, the cells the ▦ overlay shows plus any feather, into your original frames through a soft edge, scaled back into place when crop to mask is on. Everything else is the source file's own pixels, not a VAE copy of them. Its <code>max_size</code> caps the output's long edge.</li>
+</ul>
+<p>The example workflows are wired this way.</p></section>
+<section class="chunk lvl2" id="e-6-clearing-and-tidying" data-toc="e-6-clearing-and-tidying"><h2 class="head"><span class="num">6</span><span class="htext">Clearing and Tidying</span><a class="anchor" href="#e-6-clearing-and-tidying" aria-label="Link to this section">#</a></h2><p>Clearing a mask asks for a second click and offers Undo; the layers stay in the editor. Masks are stored one bit per pixel.</p>
+<p>Saving or running Auto Mask again leaves the old mask files behind, and changed settings leave old saved latents. The media panel's <strong>Clean up…</strong> deletes mask files that no Prompt Studio (or the original pack's Media Loader) in the open workflow, saved media set or draft uses (each Auto Mask layer's result counts), plus saved latents, which are rebuilt when needed. Once those unused mask files pass 500 MB, the panel offers a Clean up. Set the size, or 0 for never, in its ⚙ menu, under Clean-up reminder. This pack keeps its masks in <code>input/minimax_h3_plus/masks</code>, apart from the original pack's; <strong>Use this mask</strong> copies Auto Mask's results in there too, so the original pack's Clean up can't delete layers Prompt Studio still uses. Saved latents are the original pack's Text Encode's, and its own Clean up handles them.</p></section>
+<section class="chunk lvl2" id="e-7-masks-made-elsewhere" data-toc="e-7-masks-made-elsewhere"><h2 class="head"><span class="num">7</span><span class="htext">Masks Made Elsewhere</span><a class="anchor" href="#e-7-masks-made-elsewhere" aria-label="Link to this section">#</a></h2><p><strong>Fantastic H3 Video Edit Latent</strong> takes frames, a MASK and a megapixel budget, and outputs the latent, width, height and length.</p></section>
+<section class="chunk lvl2" id="e-8-credits" data-toc="e-8-credits"><h2 class="head"><span class="num">8</span><span class="htext">Credits</span><a class="anchor" href="#e-8-credits" aria-label="Link to this section">#</a></h2><p>The mask layers' keyframed shapes follow BISAM20's <a href="https://github.com/BISAM20/ComfyUI-AnimatedMaskEditor">ComfyUI-AnimatedMaskEditor</a>, MIT License.</p></section>
+</article>
+  </main>
+</div>
+
+<script>
+(function(){
+  var chunks = Array.prototype.slice.call(document.querySelectorAll('.chunk'));
+  var links  = Array.prototype.slice.call(document.querySelectorAll('.sidebar a'));
+  var parts  = Array.prototype.slice.call(document.querySelectorAll('.part'));
+  var groups = Array.prototype.slice.call(document.querySelectorAll('.toc-group'));
+  var q = document.getElementById('q');
+  var state = document.getElementById('state'), stateText = document.getElementById('statetext');
+  var empty = document.getElementById('empty');
+  var linkFor = {};
+  links.forEach(function(a){ linkFor[a.dataset.target] = a; });
+
+  /* --- code panels: wrap + copy --- */
+  Array.prototype.slice.call(document.querySelectorAll('pre')).forEach(function(pre){
+    var wrap = document.createElement('div'); wrap.className = 'codewrap';
+    pre.parentNode.insertBefore(wrap, pre); wrap.appendChild(pre);
+    var b = document.createElement('button');
+    b.className = 'copy'; b.type = 'button'; b.textContent = 'Copy';
+    wrap.appendChild(b);
+  });
+
+  document.addEventListener('click', function(e){
+    var b = e.target.closest ? e.target.closest('.copy') : null;
+    if (!b) return;
+    var pre = b.parentNode.querySelector('pre');
+    if (!pre) return;
+    var text = pre.innerText;
+    var done = function(){ b.textContent = 'Copied'; b.classList.add('done');
+      setTimeout(function(){ b.textContent = 'Copy'; b.classList.remove('done'); }, 1400); };
+    function fallback(){
+      var ta = document.createElement('textarea'); ta.value = text;
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); done(); } catch(err){ b.textContent = 'Copy failed'; }
+      document.body.removeChild(ta);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else { fallback(); }
+  });
+
+  /* --- tables scroll on narrow screens --- */
+  Array.prototype.slice.call(document.querySelectorAll('table')).forEach(function(t){
+    var w = document.createElement('div'); w.className = 'tablewrap';
+    t.parentNode.insertBefore(w, t); w.appendChild(t);
+  });
+
+  /* --- search --- */
+  chunks.forEach(function(c){ c._html = c.innerHTML; c._text = c.textContent.toLowerCase(); });
+
+  function highlight(node, needle){
+    var walk = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null), hits = 0, todo = [];
+    while (walk.nextNode()) {
+      var n = walk.currentNode;
+      if (n.nodeValue.toLowerCase().indexOf(needle) > -1 && n.parentNode.nodeName !== 'BUTTON') todo.push(n);
+    }
+    todo.forEach(function(n){
+      var frag = document.createDocumentFragment(), s = n.nodeValue, low = s.toLowerCase(), i = 0, j;
+      while ((j = low.indexOf(needle, i)) > -1) {
+        if (j > i) frag.appendChild(document.createTextNode(s.slice(i, j)));
+        var m = document.createElement('mark');
+        m.textContent = s.slice(j, j + needle.length);
+        frag.appendChild(m); hits++; i = j + needle.length;
+      }
+      if (i < s.length) frag.appendChild(document.createTextNode(s.slice(i)));
+      n.parentNode.replaceChild(frag, n);
+    });
+    return hits;
+  }
+
+  function reset(){
+    chunks.forEach(function(c){
+      if (c.innerHTML !== c._html) { c.innerHTML = c._html; }
+      c.classList.remove('hidden');
+    });
+    /* copy buttons and table wrappers are inside chunk HTML that was restored */
+    links.forEach(function(a){ a.classList.remove('hidden'); });
+    groups.forEach(function(g){ g.classList.remove('hidden'); });
+    parts.forEach(function(p){ p.classList.remove('hidden'); });
+    state.classList.remove('on'); empty.classList.remove('on');
+  }
+
+  var timer;
+  q.addEventListener('input', function(){
+    document.querySelector('.searchbox').classList.toggle('typing', q.value.length > 0);
+    clearTimeout(timer); timer = setTimeout(run, 130);
+  });
+
+  function run(){
+    var needle = q.value.trim().toLowerCase();
+    reset();
+    if (needle.length < 2) { document.body.classList.remove('searching'); spy(); return; }
+    document.body.classList.add('searching');
+    var hits = 0, shown = 0;
+    chunks.forEach(function(c){
+      if (c._text.indexOf(needle) > -1) { hits += highlight(c, needle); shown++; }
+      else { c.classList.add('hidden'); }
+    });
+    links.forEach(function(a){
+      var t = document.getElementById(a.dataset.target);
+      if (t && t.classList.contains('hidden')) a.classList.add('hidden');
+    });
+    groups.forEach(function(g){
+      var vis = g.querySelectorAll('a:not(.hidden)').length;
+      if (!vis) g.classList.add('hidden');
+    });
+    parts.forEach(function(p){
+      var vis = p.querySelectorAll('.chunk:not(.hidden)').length;
+      if (!vis) p.classList.add('hidden');
+    });
+    Array.prototype.slice.call(document.querySelectorAll('.chunk:not(.hidden) details')).forEach(function(d){
+      if (d.textContent.toLowerCase().indexOf(needle) > -1) d.open = true;
+    });
+    if (window.scrollY > 0) window.scrollTo({top: 0, behavior: 'auto'});
+    stateText.textContent = hits + (hits === 1 ? ' match' : ' matches') + ' in ' +
+      shown + (shown === 1 ? ' section' : ' sections') + ' for “' + q.value.trim() + '”';
+    state.classList.add('on');
+    empty.classList.toggle('on', shown === 0);
+    if (shown === 0) { stateText.textContent = 'No matches for “' + q.value.trim() + '”'; }
+  }
+
+  function clearSearch(){
+    q.value = ''; document.querySelector('.searchbox').classList.remove('typing');
+    document.body.classList.remove('searching'); reset(); spy();
+  }
+  document.getElementById('clear').addEventListener('click', function(){ clearSearch(); q.focus(); });
+  document.getElementById('home').addEventListener('click', function(e){
+    e.preventDefault(); clearSearch(); window.scrollTo({top: 0, behavior: 'smooth'});
+  });
+
+  /* --- keyboard --- */
+  document.addEventListener('keydown', function(e){
+    var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+    if ((e.key === '/' && !typing) || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k')) {
+      e.preventDefault(); q.focus(); q.select();
+    } else if (e.key === 'Escape' && typing) {
+      clearSearch(); q.blur();
+    }
+  });
+
+  /* --- scroll spy + spine progress --- */
+  var veil = document.getElementById('veil'), active = null, ticking = false;
+  function spy(){
+    var cur = null;
+    var offset = (parseInt(getComputedStyle(document.documentElement).getPropertyValue('--topbar')) || 60) + 30;
+    var visible = chunks.filter(function(c){ return !c.classList.contains('hidden'); });
+    for (var i = 0; i < visible.length; i++) {
+      var r = visible[i].getBoundingClientRect();
+      if (r.top <= offset && r.bottom > offset) { cur = visible[i]; break; }
+    }
+    if (!cur) {
+      for (var j = 0; j < visible.length; j++) {
+        if (visible[j].getBoundingClientRect().top > offset) { cur = visible[j]; break; }
+      }
+    }
+    if (!cur && visible.length) cur = visible[visible.length - 1];
+    if (cur && cur !== active) {
+      active = cur;
+      links.forEach(function(a){ a.classList.remove('active'); });
+      var a = linkFor[cur.dataset.toc];
+      if (a) { a.classList.add('active');
+        /* scroll the sidebar alone: scrollIntoView also scrolls the page, which
+           stops a jump from the contents part way there */
+        var nav = document.getElementById('toc');
+        var ar = a.getBoundingClientRect(), nr = nav.getBoundingClientRect();
+        if (ar.top < nr.top + 8) nav.scrollTop -= nr.top + 8 - ar.top;
+        else if (ar.bottom > nr.bottom - 8) nav.scrollTop += ar.bottom - nr.bottom + 8;
+      }
+    }
+    var h = document.documentElement;
+    var p = h.scrollTop / Math.max(1, h.scrollHeight - h.clientHeight);
+    veil.style.height = (100 - Math.min(100, Math.max(0, p * 100))).toFixed(2) + '%';
+    ticking = false;
+  }
+  window.addEventListener('scroll', function(){
+    if (!ticking) { ticking = true; requestAnimationFrame(spy); }
+  }, {passive:true});
+  window.addEventListener('resize', spy, {passive:true});
+
+  /* --- theme --- */
+  var root = document.documentElement, tbtn = document.getElementById('theme');
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) setTheme('dark');
+  function setTheme(t){
+    root.setAttribute('data-theme', t);
+    tbtn.textContent = t === 'dark' ? 'Light' : 'Dark';
+    tbtn.setAttribute('aria-label', 'Switch to ' + (t === 'dark' ? 'light' : 'dark') + ' theme');
+  }
+  tbtn.addEventListener('click', function(){
+    setTheme(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  });
+
+  /* --- mobile drawer --- */
+  var nav = document.getElementById('toc'), scrim = document.getElementById('scrim');
+  function drawer(open){ nav.classList.toggle('open', open); scrim.classList.toggle('on', open); }
+  document.getElementById('menu').addEventListener('click', function(){ drawer(!nav.classList.contains('open')); });
+  scrim.addEventListener('click', function(){ drawer(false); });
+  nav.addEventListener('click', function(e){ if (e.target.closest('a')) drawer(false); });
+
+  spy();
+})();
+</script>
+</body>
+</html>
