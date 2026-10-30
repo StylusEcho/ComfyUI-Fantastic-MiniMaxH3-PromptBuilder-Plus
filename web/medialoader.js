@@ -305,41 +305,98 @@ export function linkNodes(from, outSlot, to, inSlot) {
 }
 
 /** KJNodes' Set/Get pairs carry a link by name instead of a wire. The Get
- *  nodes for a Set node, matched the way KJNodes matches them. */
-export function gettersOf(setNode) {
+ *  nodes for a Set node, matched the way KJNodes matches them: in the Set
+ *  node's graph and every subgraph inside it. */
+function gettersOf(setNode) {
   const name = setNode?.widgets?.[0]?.value;
   if (!name) return [];
-  return ((setNode.graph || app.graph)._nodes || []).filter((n) => n.type === "GetNode" && n.widgets?.[0]?.value === name);
+  const graphs = [setNode.graph];
+  for (const g of graphs) for (const n of g._nodes) if (n.subgraph && !graphs.includes(n.subgraph)) graphs.push(n.subgraph);
+  return graphs.flatMap((g) => g._nodes).filter((n) => n.type === "GetNode" && n.widgets?.[0]?.value === name);
 }
-/** The Set node a Get node reads from, or null. */
-export function setterOf(getNode) {
+/** The Set node a Get node reads from, or null: in the Get node's graph,
+ *  else the nearest graph holding it. */
+function setterOf(getNode) {
   const name = getNode?.widgets?.[0]?.value;
   if (!name) return null;
-  return ((getNode.graph || app.graph)._nodes || []).find((n) => n.type === "SetNode" && n.widgets?.[0]?.value === name) || null;
+  for (let g = getNode.graph; g; g = allNodes().find((n) => n.subgraph === g)?.graph) {
+    const set = g._nodes.find((n) => n.type === "SetNode" && n.widgets?.[0]?.value === name);
+    if (set) return set;
+  }
+  return null;
 }
 
-/** Nodes fed by one output, looked through reroutes and Set/Get pairs. */
-export function outputTargets(node, slot, depth = 0) {
-  let direct = [];
-  try {
-    const d = node.getOutputNodes?.(slot);
-    if (Array.isArray(d) && d.length) direct = d;
-  } catch (e) { /* fall through to the link table */ }
-  if (!direct.length) {
-    try {
-      for (const id of node.outputs?.[slot]?.links || []) {
-        const link = app.graph.links?.[id];
-        const target = link && app.graph.getNodeById?.(link.target_id);
-        if (target) direct.push(target);
-      }
-    } catch (e) { /* nothing wired */ }
+/** Every node in the workflow, the ones inside subgraphs too. (Plus) Guarded:
+ *  a frontend from before subgraphs has no `graph.subgraphs`, and this runs
+ *  under Clean up and the overlay redraw, which must not throw there. */
+export function allNodes() {
+  const g = app.graph;
+  if (!g) return [];
+  return [g, ...(g.subgraphs?.values?.() || [])].flatMap((x) => x?._nodes || []);
+}
+
+/** The node behind an input, looked through reroutes, KJNodes' Get/Set pairs
+ *  (a Get node stands in for whatever feeds its Set node) and subgraph edges:
+ *  a subgraph's input stands in for what feeds the subgraph node (the first
+ *  one, when the subgraph is used more than once), and a subgraph node's
+ *  output for what feeds it inside. */
+export function originNode(node, slot) {
+  // Not getInputLink: on a subgraph node that returns the inner link behind an output.
+  const feed = (x, i) => x?.graph?.getLink(x.inputs?.[i]?.link);
+  const path = [];   // subgraph nodes stepped into, so a pass-through leaves by the same one
+  let g = node.graph, link = feed(node, slot), n = null;
+  for (let guard = 0; link && guard < 32; guard++) {
+    if (link.origin_id === g.inputNode?.id) {
+      const holder = path.pop() || allNodes().find((x) => x.subgraph === g);
+      g = holder?.graph;
+      link = feed(holder, link.origin_slot);
+      continue;
+    }
+    n = g.getNodeById(link.origin_id);
+    if (n?.subgraph) {
+      path.push(n);
+      g = n.subgraph;
+      link = g.getLink(g.outputs[link.origin_slot]?.linkIds[0]);
+    } else if (/reroute/i.test(n?.type || "")) link = feed(n, 0);
+    else if (n?.type === "GetNode") {
+      const set = setterOf(n);
+      // a Set node in a graph holding this one: forget the subgraph nodes stepped into below it
+      if (set && set.graph !== g) path.splice(path.findIndex((h) => h.subgraph === set.graph) + 1);
+      g = set?.graph;
+      link = feed(set, 0);
+    } else break;
   }
-  if (depth > 16) return direct;
+  return n;
+}
+
+/** Nodes fed by one output, looked through reroutes, Set/Get pairs and
+ *  subgraph edges. */
+export function outputTargets(node, slot) {
+  return linkTargets(node.graph, node.outputs?.[slot]?.links, []);
+}
+
+/** The nodes at the far end of graph `g`'s links `ids`, through reroutes and
+ *  Set/Get pairs: into a subgraph node, what its input feeds inside; out of a
+ *  subgraph, what the subgraph node feeds (every one using it, unless `path`
+ *  holds the one stepped in by). */
+function linkTargets(g, ids, path, depth = 0) {
   const out = [];
-  for (const t of direct) {
-    if (/reroute/i.test(t.type || "")) out.push(...outputTargets(t, 0, depth + 1));
-    else if (t.type === "SetNode") for (const g of gettersOf(t)) out.push(...outputTargets(g, 0, depth + 1));
-    else out.push(t);
+  if (depth > 32) return out;
+  for (const id of ids || []) {
+    const link = g?.getLink(id);
+    if (!link) continue;
+    if (link.target_id === g.outputNode?.id) {
+      for (const holder of path.length ? path.slice(-1) : allNodes().filter((x) => x.subgraph === g))
+        out.push(...linkTargets(holder.graph, holder.outputs[link.target_slot]?.links, path.slice(0, -1), depth + 1));
+      continue;
+    }
+    const t = g.getNodeById(link.target_id);
+    if (t?.subgraph) out.push(...linkTargets(t.subgraph, t.subgraph.inputs[link.target_slot]?.linkIds, [...path, t], depth + 1));
+    else if (/reroute/i.test(t?.type || "")) out.push(...linkTargets(g, t.outputs[0]?.links, path, depth + 1));
+    else if (t?.type === "SetNode") {
+      // a Get node down in a subgraph wasn't reached through a subgraph node
+      for (const get of gettersOf(t)) out.push(...linkTargets(get.graph, get.outputs[0]?.links, get.graph === g ? path : [], depth + 1));
+    } else if (t) out.push(t);
   }
   return out;
 }
@@ -348,7 +405,8 @@ export function outputTargets(node, slot, depth = 0) {
 export function safeCanvasFocus(node) {
   try {
     const canvas = app.canvas;
-    if (!canvas || typeof canvas.centerOnNode !== "function") return false;
+    // The canvas can only centre a node of the graph it shows.
+    if (!canvas || typeof canvas.centerOnNode !== "function" || node.graph !== canvas.graph) return false;
     canvas.centerOnNode(node);
     if (typeof canvas.selectNode === "function") canvas.selectNode(node);
     return true;
@@ -2843,7 +2901,7 @@ export function overlayOn() {
 
 function setOverlay(on) {
   try { localStorage.setItem(OVERLAY_KEY, on ? "on" : "off"); } catch (e) { /* this session only */ }
-  for (const n of app.graph?._nodes || []) (n._mmlPanels || []).forEach((p) => p.render());
+  for (const n of allNodes()) (n._mmlPanels || []).forEach((p) => p.render());
 }
 
 const spriteCache = new Map();
@@ -3016,10 +3074,10 @@ function regenBlock(item, crop, resize) {
   return 16 / Math.min(1, Math.sqrt(sampleBudget() / Math.max(1, W * H)));
 }
 
-/** The Text Encode's width x height in this graph, for sizing previews of
+/** The Text Encode's width x height in this workflow, for sizing previews of
  *  what an edit samples; 1344 x 768 when there isn't one to read. */
 function sampleBudget() {
-  for (const n of app.graph?._nodes || []) {
+  for (const n of allNodes()) {
     if (!/RefModTextEncode/.test(n.type || "")) continue;
     const w = +n.widgets?.find((x) => x.name === "width")?.value, h = +n.widgets?.find((x) => x.name === "height")?.value;
     if (w > 0 && h > 0) return w * h;
@@ -5791,6 +5849,20 @@ async function presetApi(path, body) {
   return data;
 }
 
+/** Files pasted from the clipboard, for a loader or the RefMod library to
+ *  take as a drop: none while you type in a field or the trim and crop
+ *  editor is open. A screenshot arrives as "image.png"; it's named for the
+ *  time instead, so several don't all read the same. */
+export function pastedFiles(e) {
+  if (e.target?.isContentEditable || e.target?.closest?.("input, textarea, select")) return [];
+  if (document.querySelector(".mmlp-tmover")) return [];
+  const files = [...(e.clipboardData?.files || [])];
+  const stamp = new Date().toTimeString().slice(0, 8).replace(/:/g, "-");
+  return files.map((f, i) => (/^image\.\w+$/i.test(f.name)
+    ? new File([f], `pasted ${stamp}${files.length > 1 ? `-${i + 1}` : ""}.${f.name.split(".").pop()}`, { type: f.type })
+    : f));
+}
+
 /** What kind of reference a file is, by extension. One definition, so the
  *  add path and the replace-a-slot path can never disagree about it. */
 function kindOfFile(name) {
@@ -6620,7 +6692,7 @@ export class LoaderPanel {
     try { files = (await (await api.fetchApi("/minimax_h3_plus/edit_files", { cache: "no-store" })).json()).files || []; }
     catch (e) { return null; }
     const used = new Set();
-    for (const n of app.graph?._nodes || []) {
+    for (const n of allNodes()) {
       if (n.type !== LOADER_NAME && n.type !== STUDIO_NAME) continue;
       let items = [];
       try { items = JSON.parse(n.widgets?.find((w) => w.name === "media_state")?.value || "[]"); } catch (e) {}
@@ -7672,6 +7744,47 @@ function splitHelp(anchor) {
   document.body.append(box);
 }
 
+/** The loader window's panel while one is open: where a paste goes. */
+let modalPanel = null;
+
+/** Ctrl+V: pictures, clips and audio from the clipboard go into the loader
+ *  window when one is open, otherwise into the one selected Media Loader,
+ *  as if dropped. Anything else is ComfyUI's paste, and the RefMod library
+ *  takes its own.
+ *
+ *  (Plus) For the one selected Prompt Studio here; the original pack, usually
+ *  installed alongside, handles its own Media Loaders. Its handler also takes
+ *  any selected node with a media panel, Prompt Studio included, so whichever
+ *  runs first takes the paste: this one stands down when the event is
+ *  already handled, and stops the other running after it (both listen on the
+ *  window, where stopPropagation alone doesn't reach a sibling listener). */
+function pasteIntoLoader(e) {
+  if (e.defaultPrevented) return;
+  // the trim and crop editor and the loader window are modal: nothing pasted
+  // over them may land on the canvas behind
+  if (document.querySelector(".mmlp-tmover")) { e.stopImmediatePropagation(); return; }
+  if (document.querySelector(".mmrp-overlay")) return;
+  const selected = Object.values(app.canvas?.selected_nodes || {})
+    .filter((n) => n.type === STUDIO_NAME && n._mmlPanel);
+  // The panel under the pointer first, as this pack's own Ctrl+V-over-a-panel
+  // has always done (LoaderPanel's _onPaste, which also pastes a copied slot);
+  // then the selected node.
+  const hovered = allNodes().find((n) => n.type === STUDIO_NAME && n._mmlPanel?._hover && n._mmlPanel.root.isConnected);
+  const panel = modalPanel || hovered?._mmlPanel || (selected.length === 1 ? selected[0]._mmlPanel : null);
+  if (!panel) return;
+  if (modalPanel) e.stopImmediatePropagation();
+  const files = pastedFiles(e);
+  if (!files.length) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  panel.add(files);
+}
+
+// capture: ahead of ComfyUI's own paste, which would add a Load Image node
+app.registerExtension({
+  name: "MiniMaxH3Plus.MediaPaste",
+  setup() { window.addEventListener("paste", pasteIntoLoader, true); },
+});
+
 /** @param onClose - run after the modal closes, so a caller that renders
  *  from this node's media (the prompt builder) can pick up the changes.
  *  @param store/storeLabel/draft/note - a draft's own reference set, edited
@@ -7686,8 +7799,9 @@ export function openLoaderModal(node, opts = {}) {
   if (raiseIfOpen(node[slot])) return node[`${slot}Panel`] || null;
   const { onClose, store, storeLabel, draft = false, note = "" } = opts;
   const title = opts.title || storeLabel || "MiniMax H3 Media Loader";
-  const panel = new LoaderPanel(node, { modal: true, store, storeLabel });
+  const panel = modalPanel = new LoaderPanel(node, { modal: true, store, storeLabel });
   const close = () => {
+    if (modalPanel === panel) modalPanel = null;
     // A RefMod stack docked beside this window goes with it.
     try { node._mmrDocked?.close(); } catch (e) { /* already gone */ }
     node[slot] = null;

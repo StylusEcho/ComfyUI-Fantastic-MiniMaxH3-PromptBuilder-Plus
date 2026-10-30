@@ -16,7 +16,7 @@ jobs:
     # before the version-bump push, since registry versions are immutable.
     env:
       COMFY_NODE_CHANGELOG: |
-        Interface rework: the node's settings are text size only, and that size now reaches the prompt bar and the RefMods view; a grip on the prompt bar sets 2-4 rows of preview; the RefMods view gets the same settings and toolbar as the media view. The Prompt Builder header starts with Media Loader, RefMods, Library, Draft, and its two-column Reference form moved into settings. One grip above the audio boxes sizes both. Subject masking is offered in Reference mode only. The Used view shows the pictures actually sent, T2VA's fields on the node no longer open Quick edit, and Quick edit's Prompt Builder button is centred. Fixes the node's panel squishing after a workflow tab switch with the side panel open.
+        Folds in the original pack's 1.8.3: Prompt Studio, its RefMods and the RefMod library work across subgraphs (KJNodes Set/Get pairs too), and Clean up counts Prompt Studios inside them; Ctrl+V pastes pictures, clips and audio into Prompt Studio, the media window or the RefMod Create tab (added once even with the original pack installed); uploading a file that's already there reuses it; RefMod Create uploads are deleted once used. The new Reference Cache node comes from the original pack, which this wants at 1.8.3 or newer.
     steps:
       - name: Check out code
         uses: actions/checkout@v4

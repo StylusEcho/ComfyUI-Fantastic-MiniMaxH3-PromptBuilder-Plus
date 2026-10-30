@@ -9,7 +9,7 @@ import { api } from "../../scripts/api.js";
 import { LOADER_NAME, STUDIO_NAME, computeTags, viewURL as loaderViewURL,
   safeCanvasFocus, openLoaderModal, isOn, openPictureEditor,
   fileCount, MODE_CAPACITY, hasCrop, TAG_COLORS, TAG_VARS,
-  raiseIfOpen, RAISE_CSS, postApi, outputTargets, setterOf, linkNodes,
+  raiseIfOpen, RAISE_CSS, postApi, outputTargets, originNode, linkNodes,
   keepNameChars, overlayOn, maskOverlay, refTokenEstimate, itemLook,
 } from "./medialoader.js";
 import { STACK_NAME, STACK_NAMES, ENCODE_NAMES, readStack, deriveEntries, labelGroups,
@@ -1123,22 +1123,6 @@ function viewURL(v) {
     `/view?filename=${encodeURIComponent(name)}` +
     `&subfolder=${encodeURIComponent(subfolder)}&type=${type}`
   );
-}
-
-/** The node behind an input, looked through reroutes and KJNodes' Get/Set
- *  pairs (a Get node stands in for whatever feeds its Set node). */
-function originNode(node, slotIndex) {
-  let n = node.getInputNode?.(slotIndex);
-  let guard = 0;
-  while (n && guard++ < 16) {
-    let up = null;
-    if (/reroute/i.test(n.type || "")) up = n.getInputNode?.(0);
-    else if (n.type === "GetNode") up = setterOf(n)?.getInputNode?.(0);
-    else break;
-    if (!up) break;
-    n = up;
-  }
-  return n || null;
 }
 
 function widgetValue(n, names) {
@@ -8206,8 +8190,10 @@ export function restoreDraftFlag(node) {
     .catch(() => { /* the flag is cosmetic; the draft itself is on disk */ });
 }
 
-/** The one place this file links two nodes. */
+/** The one place this file links two nodes. Never across a subgraph's edge:
+ *  LiteGraph would write a link the other graph can't resolve. */
 function wire(from, outSlot, to, inSlot) {
+  if (from.graph !== to.graph) return null;
   return linkNodes(from, outSlot, to, inSlot);
 }
 
@@ -8226,8 +8212,7 @@ function feedEncoderMedia(node, enc) {
   const ri = (enc.inputs || []).findIndex((i) => i.name === "references");
   if (refIn < 0 || refOut < 0 || ri < 0) return false;
   if (node.inputs[refIn].link == null || enc.inputs[ri].link != null) return false;
-  wire(node, refOut, enc, ri);
-  return true;
+  return !!wire(node, refOut, enc, ri);
 }
 
 /** Wire a RefMod Stack into this builder's mods input. Focuses the stack
@@ -8284,8 +8269,7 @@ function addRefModStack(node, { focus = true } = {}) {
   for (const enc of encoders) {
     const mi = modsInput(enc);
     const head = mi >= 0 && enc.inputs[mi].link != null ? originNode(enc, mi) : null;
-    if (STACK_NAMES.has(head?.type)) {
-      wire(head, 0, node, inIdx);     // slot 0 is the stack's mods bundle
+    if (STACK_NAMES.has(head?.type) && wire(head, 0, node, inIdx)) {     // slot 0 is the stack's mods bundle
       feedEncoderMedia(node, enc);
       redraw(node);
       toast("Connected the RefMod Stack that already feeds RefMod Text Encode");
@@ -8303,20 +8287,20 @@ function addRefModStack(node, { focus = true } = {}) {
           "ComfyUI-Fantastic-MiniMaxH3-PromptBuilder alongside this pack", 6000);
     return null;
   }
-  app.graph.add(stack);
+  node.graph.add(stack);
   try {
     // Left of the builder like the Media Loader, below it when one is there.
     const refIdx = (node.inputs || []).findIndex((i) => i.name === "references");
     const loader = refIdx >= 0 && node.inputs[refIdx].link != null ? originNode(node, refIdx) : null;
     const x = node.pos[0] - ((stack.size?.[0] || 560) + 60);
-    const y = loader ? loader.pos[1] + (loader.size?.[1] || 400) + 60 : node.pos[1];
+    const y = loader?.graph === node.graph ? loader.pos[1] + (loader.size?.[1] || 400) + 60 : node.pos[1];
     stack.pos = [x, y];
   } catch (e) { /* let the renderer place it */ }
   wire(stack, 0, node, inIdx);
   let fed = 0;
   for (const enc of encoders) {
     const mi = modsInput(enc);
-    if (mi >= 0 && enc.inputs[mi].link == null) { wire(node, outIdx, enc, mi); fed++; }
+    if (mi >= 0 && enc.inputs[mi].link == null && wire(node, outIdx, enc, mi)) fed++;
     feedEncoderMedia(node, enc);
   }
   redraw(node);

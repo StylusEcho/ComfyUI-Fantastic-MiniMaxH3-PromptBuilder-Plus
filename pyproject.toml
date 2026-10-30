@@ -73,7 +73,10 @@ name = "fantastic-minimax-h3-promptstudio"
 # grip for the audio boxes, masking offered in Reference mode only, and the
 # Used view showing the pictures actually sent — no breakage of saved
 # workflows.
-version = "3.4.0"
+# 3.5.0 folds in upstream 1.8.3 (subgraph support, paste, upload reuse,
+# RefMod Create uploads cleared once used; the Reference Cache node is the
+# original pack's) — no breakage of saved workflows.
+version = "3.5.0"
 description = "MiniMax H3 Prompt Studio: a single guided prompt-writing and reference-media node for the H3 video model, with live checking against MiniMax's prompt guide."
 license = { file = "LICENSE" }
 requires-python = ">=3.9"

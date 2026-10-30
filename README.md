@@ -51,6 +51,36 @@ any frame straight out of a video into your picture references.*
 
 ---
 
+## What's new in 3.5.0
+
+Folds in the original pack's 1.8.3. No breakage of saved workflows; it wants
+**the original pack at 1.8.3 or newer** alongside for its new Reference Cache
+node and the RefMod fixes.
+
+- **Subgraphs.** Prompt Studio, its RefMods and the RefMod library follow
+  links into and out of subgraphs (nested ones, and one used twice, too), and
+  KJNodes Set/Get pairs match across subgraph levels. **Clean up** and its
+  reminder count Prompt Studios inside subgraphs, so their masks aren't
+  listed as unused and deleted.
+- **Paste.** Ctrl+V adds pictures, clips and audio from the clipboard to the
+  Prompt Studio under the pointer or the one selected, the open media window,
+  or the RefMod library's Create tab. A screenshot is named for the time
+  ("pasted 14-03-22.png") instead of "image.png". Text fields still paste
+  text. With the original pack installed too, a paste is added once.
+- **Uploads reuse what's there.** Loading a file that's already in
+  `input/minimax_h3`, under any name, reuses the copy there (compared byte
+  for byte).
+- **RefMod Create uploads are cleared up.** Files added in the library's
+  Create tab go to `input/minimax_h3_plus/refmod_uploads` and are deleted
+  once the RefMod is made, unless the tab still lists them or a queued job
+  needs them; leftovers over a day old are cleared when the library opens.
+  (This pack's own folder, so it never clears the original pack's.)
+- **Fantastic H3 Reference Cache (experimental)** is the original pack's
+  new node, used from there like its other nodes: between the model loader
+  and the sampler, it skips most of the references' work between refreshes.
+  Results differ from a normal run, and it needs RAM. See the original
+  pack's README.
+
 ## What's new in 3.4.0
 
 Interface changes, all Plus only. No breakage of saved workflows.
@@ -1309,9 +1339,12 @@ H3 Reference to Video** and the `ref2va` checkpoint.
 
 ### The short version
 
-1. Drop your reference files onto Prompt Studio's own panel, or click
-   **Load files…**. Images, video, and audio can all go in at once — each
-   lands in the right group.
+1. Drop your reference files onto Prompt Studio's own panel, paste them
+   (point at the panel, or select the node, and press Ctrl+V; handy for a
+   screenshot), or click **Load files…**. Images, video, and audio can all
+   go in at once — each lands in the right group. Files are copied into
+   `input/minimax_h3`; loading the same file again, under any name, reuses
+   the copy already there.
 2. Open the editor and switch to **Reference** mode. Your media now shows up
    as clickable thumbnails; click one to insert its tag into your text.
 3. Fill in the six sections, then **Save to node**. On a wide screen,
@@ -2025,10 +2058,13 @@ RefMod made from several pictures keeps every picture, which roughly
 doubles its file.
 **Fantastic H3 Store RefMod Encoder Frames** is the node behind it.
 
-The **Create** tab makes new ones. Drop pictures, clips or audio anywhere
-on the library, or pull the items from any Prompt Studio in the workflow
+The **Create** tab makes new ones. Drop or paste (Ctrl+V) pictures, clips or
+audio anywhere on the library, or pull the items from any Prompt Studio in the workflow
 (the node's right-click menu has *RefMod library* for the same thing), so
-a clip you have already trimmed and cropped goes in as it stands. By
+a clip you have already trimmed and cropped goes in as it stands. Files
+added here are kept in `input/minimax_h3_plus/refmod_uploads` only until the
+RefMod is made, since it holds everything it needs; pulled media stays the
+node's. By
 default everything becomes **one RefMod**: six photos of a character are
 stacked into a single reference, one frame per photo, and any voices —
 audio files, or clips whose soundtrack you keep — are joined into one voice
@@ -2210,6 +2246,19 @@ heading to fold it. **▦ Thumbnails…** on the heading shows every reference
 as a small preview in the same order: media as the Media Loader shows it,
 crops marked, and RefMods with their tags and tokens. A clip's soundtrack
 and a RefMod's voice share its card.
+
+**Fantastic H3 Reference Cache** (experimental) goes between the model
+loader and the sampler. Each step H3 runs the references through all of its
+blocks, though only the video and audio come out at the end. This node runs
+them in full on the first step and every `refresh_every` steps after it; in
+between, each block reuses their stored input, so only the video and audio
+do the full work. Between refreshes the references don't see the video
+change, so results differ from a normal run: bypass the node to compare.
+`cache` can include the prompt too, which counts what the text encoder was
+shown and is often as many tokens as the references. The stored rows take
+about 0.54 MB of RAM per cached token while sampling, or 0.27 MB with
+`store_8bit`, which keeps them as 8-bit floats at a little extra error (not
+on Apple MPS or DirectML). The console reports the total; no extra VRAM.
 
 **Fantastic H3 RefMod Apply** appends the references to conditioning encoded
 elsewhere, with a `retention` multiplier on every entry. The model sees them,

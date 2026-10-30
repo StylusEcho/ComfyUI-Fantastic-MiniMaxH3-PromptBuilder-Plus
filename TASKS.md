@@ -1900,3 +1900,47 @@ when hiding, makes it a mouse-over caption for the respective section.
       further stays 4, far down → 2, a 40px pull = two steps; node never
       moved; double-click → 2; steps at 70% zoom; survives reload; saved 8 →
       4 and 1 → 2; hidden in T2VA's fields view. Other suites 30/19/10/16.
+
+123. 🟩 bring in the latest commits from upstream (1.8.3)
+    - Merged upstream 22e719f (1.8.3) on the fork's usual terms: routes under
+      /minimax_h3_plus/, mmlp-/mmrp-/mmh3p- classes, MiniMaxH3Plus.* names;
+      the original pack's own nodes stay the original pack's.
+    - Taken: subgraph support (`allNodes`, `originNode`, subgraph-aware
+      `gettersOf`/`setterOf`/`outputTargets`; Clean up, the overlay redraw,
+      the edit preview size and the library's pull-from list see Prompt
+      Studios in subgraphs; links never made across a subgraph edge); paste
+      (`pastedFiles`, a page-level handler, the RefMod Create tab's own);
+      upload reuse (`_same_file`); RefMod Create uploads in their own folder
+      with the sweep route; docs.
+    - Adapted: the paste handler takes only Prompt Studio nodes (the panel
+      under the pointer first, as the fork's hover paste always did, then
+      the selected one), stands down when the original pack's handler took
+      the paste, and stops it running after (stopImmediatePropagation), so a
+      paste is added once with both packs installed. RefMod Create uploads
+      go to `input/minimax_h3_plus/refmod_uploads`, not upstream's
+      `minimax_h3/refmod_uploads`, so neither pack's sweep can delete the
+      other's work in progress. Studio kept in every node scan upstream
+      narrowed to its Media Loader.
+    - Left out (the original pack registers them): ref_cache.py (Reference
+      Cache), refmod_inspect.py, the Media Loader / Prompt Builder / RefMod
+      Stack / reference order / map node registrations (their hideInPanel
+      lines included — the fork has its own on Prompt Studio, item 99),
+      addSplitter and the + Media loader helper (already dead here).
+    - Loss audit: every upstream-added line is in the merge or one of the
+      deliberate omissions above. Version 3.5.0, README "What's new in
+      3.5.0", CHANGELOG carries upstream's 1.8.3 entry.
+    - Hardened: upstream's `allNodes()` assumed `app.graph.subgraphs`, which a
+      frontend from before subgraphs lacks (the stub rig showed Clean up
+      throwing); it falls back to the top graph now.
+    - Verified with the original pack 1.8.3 installed alongside, as it's
+      used (`realui/t/merge183.cjs`, 7 checks): a paste with Prompt Studio
+      selected is added once, to it, named "pasted HH-MM-SS.png"; the same
+      picture again reuses the uploaded file; with the original pack's
+      Media Loader selected it takes the paste and Studio doesn't; the panel
+      under the pointer wins; a paste into a text field adds nothing; a
+      RefMod Create upload lands in minimax_h3_plus/refmod_uploads and the
+      sweep deletes it; a Prompt Studio converted into a subgraph is still
+      found (and Clean up runs). Every earlier suite in the same two-pack
+      setup: ui_round 30, quickgrip 19, barrows 15, dropcrop 10, vdrop 16,
+      regress, side, tabs, arrowleak; stub rig subj, auto (5 scenarios),
+      cssom, load, long2; lint and py_compile clean.

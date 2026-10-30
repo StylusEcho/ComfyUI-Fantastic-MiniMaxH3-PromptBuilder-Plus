@@ -158,8 +158,11 @@ Click **Create…** on the stack (or open the library and choose the
 
 ### 1. Add your media
 
-Drag pictures, clips or audio files **anywhere onto the window**, or click
-the drop area to pick files.
+Drag pictures, clips or audio files **anywhere onto the window**, paste them
+with Ctrl+V (a screenshot, say), or click the drop area to pick files.
+They're kept in `input/minimax_h3_plus/refmod_uploads` only until the RefMod is
+made: it holds everything it needs, so they're deleted then. Anything left
+unused there is cleared after a day.
 
 Already have them in **Prompt Studio's media panel**, trimmed and cropped
 the way you like? Choose it under **From loader** and click **Pull**. Or
