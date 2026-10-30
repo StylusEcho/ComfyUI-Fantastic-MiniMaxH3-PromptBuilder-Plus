@@ -1822,3 +1822,37 @@ when hiding, makes it a mouse-over caption for the respective section.
     - Verified: the button is there; after → it opens the editor on the
       second picture with the viewer gone; Close closes. `ui_round` 30/30,
       `quickgrip` 19/19, `barrows` 8/8; lint clean.
+
+119. 🟩 a video dragged onto the prompt bar: add it, or import the Prompt Studio settings it was made with
+    - Videos only (as clarified). The bar takes a dragged video file or one
+      of ComfyUI's own asset/queue cards (`application/x-comfy-asset-info`,
+      or a plain `/view` link); anything else passes through to ComfyUI.
+      Taking the drop calls `preventDefault`, which also stops ComfyUI's
+      document drop handler loading the video's workflow over the graph.
+    - `video_meta.py` + guarded route `/minimax_h3_plus/video_studio_meta`:
+      reads the container metadata with PyAV (SaveVideo's `prompt`/`workflow`
+      keys, or VideoHelperSuite's `comment` JSON) and returns every
+      `MiniMaxH3PromptStudio` in the run — from the executed graph by input
+      name, else from the workflow's widgets_values checked by shape — with
+      a summary (mode, prompt preview, each media file and whether it still
+      exists, RefMods count) and the raw states. An uploaded video is read
+      from a random temp name and deleted; a referenced one goes through
+      `media_io.resolve()`. SECURITY.md has the row.
+    - Dialog (`openVideoDropDialog`, promptstudio.js): what was found, a
+      picker when the run had several Studios, tick boxes for Prompts /
+      Media / RefMods; Add to media (the panel's own add, fetching an output
+      file first when it came from ComfyUI's panel) or Import. Import writes
+      builder_state + prompt_text, media_state (files no longer on disk left
+      out, listed) and stack_state, redraws everything that reads them
+      (panel, RefMods, bar, T2VA fields), and offers Undo in the panel's
+      message line. Refused while the Prompt Builder or Quick edit is open
+      for the node, since either would write its own copy back.
+    - Verified: route on SaveVideo-style, workflow-only, VHS-style and plain
+      MP4s, by upload and by `[output]` reference; traversal, non-video and
+      token-less requests refused; no temp files left. Real UI
+      (`realui/t/vdrop.cjs`, 15 checks): drop accepted and highlighted, graph
+      untouched, dialog contents, import of mode/fields/sent prompt and
+      media with the missing file left out, Undo, asset-card drop, prompts
+      only, plain video (Import disabled, Add to media works), pictures not
+      taken, refusal with the Prompt Builder open, Escape. Earlier suites
+      30/19/8/10; lint and py_compile clean.

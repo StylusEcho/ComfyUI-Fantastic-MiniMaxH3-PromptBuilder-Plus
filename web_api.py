@@ -639,6 +639,69 @@ if PromptServer is not None and web is not None:
             "height": info.get("height"),
         })
 
+    @routes.post("/minimax_h3_plus/video_studio_meta")
+    @_guard(json_only=False)
+    async def video_studio_meta(request):
+        """The Prompt Studio settings a generated video carries (video_meta).
+
+        Either a video uploaded as multipart "file" — streamed to a temp file,
+        read and deleted, so a video only looked at leaves nothing behind — or
+        JSON {"file": "name [output]"} for one ComfyUI already has (a drag from
+        its assets or queue panel), resolved inside input/output/temp only.
+        """
+        from . import video_meta
+
+        tmp = None
+        try:
+            if (request.content_type or "").startswith("multipart/"):
+                reader = await request.multipart()
+                field = await reader.next()
+                while field is not None and field.name != "file":
+                    field = await reader.next()
+                if field is None:
+                    return web.json_response({"error": "no file field in request"}, status=400)
+                if kind_for(field.filename or "") != "video":
+                    return web.json_response({"error": "not a video file"}, status=400)
+                base = folder_paths.get_temp_directory() if folder_paths else "."
+                os.makedirs(base, exist_ok=True)
+                tmp = os.path.join(base, f"mmh3_meta_{secrets.token_hex(8)}{os.path.splitext(field.filename)[1].lower()}")
+                size, cap = 0, 4 << 30
+                with open(tmp, "wb") as fh:
+                    while True:
+                        chunk = await field.read_chunk()
+                        if not chunk:
+                            break
+                        size += len(chunk)
+                        if size > cap:
+                            return web.json_response({"error": "video too large to read (over 4 GB)"}, status=413)
+                        fh.write(chunk)
+                path = tmp
+            else:
+                try:
+                    body = await request.json()
+                except Exception:
+                    return web.json_response({"error": "expected JSON or multipart"}, status=400)
+                annotated = str(body.get("file") or "")
+                if kind_for(annotated.split(" [")[0]) != "video":
+                    return web.json_response({"error": "not a video file"}, status=400)
+                try:
+                    path = media_io.resolve(annotated)
+                except ValueError as exc:
+                    return web.json_response({"error": str(exc)}, status=400)
+                if not os.path.isfile(path):
+                    return web.json_response({"error": "that video isn't there any more"}, status=404)
+            try:
+                meta = await asyncio.to_thread(video_meta.container_metadata, path)
+            except Exception as exc:
+                return web.json_response({"error": f"couldn't read that video: {exc}"}, status=400)
+            return web.json_response(video_meta.studios_in(meta))
+        finally:
+            if tmp and os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+
     @routes.post("/minimax_h3_plus/extract_audio")
     @_guard()
     async def extract_audio_route(request):

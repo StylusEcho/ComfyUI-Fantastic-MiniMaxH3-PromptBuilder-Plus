@@ -8,13 +8,14 @@
  * will carry — no wiring in between to get out of step.
  */
 import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
 import {
   LoaderPanel, applyCanvasSizing, applyTextScale, loadScalePrefs,
-  PANEL_H, NODE_W,
+  PANEL_H, NODE_W, postApi,
 } from "./medialoader.js";
 import {
   openEditor, openQuickEdit, updateSummary, promptFields, hideWidget, el,
-  injectCSS, restoreDraftFlag,
+  injectCSS, restoreDraftFlag, toast,
 } from "./promptbuilder.js";
 import { StackPanel, readStack, openStackModal, refreshStackLabels } from "./refmodstack.js";
 
@@ -139,6 +140,244 @@ function refreshBar(node) {
   bar.style.cursor = "";
   bar.title = "";
   bar.replaceChildren(fields.root);
+}
+
+/* ---- a video dropped on the prompt bar ----------------------------------
+   Asks whether to add the video to the node's media, or to import the Prompt
+   Studio settings it was made with: ComfyUI saves the run into the video, and
+   each Prompt Studio in it carries its mode and prompts (builder_state), the
+   media it had loaded (media_state) and its RefMods picks (stack_state).
+   video_meta.py reads them out; this applies them to the node, with Undo. */
+
+const VIDEO_RE = /\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg)$/i;
+const ASSET_MIME = "application/x-comfy-asset-info";   // ComfyUI's assets/queue panel
+
+/** Could this drag be a video? Only types are readable while dragging: a file
+ *  whose type is video (or unknown, as .mkv often is), or one of ComfyUI's own
+ *  asset cards, which are checked properly on drop. */
+function mightBeVideo(dt) {
+  if (!dt) return false;
+  if ([...(dt.types || [])].includes(ASSET_MIME)) return true;
+  return [...(dt.items || [])].some((i) => i.kind === "file" && (!i.type || i.type.startsWith("video/")));
+}
+
+/** What a drop carries: a video file, or a video ComfyUI already has (an
+ *  asset card, or a plain /view link) as an annotated path. */
+function dropSource(dt) {
+  const file = [...(dt?.files || [])].find((f) => f.type.startsWith("video/") || VIDEO_RE.test(f.name));
+  if (file) return { file, name: file.name };
+  let info = null;
+  try { info = JSON.parse(dt.getData(ASSET_MIME) || "null"); } catch (e) { info = null; }
+  if (!info?.filename) {
+    try {
+      const u = new URL((dt.getData("text/uri-list") || "").split("\n")[0].trim(), location.href);
+      if (/\/view$/.test(u.pathname) && u.searchParams.get("filename")) {
+        info = { filename: u.searchParams.get("filename"), subfolder: u.searchParams.get("subfolder") || "",
+          type: u.searchParams.get("type") || "output" };
+      }
+    } catch (e) { /* not a link */ }
+  }
+  if (!info?.filename || !VIDEO_RE.test(info.filename)) return null;
+  return { info, name: info.display_name || info.filename,
+    ref: `${info.subfolder ? `${info.subfolder}/` : ""}${info.filename} [${info.type || "output"}]` };
+}
+
+async function readVideoSettings(src) {
+  let resp;
+  if (src.file) {
+    const body = new FormData();
+    body.append("file", src.file, src.file.name);
+    resp = await postApi("/minimax_h3_plus/video_studio_meta", { body });
+  } else {
+    resp = await postApi("/minimax_h3_plus/video_studio_meta", {
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ file: src.ref }) });
+  }
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.error || `couldn't read the video (${resp.status})`);
+  return data;
+}
+
+/** The dropped video as a File, for the media panel's own add(). */
+async function videoFile(src) {
+  if (src.file) return src.file;
+  const q = new URLSearchParams({ filename: src.info.filename, subfolder: src.info.subfolder || "",
+    type: src.info.type || "output" });
+  const resp = await api.fetchApi(`/view?${q}`);
+  if (!resp.ok) throw new Error(`couldn't fetch ${src.name} (${resp.status})`);
+  const blob = await resp.blob();
+  return new File([blob], src.info.filename, { type: blob.type || "video/mp4" });
+}
+
+/** Put a video's Prompt Studio settings on this node: its prompts (mode,
+ *  fields, the prompt it sent), its media (minus files no longer on disk) and
+ *  its RefMods picks, as chosen. Undo restores all four values. */
+function applyVideoSettings(node, studio, pick, srcName) {
+  const w = (name) => node.widgets?.find((x) => x.name === name);
+  const names = ["prompt_text", "builder_state", "media_state", "stack_state"];
+  const before = Object.fromEntries(names.map((n) => [n, w(n)?.value]));
+  const st = studio.state || {};
+  let dropped = [];
+  if (pick.prompt) {
+    if (w("builder_state") && st.builder_state) w("builder_state").value = st.builder_state;
+    if (w("prompt_text") && typeof st.prompt_text === "string") w("prompt_text").value = st.prompt_text;
+  }
+  if (pick.media && w("media_state") && st.media_state) {
+    let items = [];
+    try { items = JSON.parse(st.media_state); } catch (e) { items = []; }
+    const objs = (Array.isArray(items) ? items : []).filter((it) => it && typeof it === "object");
+    // studio.media lists the same objects in the same order, with whether each
+    // file is still on disk. A missing one would stop the next run, so it's left out.
+    const keep = objs.filter((it, i) => studio.media?.[i]?.exists !== false);
+    dropped = objs.filter((it, i) => studio.media?.[i]?.exists === false).map((it) => it.name || it.file);
+    w("media_state").value = JSON.stringify(keep);
+  }
+  if (pick.refmods && w("stack_state") && st.stack_state) w("stack_state").value = st.stack_state;
+  refreshNode(node);
+  const what = [pick.prompt && "prompts", pick.media && "media", pick.refmods && "RefMods"].filter(Boolean).join(", ");
+  const msg = `Imported ${what} from ${srcName}` +
+    (dropped.length ? ` — left out ${dropped.length} file${dropped.length > 1 ? "s" : ""} no longer in input: ${dropped.join(", ")}` : "") + ".";
+  // say() only records the line; the panel shows it on its next draw.
+  node._mmlPanel?.say?.(msg, dropped.length > 0, { label: "Undo", fn: () => {
+    for (const n of names) if (w(n) && before[n] !== undefined) w(n).value = before[n];
+    refreshNode(node);
+    node._mmlPanel?.say?.(`Undid the import from ${srcName}.`);
+    node._mmlPanel?.render?.();
+  } });
+  node._mmlPanel?.render?.();
+  toast(msg, dropped.length ? 6000 : 2500);
+}
+
+/** Redraw everything that reads the four state widgets. */
+function refreshNode(node) {
+  try {
+    if (node._mmlPanel) { node._mmlPanel.items = node._mmlPanel.read(); node._mmlPanel.render(); }
+    node._mmrPanel?.reload?.();
+    // The bar's inline T2VA fields are built once on the way in; rebuild them.
+    if (node._mmh3Expanded && node._mmh3Summary) {
+      node._mmh3Expanded = false;
+      node._mmh3Summary.classList.remove("mmh3p-summary-open");
+    }
+    node._mmlOnCommit?.();
+    updateSummary(node);
+    node.setDirtyCanvas?.(true, true);
+    app.graph?.setDirtyCanvas?.(true, true);
+  } catch (e) {
+    console.error("[MiniMaxH3 PromptStudio] refresh after import failed:", e);
+  }
+}
+
+/** The dialog: add the video to the media, or import the settings it carries. */
+function openVideoDropDialog(node, src) {
+  injectCSS();
+  document.querySelector(".mmh3p-vimp-overlay")?.remove();
+  const close = () => { overlay.remove(); window.removeEventListener("keydown", esc, true); };
+  const esc = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
+  const body = el("div", { class: "mmh3p-vimp-body" },
+    el("div", { class: "mmh3p-vimp-note" }, "Reading the video's Prompt Studio settings…"));
+  const addBtn = el("button", { class: "mmh3p-btn",
+    title: "Add this video to the node's media, as a reference",
+    onclick: async () => {
+      close();
+      try { await node._mmlPanel?.add([await videoFile(src)]); }
+      catch (e) { toast(`Couldn't add ${src.name}: ${e.message}`, 6000); }
+    } }, "➕ Add to media");
+  const importBtn = el("button", { class: "mmh3p-btn primary", disabled: true,
+    title: "Replace this node's prompts and media with the ones the video was made with" },
+    "⇩ Import settings");
+  const overlay = el("div", { class: "mmh3p-overlay mmh3p-vimp-overlay",
+    onmousedown: (e) => { if (e.target === overlay) close(); } },
+    el("div", { class: "mmh3p-vimp" },
+      el("div", { class: "mmh3p-head" },
+        el("div", { class: "mmh3p-title" }, "Video dropped", el("small", {}, src.name)),
+        el("button", { class: "mmh3p-x", onclick: close }, "✕")),
+      body,
+      el("div", { class: "mmh3p-foot" },
+        el("span", { class: "stats" }),
+        el("button", { class: "mmh3p-btn", onclick: close }, "Cancel"), addBtn, importBtn)));
+  window.addEventListener("keydown", esc, true);
+  document.body.append(overlay);
+
+  readVideoSettings(src).then((data) => {
+    const studios = data.studios || [];
+    if (!studios.length) {
+      body.replaceChildren(el("div", { class: "mmh3p-vimp-note warn" },
+        data.reason || "No Prompt Studio settings found in this video."),
+        el("div", { class: "mmh3p-vimp-note" }, "You can still add it to the media."));
+      importBtn.title = "Nothing to import";
+      return;
+    }
+    let cur = studios[0];
+    const pick = { prompt: true, media: true, refmods: true };
+    const detail = el("div", { class: "mmh3p-vimp-detail" });
+    const check = (key, label, hint) => el("label", { class: "mmh3p-vimp-check", title: hint },
+      el("input", { type: "checkbox", checked: pick[key], onchange: (e) => { pick[key] = e.target.checked; sync(); } }), label);
+    const paint = () => {
+      const missing = cur.media.filter((m) => !m.exists);
+      // replaceChildren() would write a skipped (null) entry as "null".
+      detail.replaceChildren(...[
+        el("div", { class: "mmh3p-vimp-row" }, el("b", {}, "Mode "), cur.mode === "REF" ? "Reference" : cur.mode),
+        el("div", { class: "mmh3p-vimp-prev" }, cur.preview || el("i", {}, "(no prompt text)")),
+        el("div", { class: "mmh3p-vimp-row" }, el("b", {}, `Media (${cur.media.length}) `),
+          cur.media.length ? cur.media.map((m, i) => el("span", { class: "mmh3p-vimp-file" + (m.exists ? "" : " missing") + (m.enabled ? "" : " off"),
+            title: m.exists ? (m.enabled ? "" : "switched off") : "no longer in ComfyUI's input folder — left out" },
+            m.name || `item ${i + 1}`)) : el("i", {}, "none")),
+        missing.length ? el("div", { class: "mmh3p-vimp-note warn" },
+          `${missing.length} file${missing.length > 1 ? "s are" : " is"} no longer in ComfyUI's input folder and will be left out; ` +
+          "tags after it renumber.") : null,
+        cur.refmods ? el("div", { class: "mmh3p-vimp-row" }, el("b", {}, "RefMods "), `${cur.refmods} picked`) : null,
+        el("div", { class: "mmh3p-vimp-checks" },
+          check("prompt", "Prompts", "Mode, every prompt field, and the prompt it sent"),
+          check("media", "Media", "The media it had loaded"),
+          cur.refmods ? check("refmods", "RefMods", "Its RefMods picks") : null),
+        el("div", { class: "mmh3p-vimp-note" },
+          "Import replaces what's ticked on this node; Undo is in its media panel afterwards.")].filter(Boolean));
+      sync();
+    };
+    const sync = () => {
+      const any = pick.prompt || pick.media || (pick.refmods && cur.refmods > 0);
+      importBtn.disabled = !any;
+    };
+    importBtn.onclick = () => {
+      if (node._mmh3Editor?.overlay?.isConnected || node._mmh3Quick?.isConnected) {
+        toast("Close the Prompt Builder or Quick edit first — it would write its own copy back over the import", 6000);
+        return;
+      }
+      close();
+      applyVideoSettings(node, cur, { ...pick, refmods: pick.refmods && cur.refmods > 0 }, src.name);
+    };
+    body.replaceChildren(...[
+      studios.length > 1 ? el("label", { class: "mmh3p-vimp-row" }, el("b", {}, "From "),
+        el("select", { onchange: (e) => { cur = studios[+e.target.value]; paint(); } },
+          studios.map((s, i) => el("option", { value: String(i) }, `${s.title} (#${s.id}, ${s.mode})`)))) : null,
+      detail].filter(Boolean));
+    paint();
+  }).catch((e) => {
+    body.replaceChildren(el("div", { class: "mmh3p-vimp-note warn" }, `Couldn't read the video: ${e.message}`));
+  });
+}
+
+/** Make the prompt bar a drop target for videos. Anything else passes through
+ *  to ComfyUI as before. */
+function videoDropTarget(node, bar) {
+  bar.addEventListener("dragover", (e) => {
+    if (!mightBeVideo(e.dataTransfer)) return;
+    e.preventDefault(); e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+    bar.classList.add("mmh3p-vdrop");
+  });
+  bar.addEventListener("dragleave", (e) => {
+    if (!bar.contains(e.relatedTarget)) bar.classList.remove("mmh3p-vdrop");
+  });
+  bar.addEventListener("drop", (e) => {
+    if (!mightBeVideo(e.dataTransfer)) return;
+    // Ours: preventDefault also tells ComfyUI's own drop handler to stand
+    // down, or it would load the video's workflow over the whole graph.
+    e.preventDefault(); e.stopPropagation();
+    bar.classList.remove("mmh3p-vdrop");
+    const src = dropSource(e.dataTransfer);
+    if (!src) { toast("Drop a video here — pictures go on the media panel", 4500); return; }
+    openVideoDropDialog(node, src);
+  });
 }
 
 /** The panel widget's current height, read back off the widget rather than
@@ -287,6 +526,7 @@ app.registerExtension({
           onclick: () => { if (!this._mmh3Expanded) openQuickEdit(this); },
         });
         this._mmh3Summary = summary;
+        videoDropTarget(this, summary);
 
         // ONE widget for the pair, not one each. They were two, and their
         // heights had to be reconciled by hand every time the layout changed

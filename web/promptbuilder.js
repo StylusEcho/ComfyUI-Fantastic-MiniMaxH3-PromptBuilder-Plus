@@ -2589,6 +2589,31 @@ ${RAISE_CSS}
 .mmh3p-summark{flex:0 0 auto;align-self:center;font-size:calc(12px * var(--mmh3-fs, 1));line-height:1;
   opacity:.85;user-select:none;cursor:pointer;}
 .mmh3p-summark:hover{opacity:1;}
+/* A video dragged over the node's prompt bar, and the dialog it opens
+   (promptstudio.js: add it to the media, or import its Prompt Studio
+   settings). */
+.mmh3p-summary.mmh3p-vdrop{outline:2px dashed #5aa0e0;outline-offset:-3px;background:#16263a;}
+.mmh3p-vimp-overlay{z-index:10040;}
+.mmh3p-vimp{box-sizing:border-box;width:min(620px,94vw);max-height:86vh;display:flex;flex-direction:column;
+  background:#191c22;color:#d7dbe2;border:1px solid #303642;border-radius:10px;overflow:hidden;
+  box-shadow:0 24px 64px rgba(0,0,0,.55);}
+.mmh3p-vimp-body{padding:14px 16px;overflow-y:auto;display:flex;flex-direction:column;gap:9px;
+  font-size:calc(12px * var(--mmh3-fs, 1));}
+.mmh3p-vimp-detail{display:flex;flex-direction:column;gap:9px;}
+.mmh3p-vimp-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;}
+.mmh3p-vimp-row b{color:#8a93a3;font-weight:600;text-transform:uppercase;letter-spacing:.05em;
+  font-size:calc(10px * var(--mmh3-fs, 1));}
+.mmh3p-vimp-prev{white-space:pre-wrap;background:#12151b;border:1px solid #2a2f3a;border-radius:6px;
+  padding:8px 10px;max-height:9em;overflow:auto;line-height:1.5;color:#c9cfda;}
+.mmh3p-vimp-file{background:#20242d;border:1px solid #363d4a;border-radius:5px;padding:1px 7px;
+  font-family:ui-monospace,monospace;font-size:calc(11px * var(--mmh3-fs, 1));}
+.mmh3p-vimp-file.missing{border-color:#7a3a3a;color:#f0a0a0;text-decoration:line-through;}
+.mmh3p-vimp-file.off{opacity:.55;}
+.mmh3p-vimp-note{color:#8a93a3;line-height:1.45;}
+.mmh3p-vimp-note.warn{color:#e3a64a;}
+.mmh3p-vimp-checks{display:flex;gap:16px;padding-top:2px;}
+.mmh3p-vimp-check{display:inline-flex;align-items:center;gap:6px;cursor:pointer;}
+.mmh3p-vimp .mmh3p-foot{flex-wrap:wrap;}
 /* Quick edit's corner grip (bottom right): three diagonal ticks. */
 .mmh3p-quickgrip{position:absolute;right:1px;bottom:1px;width:16px;height:16px;z-index:2;
   cursor:nwse-resize;touch-action:none;
@@ -3071,7 +3096,7 @@ export function injectCSS() {
   cssInjected = true;
 }
 
-function toast(msg, ms = 1800) {
+export function toast(msg, ms = 1800) {
   const t = el("div", { class: "mmh3p-toast" }, msg);
   if (ms > 4000) t.classList.add("bad");
   document.body.append(t);

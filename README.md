@@ -97,6 +97,19 @@ Interface changes, all Plus only. No breakage of saved workflows.
   go back. **Drop a picture file on the preview** to replace that picture:
   it keeps its place and tag, is saved to the node, and the window re-fits
   to the new picture's shape.
+- **Drop a generated video on the prompt bar to recall how it was made.**
+  Drag a video (from your files, or from ComfyUI's assets or queue panel)
+  onto the bar along the bottom of Prompt Studio and a dialog asks: **Add to
+  media**, or **Import settings**. ComfyUI saves the run inside the video,
+  and import reads back the Prompt Studio settings it was made with: the
+  mode and every prompt field (and the prompt it sent), **the media that was
+  loaded at the time**, and its RefMods picks, each with its own tick box.
+  The dialog shows what it found first (the mode, the start of the prompt,
+  each media file), and any file no longer in ComfyUI's input folder is
+  marked and left out. If the run had more than one Prompt Studio, you pick
+  which. Undo is in the media panel afterwards. A video with no ComfyUI
+  workflow in it (re-encoded, or downloaded from a sharing site) can still
+  be added as media. Pictures dropped on the bar go to ComfyUI as before.
 - **▣ Crop… in the enlarged view.** Clicking a picture in the media panel
   opens it full size; a **▣ Crop…** button beside Close now goes straight
   to the picture editor for the one on show (**✂ Trim & crop…** on a clip).

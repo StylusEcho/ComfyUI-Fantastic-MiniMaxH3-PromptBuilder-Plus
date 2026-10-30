@@ -23,7 +23,8 @@ refuses before the handler runs:
 | Session token: `X-MiniMaxH3-Token` must equal a token minted once per server process with `secrets.token_urlsafe` and compared with `hmac.compare_digest` | `403` with `token_required` | any caller that did not first read the token from this origin — every other origin's page, curl without the header, and a stale editor after a server restart (the frontend re-fetches and retries once) |
 | Content type: JSON routes require `Content-Type: application/json` | `415` | "simple" cross-origin requests; the header forces a CORS preflight that these routes never approve |
 
-The multipart routes (`/minimax_h3_plus/upload`, `/minimax_h3_plus/refmods/set_preview`)
+The multipart routes (`/minimax_h3_plus/upload`, `/minimax_h3_plus/refmods/set_preview`,
+`/minimax_h3_plus/video_studio_meta`)
 use `_guard(json_only=False)`: `multipart/form-data` is CORS-simple and
 cannot carry the content-type requirement, which is exactly why the other
 two checks are there.
@@ -87,6 +88,7 @@ name is first reduced to a safe character set (`sanitize_name`, `_slug`,
 | New RefMod names (`/refmods/rename`) | the first registered `refmods` folder | `sanitize_name()` + `valid_rel()` (no `..`, no absolute path, no hidden or reserved folder) and `_contained_target()` (realpath + commonpath); an existing file is never overwritten by a copy |
 | RefMod curation (`/refmods/rename`, `/meta`, `/delete`, `/set_preview`) | the RefMod root that holds the named file | `item_files()` resolves every name through `resolve_file()`; moves go through `_contained_target()`; previews are written with an image extension only |
 | Combined masks (`/mask_compose`) and the Auto Mask results it adopts | `input/minimax_h3_plus/masks/` — this pack's own, apart from the original pack's `input/minimax_h3/masks/` | a combined mask's name is generated — the source clip's stem reduced to `[A-Za-z0-9_-]` (`object_mask._stem`) plus a random suffix — never a path taken from input. Every layer result must resolve directly inside one of the two masks folders or the request is refused; at most 64 layers. `_adopt_layer_results()` copies a result (and its sprite) only when its realpath's parent is exactly the original pack's masks folder, keeps the basename, and never overwrites an existing copy |
+| A dropped video's settings (`/minimax_h3_plus/video_studio_meta`) | nothing kept: an uploaded video goes to a random `mmh3_meta_*` name in ComfyUI's temp directory and is deleted in a `finally` once read | read-only; video extensions only (`VIDEO_EXT`), 4 GB cap on uploads; a referenced file (`{"file": "… [output]"}`) only through `media_io.resolve()` (input/output/temp, no traversal); returns the Prompt Studio states found in the container metadata and whether each media file still exists |
 | Picture subject masks (`/minimax_h3_plus/adopt_masks`) | `input/minimax_h3_plus/masks/` | copies only files whose realpath's parent is exactly the original pack's subject-mask cache (`input/minimax_h3/cache/`), named `subject_*` with a `.safetensors` or `.png` extension, each through `media_io.resolve()`; keeps the basename, never overwrites, at most 64 per request; anything else refuses the whole request |
 | Clean up (`/minimax_h3_plus/edit_files/delete`) | this pack's masks folder only | `kind` picks the folder from a fixed map; `basename()` of the name, `.png`/`.safetensors` only, realpath's parent must equal the folder, must be an existing file; masks named by saved presets or drafts are skipped server-side whatever the client sent |
 
