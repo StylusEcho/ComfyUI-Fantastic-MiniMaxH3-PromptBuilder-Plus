@@ -9,7 +9,7 @@ import { api } from "../../scripts/api.js";
 import { LOADER_NAME, STUDIO_NAME, computeTags, viewURL as loaderViewURL,
   safeCanvasFocus, openLoaderModal, isOn, openPictureEditor,
   fileCount, MODE_CAPACITY, hasCrop, TAG_COLORS, TAG_VARS,
-  raiseIfOpen, RAISE_CSS, postApi, outputTargets, originNode, linkNodes,
+  raiseIfOpen, RAISE_CSS, postApi, originNode, linkNodes, namedTargets, namedSource,
   keepNameChars, overlayOn, maskOverlay, refTokenEstimate, itemLook,
 } from "./medialoader.js";
 import { STACK_NAME, STACK_NAMES, ENCODE_NAMES, readStack, deriveEntries, labelGroups,
@@ -1267,16 +1267,6 @@ function modsChain(head) {
   return { chain, partial };
 }
 
-/** The "prompt" output's slot index. Upstream's own Prompt Builder has it at
- *  slot 0 (its first output), which is why the RefMod-chain code below was
- *  written against a bare `0` — but this fork's Prompt Studio moved `model`
- *  to slot 0 at 2.0.0, well before RefMods existed, so a literal `0` here
- *  would target Prompt Studio's MODEL output instead. Finding it by name
- *  keeps this correct on either node shape. */
-function promptOutIdx(node) {
-  return (node.outputs || []).findIndex((o) => o.name === "prompt");
-}
-
 /** A node that carries its own RefMod picks: Prompt Studio's RefMods tab
  *  writes the same stack_state a RefMod Stack does. */
 function holdsOwnStack(node) {
@@ -1295,7 +1285,7 @@ function refmodSource(node) {
   const ownWired = own >= 0 && node.inputs[own].link != null;
   if (holdsOwnStack(node)) {
     if (ownWired || readStack(node).picks.length) return { head: node, direct: true };
-    for (const enc of outputTargets(node, promptOutIdx(node)).filter((n) => ENCODE_NAMES.has(n?.type))) {
+    for (const enc of namedTargets(node, "prompt").filter((n) => ENCODE_NAMES.has(n?.type))) {
       const mi = (enc.inputs || []).findIndex((i) => i.name === "mods");
       const fed = mi >= 0 && enc.inputs[mi].link != null ? originNode(enc, mi) : null;
       if (fed && fed !== node) return { head: fed, direct: false };
@@ -1304,7 +1294,7 @@ function refmodSource(node) {
   }
   if (ownWired)
     return { head: originNode(node, own), direct: true };
-  const enc = outputTargets(node, promptOutIdx(node)).find((n) => ENCODE_NAMES.has(n?.type));
+  const enc = namedTargets(node, "prompt").find((n) => ENCODE_NAMES.has(n?.type));
   if (!enc) return { head: null, why: "encode" };
   const mi = (enc.inputs || []).findIndex((i) => i.name === "mods");
   if (mi < 0 || enc.inputs[mi].link == null) return { head: null, why: "mods" };
@@ -1314,21 +1304,17 @@ function refmodSource(node) {
 /** True when this builder's RefMods reach a Text Encode: its mods output is
  *  wired somewhere, or a Text Encode its prompt feeds has mods of its own. */
 function refmodsReachEncode(node) {
-  const out = (node.outputs || []).findIndex((o) => o.name === "mods");
-  if (out >= 0 && outputTargets(node, out).length) return true;
-  return outputTargets(node, promptOutIdx(node)).some((enc) => ENCODE_NAMES.has(enc?.type) &&
+  if (namedTargets(node, "mods").length) return true;
+  return namedTargets(node, "prompt").some((enc) => ENCODE_NAMES.has(enc?.type) &&
     (enc.inputs || []).some((i) => i.name === "mods" && i.link != null));
 }
 
-/** The RefMod Text Encodes this builder drives, through its prompt or mods output. */
+/** The RefMod Text Encodes this builder drives, through its prompt or mods
+ *  output (on Prompt Studio, through the Bundle Out unpacking it). */
 function encodersOf(node) {
   const seen = new Set(), out = [];
-  const promptOut = promptOutIdx(node);
-  const modsOut = (node.outputs || []).findIndex((o) => o.name === "mods");
-  for (const slot of modsOut >= 0 ? [promptOut, modsOut] : [promptOut]) {
-    for (const n of outputTargets(node, slot)) {
-      if (ENCODE_NAMES.has(n?.type) && !seen.has(n)) { seen.add(n); out.push(n); }
-    }
+  for (const n of [...namedTargets(node, "prompt"), ...namedTargets(node, "mods")]) {
+    if (ENCODE_NAMES.has(n?.type) && !seen.has(n)) { seen.add(n); out.push(n); }
   }
   return out;
 }
@@ -8225,12 +8211,14 @@ function feedEncoderMedia(node, enc) {
  *  prompt feeds whose mods input is empty, and its media on to the same
  *  encoders. Returns how many connections it made. */
 function connectRefModEncoders(node) {
-  const outIdx = (node.outputs || []).findIndex((o) => o.name === "mods");
-  if (outIdx < 0) return 0;
   let made = 0;
   for (const enc of encodersOf(node)) {
     const mi = (enc.inputs || []).findIndex((i) => i.name === "mods");
-    if (mi >= 0 && enc.inputs[mi].link == null) { wire(node, outIdx, enc, mi); made++; }
+    if (mi >= 0 && enc.inputs[mi].link == null) {
+      // Prompt Studio's mods are a Bundle Out slot; one is added if needed.
+      const src = namedSource(node, "mods", { create: true });
+      if (src && wire(src.node, src.slot, enc, mi)) made++;
+    }
     if (feedEncoderMedia(node, enc)) made++;
   }
   if (made) redraw(node);
@@ -8238,17 +8226,17 @@ function connectRefModEncoders(node) {
 }
 
 function addRefModStack(node, { focus = true } = {}) {
-  const inIdx = (node.inputs || []).findIndex((i) => i.name === "mods");
-  const outIdx = (node.outputs || []).findIndex((o) => o.name === "mods");
-  if (inIdx < 0 || outIdx < 0) {
-    toast("This Prompt Builder has no mods input \u2014 restart ComfyUI and reload the page", 6000);
-    return null;
-  }
   // Its own RefMods tab is the stack; never add a second node for it.
   if (holdsOwnStack(node)) {
     if (connectRefModEncoders(node))
       toast("Connected this node's RefMods to RefMod Text Encode");
     return node;
+  }
+  const inIdx = (node.inputs || []).findIndex((i) => i.name === "mods");
+  const outIdx = (node.outputs || []).findIndex((o) => o.name === "mods");
+  if (inIdx < 0 || outIdx < 0) {
+    toast("This Prompt Builder has no mods input \u2014 restart ComfyUI and reload the page", 6000);
+    return null;
   }
 
   if (node.inputs[inIdx].link != null) {
@@ -8264,7 +8252,7 @@ function addRefModStack(node, { focus = true } = {}) {
     return stack;
   }
 
-  const encoders = outputTargets(node, promptOutIdx(node)).filter((n) => ENCODE_NAMES.has(n?.type));
+  const encoders = namedTargets(node, "prompt").filter((n) => ENCODE_NAMES.has(n?.type));
   const modsInput = (enc) => (enc.inputs || []).findIndex((i) => i.name === "mods");
   for (const enc of encoders) {
     const mi = modsInput(enc);

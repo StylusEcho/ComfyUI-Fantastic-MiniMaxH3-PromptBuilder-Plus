@@ -17,19 +17,17 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { el, setDuration, toast } from "./promptbuilder.js";
+import { BUNDLE_OUT, STUDIO_BUNDLE } from "./medialoader.js";
+import { refreshStackLabels } from "./refmodstack.js";
 
 const STUDIO_NAME = "MiniMaxH3PromptStudio";
-const BUNDLE_OUT = "PlagueKindBundleOut";
 
-/** The bundle, in Bundle Out's output order — gen_settings.BUNDLE_NAMES. */
-export const BUNDLE_NAMES = [
-  "model", "prompt", "references", "first_frame", "last_frame",
-  "ref2va_needed", "mods",
-  "width", "height", "length",
-  "model_name", "sampler", "scheduler", "steps", "seed",
-];
-// The node's outputs before 3.6.0, in order: the bundle's first seven.
-const OLD_OUTPUTS = BUNDLE_NAMES.slice(0, 7);
+/** The bundle, in Bundle Out's output order (gen_settings.BUNDLE_NAMES). */
+export const BUNDLE_NAMES = STUDIO_BUNDLE;
+// What the old outputs carried that the bundle doesn't: the checkpoint. The
+// node passes on only the diffusion model's file name now (model_name).
+const DROPPED_OUTPUTS = ["model"];
+const DROPPED_INPUTS = ["fl2va_model", "ref2va_model"];
 
 const SCALE_MODES = [
   ["Longer Side", "Long side"],
@@ -60,6 +58,7 @@ export const GEN_DEFAULTS = {
   model: "", sampler: "euler", scheduler: "simple", steps: 20, seed: SEED_RANDOM,
   scale_mode: "Longer Side", aspect: "16:9 (Widescreen)",
   long_side: 1344, short_side: 768, megapixels: 1.0, auto: false,
+  length_unit: "frames",      // the bundle's length: "frames" or "seconds"
 };
 const PRESET_KEYS = ["model", "sampler", "scheduler", "steps"];
 const PRESET_FILE = "minimax_h3_plus/gen_presets.json";
@@ -198,25 +197,28 @@ const CSS = `
   background:#12151b;color:#dde2ea;border:1px solid #2f3542;border-radius:5px;font:inherit;padding:0 4px;}
 .mmh3p-genbar select:disabled{opacity:.45;}
 .mmh3p-genbar select:focus,.mmh3p-genbar input:focus{outline:none;border-color:#5b8def;}
-.mmh3p-gen-model{flex:3 1 0;}
-.mmh3p-gen-sampler{flex:1.6 1 0;}
-.mmh3p-gen-sched{flex:1.3 1 0;}
-.mmh3p-gen-preset{flex:1.4 1 0;}
-.mmh3p-gen-scale{flex:1.3 1 0;}
-.mmh3p-gen-aspect{flex:2 1 0;}
+/* The model takes whatever row 1 has spare; the other dropdowns are as wide
+   as the value they show (fitSelect), and give way only if a row runs out. */
+.mmh3p-gen-model{flex:1 1 0;}
+.mmh3p-gen-fit{flex:0 1 auto;padding-right:0;}
 .mmh3p-gen-lab{display:flex;align-items:center;gap:3px;height:100%;flex:0 0 auto;white-space:nowrap;}
 .mmh3p-gen-num{width:calc(48px * var(--mmh3-fs, 1));text-align:right;}
-.mmh3p-gen-steps{width:calc(40px * var(--mmh3-fs, 1));}
+/* Two digits, no spinner (the arrows alone took a third digit's room). */
+.mmh3p-gen-steps{width:calc(2ch + 10px);text-align:center;padding:0 2px;appearance:textfield;-moz-appearance:textfield;}
+.mmh3p-gen-steps::-webkit-inner-spin-button,.mmh3p-gen-steps::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
 .mmh3p-gen-seed{width:calc(70px * var(--mmh3-fs, 1));}
 .mmh3p-gen-seed.special{color:#e0a94c;text-align:center;}
 .mmh3p-gen-target{width:calc(54px * var(--mmh3-fs, 1));}
 .mmh3p-gen-len{width:calc(42px * var(--mmh3-fs, 1));}
 .mmh3p-gen-unit{color:#6b7484;}
+/* px / MP in a fixed box, so switching between them moves nothing after it. */
+.mmh3p-gen-tunit{display:inline-block;width:1.6em;flex:0 0 auto;}
 .mmh3p-gen-btn{cursor:pointer;padding:0 6px;flex:0 0 auto;}
 .mmh3p-gen-btn:hover{border-color:#4a5262;}
 .mmh3p-gen-auto.on{background:#20324f;border-color:#5b8def;color:#cfe0ff;}
 .mmh3p-gen-auto.on.idle{background:#1e232c;border-color:#3a4150;color:#7d8696;}
-.mmh3p-gen-size{margin-left:auto;flex:0 0 auto;color:#d7dbe2;font-weight:600;white-space:nowrap;cursor:help;}
+.mmh3p-gen-size{margin-left:auto;flex:0 0 auto;color:#d7dbe2;font-weight:600;white-space:nowrap;cursor:help;
+  font-variant-numeric:tabular-nums;}
 .mmh3p-gen-menu{position:fixed;z-index:10000;background:#1b1f27;border:1px solid #333a48;border-radius:8px;
   padding:4px;box-shadow:0 12px 32px rgba(0,0,0,.5);font:12px system-ui,sans-serif;color:#d7dbe2;min-width:200px;}
 .mmh3p-gen-mi{padding:5px 9px;border-radius:5px;cursor:pointer;white-space:nowrap;}
@@ -226,6 +228,18 @@ const CSS = `
 function injectGenCSS() {
   if (document.getElementById("mmh3p-gen-css")) return;
   document.head.append(el("style", { id: "mmh3p-gen-css" }, CSS));
+}
+
+/** Size a dropdown to the option it shows rather than its longest one, in
+ *  ems so it follows the text size; the rest is the arrow and padding. */
+let _measure = null;
+function fitSelect(sel, { widest = false } = {}) {
+  _measure = _measure || document.createElement("canvas").getContext("2d");
+  _measure.font = "100px system-ui, sans-serif";
+  // `widest`: as wide as its longest option, so picking another moves nothing.
+  const texts = widest ? [...sel.options].map((o) => o.textContent) : [sel.options[sel.selectedIndex]?.textContent || ""];
+  const em = Math.max(...texts.map((t) => _measure.measureText(t).width)) / 100;
+  sel.style.width = `calc(${em.toFixed(3)}em + 2.6em)`;
 }
 
 const select = (cls, title, opts, onchange) => el("select", { class: cls, title, onchange,
@@ -257,8 +271,8 @@ export class GenBar {
       + "for a Load Diffusion Model node; Prompt Studio loads nothing itself",
     [], (e) => this.set({ model: e.target.value }));
     this.model.addEventListener("focus", () => this.loadChoices(true));
-    this.sampler = select("mmh3p-gen-sampler", "Sampler", [], (e) => this.set({ sampler: e.target.value }));
-    this.scheduler = select("mmh3p-gen-sched", "Scheduler", [], (e) => this.set({ scheduler: e.target.value }));
+    this.sampler = select("mmh3p-gen-fit mmh3p-gen-sampler", "Sampler", [], (e) => this.set({ sampler: e.target.value }));
+    this.scheduler = select("mmh3p-gen-fit mmh3p-gen-sched", "Scheduler", [], (e) => this.set({ scheduler: e.target.value }));
     this.steps = num("mmh3p-gen-steps", "Steps", { min: "1", max: "10000", step: "1" },
       (e) => this.set({ steps: Math.max(1, Math.min(10000, Math.round(+e.target.value || GEN_DEFAULTS.steps))) }));
     this.seed = el("input", { class: "mmh3p-gen-num mmh3p-gen-seed", type: "text", inputmode: "numeric",
@@ -268,22 +282,26 @@ export class GenBar {
       onkeydown: (e) => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") { e.target.value = String(readGen(this.node).seed); e.target.blur(); } } });
     this.seedBtn = el("button", { class: "mmh3p-gen-btn mmh3p-gen-seedbtn", title: "Seed options",
       onpointerdown: stop, onclick: (e) => { e.stopPropagation(); this.seedMenu(); } }, "🎲");
-    this.preset = select("mmh3p-gen-preset", "Presets: the model, sampler, scheduler and steps together", [],
+    this.preset = select("mmh3p-gen-fit mmh3p-gen-preset", "Presets: the model, sampler, scheduler and steps together", [],
       (e) => this.pickPreset(e.target.value));
     this.preset.addEventListener("focus", () => loadPresets(true).then(() => this.paintPresets()));
 
-    this.scale = select("mmh3p-gen-scale", "Scale mode (as Unified Resize Image)",
+    this.scale = select("mmh3p-gen-fit mmh3p-gen-scale", "Scale mode (as Unified Resize Image)",
       SCALE_MODES.map(([v, l]) => option(v, l)), (e) => this.set({ scale_mode: e.target.value }));
-    this.aspect = select("mmh3p-gen-aspect", "Aspect ratio",
+    this.aspect = select("mmh3p-gen-fit mmh3p-gen-aspect", "Aspect ratio",
       Object.keys(ASPECTS).map((v) => option(v)), (e) => this.set({ aspect: e.target.value }));
     this.target = num("mmh3p-gen-target", "", {}, (e) => this.setTarget(e.target.value));
-    this.targetUnit = el("span", { class: "mmh3p-gen-unit" });
+    this.targetUnit = el("span", { class: "mmh3p-gen-unit mmh3p-gen-tunit" });
     this.auto = el("button", { class: "mmh3p-gen-btn mmh3p-gen-auto", onpointerdown: stop,
       onclick: (e) => { e.stopPropagation(); this.set({ auto: !readGen(this.node).auto }); } }, "Auto");
     this.length = num("mmh3p-gen-len", "Video length in seconds — the Prompt Builder's duration; "
       + "the bundle's length is it in frames, snapped to H3's 17k+5 grid at 24 fps",
     { min: "0.2", max: "15", step: "0.1" }, (e) => { setDuration(this.node, e.target.value); this.paint(); });
-    this.frames = el("span", { class: "mmh3p-gen-unit mmh3p-gen-frames" });
+    // The length the bundle carries, and the switch for its unit.
+    this.lengthUnit = el("span", { class: "mmh3p-gen-unit" }, "s");
+    this.frames = el("button", { class: "mmh3p-gen-btn mmh3p-gen-frames", onpointerdown: stop,
+      onclick: (e) => { e.stopPropagation();
+        this.set({ length_unit: readGen(this.node).length_unit === "seconds" ? "frames" : "seconds" }); } });
     this.size = el("span", { class: "mmh3p-gen-size" });
 
     const lab = (text, ...kids) => el("label", { class: "mmh3p-gen-lab", onpointerdown: stop }, el("span", {}, text), ...kids);
@@ -291,13 +309,14 @@ export class GenBar {
       el("div", { class: "mmh3p-genrow" },
         this.model, this.sampler, this.scheduler,
         lab("steps", this.steps),
-        lab("seed", this.seed, this.seedBtn),
-        this.preset),
+        lab("seed", this.seed, this.seedBtn)),
       el("div", { class: "mmh3p-genrow" },
-        this.scale, this.aspect, el("span", { class: "mmh3p-gen-lab" }, this.target, this.targetUnit),
         this.auto,
-        lab("length", this.length, this.frames),
-        this.size));
+        el("span", { class: "mmh3p-gen-lab" }, this.target, this.targetUnit),
+        this.scale, this.aspect,
+        lab("length", this.length, this.lengthUnit, this.frames),
+        this.size,
+        this.preset));
     BARS.add(this);
     this.loadChoices();
     loadPresets().then(() => this.paintPresets());
@@ -381,6 +400,7 @@ export class GenBar {
       option("save", "💾 Save current as…"),
       ...(on ? [option("del", `🗑 Delete “${on}”`)] : []));
     this.preset.value = "";
+    fitSelect(this.preset);
     this.preset.title = (on ? `Preset: ${on}\n` : "") + "Presets: the model, sampler, scheduler and steps together";
   }
 
@@ -431,6 +451,9 @@ export class GenBar {
     this.seed.classList.toggle("special", SPECIAL.includes(st.seed));
     this.scale.value = st.scale_mode;
     this.aspect.value = st.aspect;
+    for (const sel of [this.sampler, this.scheduler, this.aspect]) fitSelect(sel);
+    // Fixed at its widest: Long side / Short side / Megapixels mustn't shift the row.
+    fitSelect(this.scale, { widest: true });
     const mp = st.scale_mode === "Total Pixels (MP)";
     if (document.activeElement !== this.target) {
       this.target.value = String(mp ? st.megapixels : st.scale_mode === "Longer Side" ? st.long_side : st.short_side);
@@ -454,7 +477,12 @@ export class GenBar {
     const dur = Number(builderState(this.node).duration) || 5;
     if (document.activeElement !== this.length) this.length.value = String(dur);
     const frames = snapLength(dur);
-    this.frames.textContent = `s · ${frames}f`;
+    const secs = frames / 24;
+    const inSecs = st.length_unit === "seconds";
+    this.frames.textContent = inSecs ? `${+secs.toFixed(2)}s` : `${frames}f`;
+    this.frames.title = `The bundle's length: ${inSecs ? `${+secs.toFixed(4)} seconds` : `${frames} frames`} `
+      + `(${frames} frames on H3's 17k+5 grid at 24 fps = ${secs.toFixed(2)} s).\n`
+      + `Click to send it in ${inSecs ? "frames" : "seconds"} instead.`;
     const [w, h, note] = genResolution(this.node, st);
     this.size.textContent = `${w}×${h}`;
     this.size.title = `The video is made at ${w} × ${h} (${note}), ${frames} frames (${(frames / 24).toFixed(2)} s at 24 fps).`
@@ -562,6 +590,8 @@ function adoptBundleOut(bo) {
       this._peerMinSlots = 1;
     }
     this._mmh3Fed = !!studio;
+    // Text Encodes are fed from here now, so a rewire can renumber RefMods.
+    if (studio) setTimeout(() => { try { refreshStackLabels(); } catch (e) { /* cosmetic */ } }, 0);
     const r = sync.apply(this, args);
     if (studio) {
       // Nothing past the bundle's end: there's no input_16.
@@ -584,11 +614,29 @@ function setLinkField(l, k, v) {
   else l[k] = v;
 }
 
-/** Give each Prompt Studio saved with the seven outputs it had before 3.6.0
- *  its one bundle output, and a PlagueKind Bundle Out beside it taking over
- *  its links slot for slot (the bundle's first seven are those outputs, in
- *  that order). Works on the saved JSON before it loads, so every link lands
- *  where it was. Returns how many nodes moved. Exported for the tests. */
+/** Take link `id` out of a saved graph: from its list, the input it ends at
+ *  and the output it leaves. */
+function dropLink(g, id) {
+  const at = (g.links || []).findIndex((l) => Number(linkField(l, "id")) === Number(id));
+  if (at < 0) return;
+  const l = g.links[at];
+  g.links.splice(at, 1);
+  const node = (nid) => (g.nodes || []).find((n) => String(n?.id) === String(nid));
+  const to = node(linkField(l, "target_id"))?.inputs?.[linkField(l, "target_slot")];
+  if (to && Number(to.link) === Number(id)) to.link = null;
+  const from = node(linkField(l, "origin_id"))?.outputs?.[linkField(l, "origin_slot")];
+  if (Array.isArray(from?.links)) from.links = from.links.filter((x) => Number(x) !== Number(id));
+}
+
+/** Bring each Prompt Studio saved before 3.6.0 up to its current shape,
+ *  working on the saved JSON before it loads so every link lands where it
+ *  was meant to:
+ *   - its fl2va_model / ref2va_model inputs go, with their links, and any
+ *     link into an input after them follows it to its new position;
+ *   - its outputs become the one bundle, with a PlagueKind Bundle Out beside
+ *     it taking over their links by name (the old `model` output's links are
+ *     dropped: there's no checkpoint on the bundle).
+ *  Returns how many nodes changed. Exported for the tests. */
 export function migrateOutputs(graphData) {
   if (!graphData) return 0;
   const graphs = [graphData, ...(graphData.definitions?.subgraphs || [])];
@@ -603,48 +651,70 @@ export function migrateOutputs(graphData) {
   let moved = 0;
   for (const g of graphs) {
     for (const studio of [...(g?.nodes || [])]) {
-      if (studio?.type !== STUDIO_NAME || !Array.isArray(studio.outputs)) continue;
-      if (studio.outputs.length === 1 && studio.outputs[0]?.type === "BUNDLE") continue;
-      const old = studio.outputs;
-      const used = old.map((o, i) => ({ i, links: (o?.links || []).filter((id) => id != null) }));
-      const anyLinked = used.some((u) => u.links.length);
-      studio.outputs = [{ name: "bundle", type: "BUNDLE", links: [], slot_index: 0 }];
-      moved++;
-      if (!anyLinked) continue;
+      if (studio?.type !== STUDIO_NAME) continue;
+      let changed = false;
+      const byId = () => new Map((g.links || []).map((l) => [Number(linkField(l, "id")), l]));
 
-      const boId = ++maxNode, feed = ++maxLink;
-      const last = Math.max(...used.filter((u) => u.links.length).map((u) => u.i));
-      const outputs = [];
-      for (let i = 0; i <= last; i++) {
-        outputs.push({ name: `output_${i + 1}`, label: OLD_OUTPUTS[i] || `output_${i + 1}`, type: "*",
-          links: used[i]?.links || [], slot_index: i });
+      // The checkpoint inputs.
+      if (Array.isArray(studio.inputs) && studio.inputs.some((x) => DROPPED_INPUTS.includes(x?.name))) {
+        for (const x of studio.inputs) if (DROPPED_INPUTS.includes(x?.name) && x.link != null) dropLink(g, x.link);
+        studio.inputs = studio.inputs.filter((x) => !DROPPED_INPUTS.includes(x?.name));
+        const links = byId();
+        studio.inputs.forEach((x, i) => { const l = x?.link != null ? links.get(Number(x.link)) : null; if (l) setLinkField(l, "target_slot", i); });
+        changed = true;
       }
-      // The old links now leave from the Bundle Out, from the same slot.
-      const byId = new Map((g.links || []).map((l) => [Number(linkField(l, "id")), l]));
-      for (const u of used) {
-        for (const id of u.links) {
-          const l = byId.get(Number(id));
-          if (!l) continue;
-          setLinkField(l, "origin_id", boId);
-          setLinkField(l, "origin_slot", u.i);
-          setLinkField(l, "type", "*");
+
+      // The outputs.
+      if (Array.isArray(studio.outputs) && !(studio.outputs.length === 1 && studio.outputs[0]?.type === "BUNDLE")) {
+        const old = studio.outputs;
+        for (const [i, o] of old.entries()) {
+          if (DROPPED_OUTPUTS.includes(o?.name) || (!o?.name && i === 0)) for (const id of [...(o?.links || [])]) dropLink(g, id);
+        }
+        // By name; an output from an older naming keeps its position, less the
+        // model that led them.
+        const used = old.map((o, i) => {
+          const named = STUDIO_BUNDLE.indexOf(o?.name);
+          const slot = DROPPED_OUTPUTS.includes(o?.name) ? -1 : named >= 0 ? named : i - 1;
+          return { slot, links: (o?.links || []).filter((id) => id != null) };
+        }).filter((u) => u.slot >= 0 && u.links.length);
+        studio.outputs = [{ name: "bundle", type: "BUNDLE", links: [], slot_index: 0 }];
+        changed = true;
+        if (used.length) {
+          const boId = ++maxNode, feed = ++maxLink;
+          const last = Math.max(...used.map((u) => u.slot));
+          const outputs = [];
+          for (let i = 0; i <= last; i++) {
+            outputs.push({ name: `output_${i + 1}`, label: STUDIO_BUNDLE[i] || `output_${i + 1}`, type: "*",
+              links: used.filter((u) => u.slot === i).flatMap((u) => u.links), slot_index: i });
+          }
+          const links = byId();
+          for (const u of used) {
+            for (const id of u.links) {
+              const l = links.get(Number(id));
+              if (!l) continue;
+              setLinkField(l, "origin_id", boId);
+              setLinkField(l, "origin_slot", u.slot);
+              setLinkField(l, "type", "*");
+            }
+          }
+          // In the format this graph already uses: [id, from, slot, to, slot,
+          // type] in a classic workflow, objects in subgraphs and the newer schema.
+          g.links.push(!g.links.length || linkTuple(g.links[0])
+            ? [feed, studio.id, 0, boId, 0, "BUNDLE"]
+            : { id: feed, origin_id: studio.id, origin_slot: 0, target_id: boId, target_slot: 0, type: "BUNDLE" });
+          studio.outputs[0].links = [feed];
+          const pos = Array.isArray(studio.pos) ? studio.pos : [studio.pos?.[0] || 0, studio.pos?.[1] || 0];
+          const size = Array.isArray(studio.size) ? studio.size : [594, 600];
+          g.nodes.push({
+            id: boId, type: BUNDLE_OUT,
+            pos: [pos[0] + size[0] + 40, pos[1]], size: [180, 30 + outputs.length * 20],
+            flags: {}, order: (Number(studio.order) || 0) + 1, mode: 0,
+            inputs: [{ name: "bundle", type: "BUNDLE", link: feed }],
+            outputs, properties: { "Node name for S&R": BUNDLE_OUT }, widgets_values: [],
+          });
         }
       }
-      // In the format this graph already uses: [id, from, slot, to, slot, type]
-      // in a classic workflow, objects in subgraphs and the newer schema.
-      g.links.push(linkTuple(g.links[0])
-        ? [feed, studio.id, 0, boId, 0, "BUNDLE"]
-        : { id: feed, origin_id: studio.id, origin_slot: 0, target_id: boId, target_slot: 0, type: "BUNDLE" });
-      studio.outputs[0].links = [feed];
-      const pos = Array.isArray(studio.pos) ? studio.pos : [studio.pos?.[0] || 0, studio.pos?.[1] || 0];
-      const size = Array.isArray(studio.size) ? studio.size : [594, 600];
-      g.nodes.push({
-        id: boId, type: BUNDLE_OUT,
-        pos: [pos[0] + size[0] + 40, pos[1]], size: [180, 30 + outputs.length * 20],
-        flags: {}, order: (Number(studio.order) || 0) + 1, mode: 0,
-        inputs: [{ name: "bundle", type: "BUNDLE", link: feed }],
-        outputs, properties: { "Node name for S&R": BUNDLE_OUT }, widgets_values: [],
-      });
+      if (changed) moved++;
     }
   }
   if (moved) {
@@ -691,13 +761,14 @@ app.registerExtension({
     try {
       const n = migrateOutputs(graphData);
       if (!n) return;
-      console.log(`[MiniMaxH3 PromptStudio] ${n} Prompt Studio node(s) saved with the older outputs now `
-        + "send one bundle; their links moved onto a Bundle Out beside each.");
+      console.log(`[MiniMaxH3 PromptStudio] ${n} Prompt Studio node(s) saved before 3.6.0 now send one `
+        + "bundle (links moved onto a Bundle Out beside each); their model inputs and output are gone.");
       if (!bundleOutInstalled() && Array.isArray(missingNodeTypes) && !missingNodeTypes.includes(BUNDLE_OUT)) {
         missingNodeTypes.push(BUNDLE_OUT);
       }
       setTimeout(() => toast(`Prompt Studio now sends one bundle: ${n > 1 ? "each" : "its"} older outputs moved onto `
-        + "a Bundle Out beside it, slot for slot.", 7000), 500);
+        + "a Bundle Out beside it. Its model inputs and output are gone \u2014 load the model with Load Diffusion "
+        + "Model, fed by the bundle's model_name.", 9000), 500);
     } catch (e) {
       console.error("[MiniMaxH3 PromptStudio] couldn't move the older outputs onto a Bundle Out:", e);
     }

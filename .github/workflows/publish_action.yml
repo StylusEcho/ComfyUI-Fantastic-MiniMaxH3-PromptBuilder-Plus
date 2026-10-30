@@ -16,7 +16,7 @@ jobs:
     # before the version-bump push, since registry versions are immutable.
     env:
       COMFY_NODE_CHANGELOG: |
-        Generation settings bar on Prompt Studio: diffusion model name, sampler, scheduler, steps, an rgthree-style seed (random / increment / decrement, swapped on queue) and presets; size by long side, short side or megapixels with an aspect ratio, or Auto from the keyframe (I2VA / FL2VA / L2VA); video length shared with the Prompt Builder. Keyframes come out at that size. Every output now travels on one BUNDLE for PlagueKind's Bundle Out (ComfyUI-PlagueKind-Nodes, needed); workflows saved with the old outputs get a Bundle Out with their links moved over on open.
+        Generation settings bar on Prompt Studio: diffusion model name, sampler, scheduler, steps, an rgthree-style seed (random / increment / decrement, swapped on queue) and presets; size by long side, short side or megapixels with an aspect ratio, or Auto from the keyframe (I2VA / FL2VA / L2VA); video length shared with the Prompt Builder, sent in frames or seconds. The model inputs and output are gone: the bundle carries the model's file name for Load Diffusion Model. Keyframes come out at that size. Every output now travels on one BUNDLE for PlagueKind's Bundle Out (ComfyUI-PlagueKind-Nodes, needed); workflows saved with the old outputs get a Bundle Out with their links moved over on open.
     steps:
       - name: Check out code
         uses: actions/checkout@v4

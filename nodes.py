@@ -4,9 +4,8 @@ MiniMax H3 model (FL2VA family: T2VA / I2VA / FL2VA / L2VA, and Ref2VA
 full-reference mode).
 
 Outputs one BUNDLE (PlagueKind's format, unpacked by its Bundle Out node):
-the model for the mode, the final prompt, the mode-gated reference bundle,
-the loaded keyframe(s) as first_frame / last_frame, ref2va_needed and the
-RefMods, then the generation settings from the bar above the media panel —
+the final prompt, the mode-gated reference bundle, the loaded keyframe(s) as
+first_frame / last_frame, ref2va_needed and the RefMods, then the generation settings from the bar above the media panel —
 width, height, length, the diffusion model's name, sampler, scheduler,
 steps and seed. See gen_settings.BUNDLE_NAMES for the order.
 """
@@ -53,19 +52,6 @@ def _mode_of(builder_state):
 def _usable(name, mode):
     group, index = _split_name(name)
     return index <= MODE_LIMITS.get(mode, MODE_LIMITS["REF"]).get(group, 0)
-
-
-def _linked_inputs(prompt, unique_id):
-    """Names of a node's inputs that are actually connected."""
-    try:
-        inputs = prompt[str(unique_id)]["inputs"]
-    except Exception:
-        return None
-    return {
-        name
-        for name, val in inputs.items()
-        if isinstance(val, list) and len(val) == 2
-    }
 
 
 def _iter_links(value):
@@ -366,13 +352,14 @@ class MiniMaxH3PromptStudio:
         "a single node. Click 'Edit Prompt' to open the guided editor, load "
         "media in the panel, and pick the model, sampler, seed and size in the "
         "bar above it. Everything comes out on one BUNDLE: unpack it with "
-        "PlagueKind's Bundle Out node, whose outputs are, in order: model (the "
-        "MODEL for the mode being used), prompt, references (an H3_REFS "
+        "PlagueKind's Bundle Out node, whose outputs are, in order: prompt, "
+        "references (an H3_REFS "
         "bundle holding only what the mode can send), first_frame, last_frame "
         "(the keyframes, resized to width x height: I2VA fills first_frame, "
         "L2VA last_frame, FL2VA both), ref2va_needed (true in full-reference "
         "mode), mods (the RefMods tab's picks after anything wired into "
-        "'mods'), width, height, length (frames, 17k+5 at 24 fps), model_name "
+        "'mods'), width, height, length (frames on the 17k+5 grid at 24 fps, or "
+        "that in seconds — the bar's setting), model_name "
         "(the diffusion model's file, for Load Diffusion Model), sampler, "
         "scheduler, steps and seed."
     )
@@ -380,15 +367,15 @@ class MiniMaxH3PromptStudio:
     # One output since 3.6.0: everything travels on a PlagueKind BUNDLE (a
     # dict of input_1..input_N, which Bundle Out hands to output_1..output_N)
     # so the node stays one wire however many settings it grows. The order is
-    # gen_settings.BUNDLE_NAMES; the first seven are the outputs this node had
-    # before, in their old order (model leading, as the chain is wired:
-    # checkpoint first, then the prompt and its media), and a workflow saved
-    # with those is moved onto a Bundle Out slot for slot when it opens
-    # (gensettings.js). Anything added later is appended, never inserted.
+    # gen_settings.BUNDLE_NAMES; the first six are the outputs this node had
+    # before, in their old order, less `model`: the node no longer takes or
+    # passes on a checkpoint, only the diffusion model's file name
+    # (model_name) for a Load Diffusion Model node. A workflow saved with the
+    # old outputs is moved onto a Bundle Out when it opens, each link one slot
+    # up, and its model links and the fl2va_model / ref2va_model inputs'
+    # links dropped (gensettings.js). Anything added later is appended.
     #
-    # model carries whichever checkpoint the saved mode runs on — ref2va in
-    # full-reference mode, fl2va everywhere else — so both can stay wired and
-    # the mode picks between them. ref2va_needed is True only in
+    # ref2va_needed is True only in
     # full-reference mode, the one mode whose prompt goes to
     # MiniMaxH3ReferenceToVideo rather than ImageToVideo. first_frame /
     # last_frame are named after MiniMaxH3ImageToVideo's two picture inputs:
@@ -417,41 +404,14 @@ class MiniMaxH3PromptStudio:
                 # same reason, so older workflows load the defaults.
                 "gen_state": ("STRING", {"multiline": False, "default": "{}"}),
             },
-            # Wire both checkpoints once and let the mode pick. Lazy, so the
-            # one this mode isn't using is never pulled into memory — loading
-            # two H3 checkpoints to run on one would be a real cost.
             "optional": {
-                "fl2va_model": ("MODEL", {"lazy": True}),
-                "ref2va_model": ("MODEL", {"lazy": True}),
                 # Chaining only: a RefMod Stack (or another pack's loader)
                 # whose entries go first, before the RefMods tab's own picks.
-                # Not lazy: unlike the checkpoints, reading it is cheap.
                 "mods": ("H3_REF_MODS", {"tooltip":
                     "Optional. Another RefMod Stack to send first; this "
                     "node's own RefMods (its RefMods tab) follow it."}),
             },
-            "hidden": {"prompt": "PROMPT", "unique_id": "UNIQUE_ID"},
         }
-
-    # Which checkpoint a mode runs on: only full-reference uses ref2va, every
-    # other mode is the fl2va family.
-    @staticmethod
-    def _model_input(mode):
-        return "ref2va_model" if mode == "REF" else "fl2va_model"
-
-    def check_lazy_status(self, prompt_text="", builder_state="{}",
-                          media_state="[]", fl2va_model=None,
-                          ref2va_model=None, prompt=None, unique_id=None,
-                          **kwargs):
-        """Pull only the checkpoint this mode actually runs on."""
-        want = self._model_input(_mode_of(builder_state))
-        have = ref2va_model if want == "ref2va_model" else fl2va_model
-        if have is not None:
-            return []
-        # Asking for an input nothing is wired into would stall the prompt, so
-        # check the graph first.
-        linked = _linked_inputs(prompt, unique_id)
-        return [want] if (linked is None or want in linked) else []
 
     @classmethod
     def IS_CHANGED(cls, prompt_text="", builder_state="{}", media_state="[]",
@@ -474,8 +434,7 @@ class MiniMaxH3PromptStudio:
         return _validate_stack(stack_state)
 
     def build(self, prompt_text="", builder_state="{}", media_state="[]",
-              stack_state="{}", gen_state="{}", fl2va_model=None,
-              ref2va_model=None, mods=None, prompt=None, unique_id=None):
+              stack_state="{}", gen_state="{}", mods=None):
         mode = _mode_of(builder_state)
         # Subject masking is for references: keyframe modes send pictures as edited.
         bundle = build_bundle(media_state, label="Studio", subjects=(mode == "REF"))
@@ -521,7 +480,7 @@ class MiniMaxH3PromptStudio:
         length = gen_settings.snap_length(gen_settings.duration_of(builder_state))
         seed = gen_settings.run_seed(gen)
         print(f"[MiniMaxH3 Studio] {width}x{height} ({gen['scale_mode']}, {source}), "
-              f"{length} frames; {gen['model'] or '(no model picked)'}, "
+              f"{length} frames (sent as {gen['length_unit']}); {gen['model'] or '(no model picked)'}, "
               f"{gen['sampler']}/{gen['scheduler']}, {gen['steps']} steps, seed {seed}")
         tail = f"{sent} reference(s) on the bundle" if sent else \
             "prompt only, no references"
@@ -531,22 +490,13 @@ class MiniMaxH3PromptStudio:
         print(f"[MiniMaxH3 Studio] mode={mode} -> {tail}"
               f"{', ' + ' + '.join(named) + ' on their own outputs' if named else ''}")
 
-        want = self._model_input(mode)
-        model = ref2va_model if want == "ref2va_model" else fl2va_model
-        if model is None:
-            # Say so rather than passing nothing on quietly: an empty model
-            # output fails far downstream, where the cause isn't obvious.
-            print(f"[MiniMaxH3 Studio] mode {mode} runs on {want}, but that "
-                  "input is empty — the model output carries nothing.")
-        else:
-            print(f"[MiniMaxH3 Studio] mode {mode} -> passing {want} through.")
         # Anything chained in first, then the RefMods tab's own picks. With
         # neither it is an empty bundle, which Text Encode treats as "no
         # RefMods" rather than an error.
         out_mods = _build_mods(stack_state, mods)
-        values = (model, prompt_text.strip(), gated, first_frame, last_frame,
+        values = (prompt_text.strip(), gated, first_frame, last_frame,
                   mode == "REF", out_mods,
-                  width, height, length,
+                  width, height, gen_settings.length_out(length, gen),
                   gen["model"], gen["sampler"], gen["scheduler"], gen["steps"], seed)
         assert len(values) == len(gen_settings.BUNDLE_NAMES)
         return ({f"input_{i + 1}": v for i, v in enumerate(values)},)

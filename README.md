@@ -59,13 +59,14 @@ any frame straight out of a video into your picture references.*
 installed for their **Bundle Out**. All Plus only.
 
 - **Generation settings bar.** Two rows above the media panel:
-  - **Row 1:** the diffusion model (from `models/diffusion_models`), sampler,
-    scheduler, steps, seed, and presets.
-  - **Row 2:** scale mode, aspect ratio, the size, Auto, and the video length.
-  - **Readout:** the right end of row 2 shows the size the video is made at
-    (hover it for the details).
-- **Model name only.** Prompt Studio doesn't load the model. Its file name
-  travels on the bundle as `model_name`, for a **Load Diffusion Model** node.
+  - **Row 1:** the diffusion model (from `models/diffusion_models`, taking
+    the row's spare room), sampler, scheduler, steps and seed.
+  - **Row 2:** Auto, the size, scale mode, aspect ratio, the video length,
+    the size the video is made at (hover it for the details), and presets.
+- **Model name only.** Prompt Studio doesn't load or pass on a model: its
+  `fl2va_model` / `ref2va_model` inputs and `model` output are gone. The
+  model's file name travels on the bundle as `model_name`, for a **Load
+  Diffusion Model** node.
 - **Seed works like rgthree's Seed node.** Type a number, or use 🎲 for:
   - **Randomize each time** (-1), shown as "random";
   - **New fixed random**;
@@ -101,13 +102,15 @@ installed for their **Bundle Out**. All Plus only.
   are scaled to cover width × height and centre-cropped, in linear light, as
   Unified Resize does. Reference pictures aren't touched.
 - **Length is the Prompt Builder's duration**, the same setting: change it
-  in either place. The bundle's `length` is that duration in frames, snapped
-  to H3's 17k+5 grid at 24 fps (5 s → 124 frames).
+  in either place. The button after it shows what the bundle's `length`
+  carries and switches it between:
+  - **frames**, snapped to H3's 17k+5 grid at 24 fps (5 s → 124f);
+  - **seconds**, that snapped length in seconds (124 frames → 5.17s).
 - **One output.** Everything the node made before, plus the new settings,
   goes out on a single `bundle`. Unpack it with **Bundle Out (PlagueKind)**:
   - **Add Bundle Out (unpack the bundle)** on the node's right-click menu
     puts one beside the node, wired up.
-  - Bundle Out shows all fifteen slots, named after what they carry (see
+  - Bundle Out shows all fourteen slots, named after what they carry (see
     [Prompt Studio](#prompt-studio)).
 - **Video import** (dropping a video on the prompt bar) can bring back a
   video's generation settings too, including the seed it was made with.
@@ -956,10 +959,9 @@ Highlights:
   monitor.
 - **Detail control for reference video** — decode big clips at a smaller size
   so a long 4K reference doesn't eat gigabytes of RAM.
-- **Optional model routing.** Wire both checkpoints — `fl2va_model` and
-  `ref2va_model` — once, and the node's `model` output passes through whichever
-  one the saved mode actually runs on. Both inputs are lazy, so the checkpoint
-  the mode isn't using is never pulled into memory.
+- **Generation settings on the node.** The diffusion model (by name, for a
+  Load Diffusion Model node), sampler, scheduler, steps, seed, the video's
+  size and length, all sent on the node's one bundle.
 
 ---
 
@@ -1064,8 +1066,8 @@ media, they need no separate node and no wiring. ◈ shows how many RefMods are
 picked, turns amber while the RefMods are showing, and the node remembers
 which one you left showing.
 
-It takes **no required inputs**: one optional `mods` for
-[RefMods](#refmods), plus the two optional checkpoint inputs below.
+It takes **no required inputs**, only an optional `mods` for
+[RefMods](#refmods) (see below).
 
 Since 3.6.0 it has **one output, `bundle`**. Unpack it with
 [PlagueKind's](https://github.com/PlagueKind/ComfyUI-PlagueKind-Nodes)
@@ -1074,21 +1076,20 @@ bundle)**. Bundle Out's slots, in order:
 
 | # | Slot | Type | Goes to |
 |---|---|---|---|
-| 1 | `model` | `MODEL` | the sampler, once you've wired both checkpoints in (see below) |
-| 2 | `prompt` | `STRING` | the `prompt` input on **Image to Video**, **Reference to Video**, or **RefMod Text Encode** |
-| 3 | `references` | `H3_REFS` | a **Reference Splitter**, whose slots feed **Reference to Video** — from the original pack, if you have it installed too |
-| 4 | `first_frame` | `IMAGE` | `first_frame` on **Image to Video** |
-| 5 | `last_frame` | `IMAGE` | `last_frame` on **Image to Video** |
-| 6 | `ref2va_needed` | `BOOLEAN` | a switch node, to pick which H3 node runs |
-| 7 | `mods` | `H3_REF_MODS` | the node's RefMod picks (after anything chained into the `mods` input) — to **RefMod Text Encode**'s `mods` input, which **◈ RefMods** wires for you |
-| 8 | `width` | `INT` | **Empty MiniMax H3 Latent AV**'s `width` (the size from the bar) |
-| 9 | `height` | `INT` | its `height` |
-| 10 | `length` | `INT` | its `length`: the duration in frames, 17k+5 at 24 fps |
-| 11 | `model_name` | `STRING` | **Load Diffusion Model**'s `unet_name` |
-| 12 | `sampler` | `STRING` | the sampler's `sampler_name` |
-| 13 | `scheduler` | `STRING` | the sampler's `scheduler` |
-| 14 | `steps` | `INT` | the sampler's `steps` |
-| 15 | `seed` | `INT` | the sampler's `seed` (the real one, never -1) |
+| 1 | `prompt` | `STRING` | the `prompt` input on **Image to Video**, **Reference to Video**, or **RefMod Text Encode** |
+| 2 | `references` | `H3_REFS` | a **Reference Splitter**, whose slots feed **Reference to Video** — from the original pack, if you have it installed too |
+| 3 | `first_frame` | `IMAGE` | `first_frame` on **Image to Video** |
+| 4 | `last_frame` | `IMAGE` | `last_frame` on **Image to Video** |
+| 5 | `ref2va_needed` | `BOOLEAN` | a switch node, to pick which H3 node runs |
+| 6 | `mods` | `H3_REF_MODS` | the node's RefMod picks (after anything chained into the `mods` input) — to **RefMod Text Encode**'s `mods` input, which **◈ RefMods** wires for you |
+| 7 | `width` | `INT` | **Empty MiniMax H3 Latent AV**'s `width` (the size from the bar) |
+| 8 | `height` | `INT` | its `height` |
+| 9 | `length` | `INT` or `FLOAT` | its `length` in frames (17k+5 at 24 fps), or that length in seconds: the button after the bar's length box switches |
+| 10 | `model_name` | `STRING` | **Load Diffusion Model**'s `unet_name` |
+| 11 | `sampler` | `STRING` | the sampler's `sampler_name` |
+| 12 | `scheduler` | `STRING` | the sampler's `scheduler` |
+| 13 | `steps` | `INT` | the sampler's `steps` |
+| 14 | `seed` | `INT` | the sampler's `seed` (the real one, never -1) |
 
 `ref2va_needed` is true only in **Reference** mode — the one mode whose prompt
 goes to **Reference to Video** instead of **Image to Video**. Feed it to a
@@ -1115,33 +1116,36 @@ first), and FL2VA fills both — so switching mode never quietly sends media the
 mode can't use. Anything withheld is printed to the console, never dropped
 silently.
 
-Two optional inputs, `fl2va_model` and `ref2va_model`, take both H3 checkpoints
-at once; the `model` output passes through whichever one the saved mode
-actually runs on (`ref2va` in Reference mode, `fl2va` everywhere else). Both
-are lazy, so the checkpoint the mode isn't using is never pulled into memory —
-wire both in once and let the mode decide, instead of rewiring the sampler by
-hand every time you switch modes.
+Its one optional input, `mods`, is only for **chaining**: a RefMod Stack (or
+another pack's RefMod loader) wired there is sent first, and the node's own
+RefMods follow, numbered after it. You don't need it to use RefMods — the
+node's own picks are enough.
+
+The node doesn't load or pass on a model. Load it with **Load Diffusion
+Model**, fed by the bundle's `model_name`. The bar's model is the one you
+picked, so pick the `ref2va` model for Reference mode and `fl2va` for the
+others.
 
 ### Upgrading to 3.6.0
 
-Before 3.6.0, slots 1–7 were the node's own outputs, in the same order.
+Before 3.6.0 the node had seven outputs, of which `model` came first, and two
+inputs, `fl2va_model` and `ref2va_model`. The other six outputs are now the
+bundle's first six slots, in their old order.
 
 **When a workflow saved before 3.6.0 opens:**
 - The node gets its one `bundle` output.
-- A **Bundle Out** is added beside it.
-- Each old link moves to the Bundle Out slot with the same number, so the
-  graph runs as before. Subgraphs are handled too.
+- A **Bundle Out** is added beside it, and each old link moves to the Bundle
+  Out slot of the same name (one slot up from before). Subgraphs are handled
+  too.
+- Links from the old `model` output, and into `fl2va_model` /
+  `ref2va_model`, are removed. Wire **Load Diffusion Model** (its `unet_name`
+  from the bundle's `model_name`) to the sampler instead.
 
 **Without PlagueKind's nodes installed**, the missing-nodes dialog names
 **PlagueKindBundleOut**. Install
 [ComfyUI-PlagueKind-Nodes](https://github.com/PlagueKind/ComfyUI-PlagueKind-Nodes)
 and reopen the workflow. Saving it first would save it in the new form, with
 the Bundle Out still missing.
-
-A third optional input, `mods`, is only for **chaining**: a RefMod Stack (or
-another pack's RefMod loader) wired there is sent first, and the node's own
-RefMods follow, numbered after it. You don't need it to use RefMods — the
-node's own picks are enough. Not lazy: unlike the checkpoints, reading it is cheap.
 
 The node carries no buttons — everything is reachable from the panel itself.
 The media panel sits at the top; drag the node's bottom edge and it grows with
@@ -1164,8 +1168,10 @@ prompt into it:
 
 1. Start from ComfyUI's own MiniMax H3 template for your mode. It already has
    the loaders, sampler, decode and save nodes.
-2. Add a **MiniMax H3 Prompt Studio**. Connect its `prompt` output to the
-   `prompt` input on the template's H3 node:
+2. Add a **MiniMax H3 Prompt Studio**, right-click it and choose **Add
+   Bundle Out (unpack the bundle)**: its outputs are on that Bundle Out (see
+   [Prompt Studio](#prompt-studio)). Connect `prompt` to the `prompt` input
+   on the template's H3 node:
    - **MiniMax H3 Image to Video** for T2VA, I2VA, FL2VA, and L2VA
    - **MiniMax H3 Reference to Video** for reference mode
 
@@ -1173,13 +1179,15 @@ prompt into it:
    *Convert widget to input*.
 3. Wire up whatever your mode needs:
    - **T2VA** — nothing else; the prompt is the whole input.
-   - **I2VA / FL2VA / L2VA** — connect the node's own `first_frame` (and
-     `last_frame` for FL2VA/L2VA) outputs to **Image to Video**:
+   - **I2VA / FL2VA / L2VA** — connect the `first_frame` (and
+     `last_frame` for FL2VA/L2VA) slots to **Image to Video**:
      - **I2VA** — `first_frame` → `first_frame`
      - **FL2VA** — `first_frame` → `first_frame`, `last_frame` → `last_frame`
      - **L2VA** — `last_frame` → `last_frame`
    - **Reference mode** — see [Reference mode](#reference-mode) below.
-4. Set `width`, `height`, and `length` on the H3 node.
+4. Connect `width`, `height` and `length` to the latent node, `model_name`
+   to **Load Diffusion Model**, and `sampler`, `scheduler`, `steps` and
+   `seed` to the sampler. Set them all on the node's bar.
 5. Drop your keyframe or reference media onto Prompt Studio's own panel, if
    your mode needs any (T2VA needs none). There is nothing to wire: the panel
    is part of the node that writes the prompt.
@@ -2030,7 +2038,7 @@ same way if you want to build this pattern around it instead.
 
 ### Can I wire every output once and leave it?
 
-Yes — that's the intended way to work. Connect Prompt Studio's outputs to the
+Yes — that's the intended way to work. Connect Prompt Studio's Bundle Out to the
 matching slots once (via a Reference Splitter for `references`, see
 [above](#then-whats-the-reference-splitter-for)), and leave the workflow alone.
 
@@ -2062,7 +2070,7 @@ slots, which exist only on the reference node and mean "here's something to draw
 from", not "here's a frame".
 
 Load your keyframes onto Prompt Studio's own panel and its `first_frame` /
-`last_frame` outputs already carry them — no separate **Load Image** node or
+`last_frame` slots already carry them, at the video's size, — no separate **Load Image** node or
 extra wiring needed. See [Quick start](#quick-start) for the wiring.
 
 These modes take one image each, except FL2VA which takes two. Wire in more and

@@ -2035,3 +2035,66 @@ when hiding, makes it a mouse-over caption for the respective section.
       - Earlier suites unchanged: ui_round 30, quickgrip 19, barrows 15,
         dropcrop 10, vdrop 16, merge183 7, regress, side, tabs, arrowleak.
         Node height is steady across modes. Lint and py_compile clean.
+
+125. 🟩 no model inputs or output; bar layout; length in frames or seconds
+    - Asked for:
+      - Remove the node's model inputs and its model output; keep
+        model_name.
+      - Presets dropdown to the end of row 2, with the model dropdown taking
+        row 1's spare room.
+      - Row 2's first two dropdowns only as wide as needed.
+      - Steps box two digits wide.
+      - Auto first on row 2, the px/MP box after it, and nothing moving
+        between px and MP.
+      - A setting for length in seconds or frames.
+    - **nodes.py:**
+      - fl2va_model / ref2va_model, the lazy check, `_model_input`,
+        `_linked_inputs` and the hidden prompt / unique_id inputs are gone.
+      - The bundle is 14 slots: `BUNDLE_NAMES` starts at prompt.
+      - `length` is `gen_settings.length_out()`: frames, or frames / 24 as
+        seconds (gen_state `length_unit`).
+    - **Graph walks (medialoader.js):** with the outputs on a Bundle Out, the
+      pack's walks would have lost Studio, and RefMod numbering and the
+      RefMods wiring with it.
+      - `STUDIO_BUNDLE` holds the slot names.
+      - `originNode` looks through a Bundle Out (and through a Bundle In,
+        slot for slot).
+      - `namedTargets(node, name)` and `namedSource(node, name, {create})`
+        find or make the Bundle Out slot.
+      - promptbuilder's `promptOutIdx`, `encodersOf`, `refmodsReachEncode`
+        and `connectRefModEncoders`, and refmodstack's `chainOf` and
+        `mediaBefore`, use them.
+      - Rewiring a Studio-fed Bundle Out refreshes the RefMod labels.
+    - **Migration:**
+      - The old outputs map to slots by name. The `model` output's links and
+        the two model inputs' links are dropped, from the links list and
+        from both ends.
+      - Later inputs' links follow them to their new index.
+    - **Bar:**
+      - The model dropdown is flex 1. Sampler, scheduler, aspect and preset
+        are fitted to the value they show (`fitSelect`, in ems).
+      - Scale is fitted to its widest option, so it never shifts.
+      - Row 2 reads: Auto, size, scale, aspect, length, size readout,
+        preset.
+      - Steps is spinner-less at 2ch.
+      - px/MP sits in a fixed 1.6em box.
+      - The frames readout became the length-unit button ("124f" /
+        "5.17s").
+    - **Verified:** `realui/t/gen.cjs`, 48 checks. New checks:
+      - **Bar layout:** presets end row 2; row 1 is filled; aspect is fitted
+        to its value and scale to its widest option; row 2 starts with Auto
+        then px/MP; steps fits 99 but not 999.
+      - **Row 2 is stable:** every box keeps its place and width across
+        Long side / Short side / Megapixels.
+      - **The node:** no model inputs, one bundle output; Bundle Out has 14
+        named slots, and a run reads the shifted slots back.
+      - **Length unit:** seconds sends 10.125 for 243 frames, and switches
+        back to frames.
+      - **Through Bundle Out:** a Text Encode's references trace back to
+        Studio, and Studio's prompt reaches it.
+      - **Migration:** an old workflow's model output and input links are
+        dropped and its mods input link is kept.
+
+      Earlier suites unchanged: ui_round 30, quickgrip 19, barrows 15,
+      dropcrop 10, vdrop 16, merge183 7, regress, side, tabs, arrowleak. Lint
+      and py_compile clean.

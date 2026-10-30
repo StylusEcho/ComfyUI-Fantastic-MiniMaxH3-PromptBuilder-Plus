@@ -18,6 +18,16 @@ export const LOADER_NAME = "MiniMaxH3MediaLoader";
 // so promptbuilder.js and refmodstack.js can recognise it without importing
 // the module that registers it.
 export const STUDIO_NAME = "MiniMaxH3PromptStudio";
+/* Since 3.6.0 Prompt Studio has one output, a PlagueKind BUNDLE, and its
+   named outputs are the slots of the Bundle Out unpacking it, in this order
+   (nodes.py / gen_settings.BUNDLE_NAMES). */
+export const BUNDLE_OUT = "PlagueKindBundleOut";
+export const BUNDLE_IN = "PlagueKindBundleIn";
+export const STUDIO_BUNDLE = [
+  "prompt", "references", "first_frame", "last_frame", "ref2va_needed", "mods",
+  "width", "height", "length",
+  "model_name", "sampler", "scheduler", "steps", "seed",
+];
 
 /** Node types this pack queues but doesn't install: Auto Mask and the RefMod
  *  library run the original pack's nodes, installed alongside. Returns the
@@ -345,6 +355,7 @@ export function originNode(node, slot) {
   const feed = (x, i) => x?.graph?.getLink(x.inputs?.[i]?.link);
   const path = [];   // subgraph nodes stepped into, so a pass-through leaves by the same one
   let g = node.graph, link = feed(node, slot), n = null;
+  let unpacked = null;   // the Bundle Out slot being traced back through a bundle
   for (let guard = 0; link && guard < 32; guard++) {
     if (link.origin_id === g.inputNode?.id) {
       const holder = path.pop() || allNodes().find((x) => x.subgraph === g);
@@ -358,6 +369,11 @@ export function originNode(node, slot) {
       g = n.subgraph;
       link = g.getLink(g.outputs[link.origin_slot]?.linkIds[0]);
     } else if (/reroute/i.test(n?.type || "")) link = feed(n, 0);
+    // Through a PlagueKind bundle: a Bundle Out's slot comes from whatever
+    // fills its bundle — Prompt Studio's own (the node returned), or a
+    // Bundle In, whose input of the same number is followed on.
+    else if (n?.type === BUNDLE_OUT) { unpacked = link.origin_slot; link = feed(n, 0); }
+    else if (n?.type === BUNDLE_IN && unpacked != null) { link = feed(n, unpacked); unpacked = null; }
     else if (n?.type === "GetNode") {
       const set = setterOf(n);
       // a Set node in a graph holding this one: forget the subgraph nodes stepped into below it
@@ -367,6 +383,47 @@ export function originNode(node, slot) {
     } else break;
   }
   return n;
+}
+
+/** The Bundle Outs unpacking a Prompt Studio's bundle. */
+export function bundleOutsOf(node) {
+  return outputTargets(node, 0).filter((t) => t?.type === BUNDLE_OUT);
+}
+
+/** Nodes fed by a node's output called `name`. A Prompt Studio's named
+ *  outputs are on the Bundle Out(s) unpacking its bundle, so those are
+ *  followed; any other node's output is its own. */
+export function namedTargets(node, name) {
+  const own = (node?.outputs || []).findIndex((o) => o.name === name);
+  if (own >= 0) return outputTargets(node, own);
+  const slot = node?.type === STUDIO_NAME ? STUDIO_BUNDLE.indexOf(name) : -1;
+  if (slot < 0) return [];
+  return bundleOutsOf(node).flatMap((bo) => outputTargets(bo, slot));
+}
+
+/** Where to connect from for a node's output called `name`: { node, slot }.
+ *  For a Prompt Studio that's a slot on the Bundle Out unpacking it — one in
+ *  the same graph, or with `create`, a new one put beside it (when
+ *  PlagueKind's nodes are installed). Null when there's none to use. */
+export function namedSource(node, name, { create = false } = {}) {
+  const own = (node?.outputs || []).findIndex((o) => o.name === name);
+  if (own >= 0) return { node, slot: own };
+  const slot = node?.type === STUDIO_NAME ? STUDIO_BUNDLE.indexOf(name) : -1;
+  if (slot < 0) return null;
+  let bo = bundleOutsOf(node).find((b) => b.graph === node.graph) || null;
+  if (!bo && create && globalThis.LiteGraph?.registered_node_types?.[BUNDLE_OUT]) {
+    bo = globalThis.LiteGraph.createNode(BUNDLE_OUT);
+    if (bo) {
+      bo.pos = [node.pos[0] + (node.size?.[0] || 600) + 40, node.pos[1]];
+      node.graph.add(bo);
+      if (!linkNodes(node, 0, bo, 0)) bo = null;
+    }
+  }
+  if (!bo) return null;
+  // Its slots grow as they're used; make sure this one exists.
+  try { bo._syncOutputs?.(); } catch (e) { /* cosmetic */ }
+  while ((bo.outputs?.length || 0) <= slot) bo.addOutput(`output_${bo.outputs.length + 1}`, "*");
+  return { node: bo, slot };
 }
 
 /** Nodes fed by one output, looked through reroutes, Set/Get pairs and

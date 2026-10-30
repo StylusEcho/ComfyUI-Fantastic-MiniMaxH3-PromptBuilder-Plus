@@ -78,9 +78,10 @@ name = "fantastic-minimax-h3-promptstudio"
 # original pack's) — no breakage of saved workflows.
 # 3.6.0 adds the generation-settings bar (model name, sampler, scheduler,
 # steps, rgthree-style seed, presets; Unified Resize-style size with Auto;
-# length) and puts every output on one BUNDLE for PlagueKind's Bundle Out.
-# Saved workflows' links break with that, so they are moved onto a Bundle Out
-# on open, slot for slot — which needs PlagueKind's nodes installed.
+# length in frames or seconds), drops the fl2va_model / ref2va_model inputs
+# and the model output, and puts every output on one BUNDLE for PlagueKind's
+# Bundle Out. Saved workflows' links break with that, so they are moved onto
+# a Bundle Out on open (model links dropped) — which needs PlagueKind's nodes.
 version = "3.6.0"
 description = "MiniMax H3 Prompt Studio: a single guided prompt-writing and reference-media node for the H3 video model, with live checking against MiniMax's prompt guide."
 license = { file = "LICENSE" }

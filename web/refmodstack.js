@@ -6,7 +6,7 @@
  */
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { postApi, STUDIO_NAME, LOADER_NAME, computeTags, runHidden, turnRect, viewURL, openCropEditor, keepNameChars, outputTargets,
+import { postApi, STUDIO_NAME, LOADER_NAME, computeTags, runHidden, turnRect, viewURL, openCropEditor, keepNameChars, namedTargets,
          originNode, allNodes, pastedFiles,
          requireOriginal, clampScale, SCALE_MIN, SCALE_MAX, TEXT_SCALE_MAX, MASK_NODE, SAM_KEY, SAM_LINK, samCheckpoints } from "./medialoader.js";
 
@@ -172,10 +172,9 @@ function chainOf(node) {
   let cur = node;
   guard = 0;
   while (cur && guard++ < 32) {
-    const slot = (cur.outputs || []).findIndex((o) => o.name === "mods");
     // Prompt Studio counts as a member downstream: its RefMods tab adds
     // entries after everything wired into its mods input.
-    const next = slot < 0 ? null : outputTargets(cur, slot).find((t) =>
+    const next = namedTargets(cur, "mods").find((t) =>
       STACK_NAMES.has(t?.type) || t?.type === STUDIO_NAME);
     if (!next || down.includes(next)) break;
     down.push(next);
@@ -192,11 +191,10 @@ function chainOf(node) {
  *  the original pack's Media Loader counts the same way. */
 function mediaBefore(node, chain) {
   const counts = { image: 0, video: 0, audio: 0 };
-  const modsOut = (n) => (n.outputs || []).findIndex((o) => o.name === "mods");
   const refsIn = (n) => (n.inputs || []).findIndex((x) => x.name === "references");
   const last = chain.down.length ? chain.down[chain.down.length - 1] : node;
-  const enc = outputTargets(last, modsOut(last))
-    .flatMap((t) => t.type === BUILDER_NAME ? outputTargets(t, modsOut(t)) : [t])
+  const enc = namedTargets(last, "mods")
+    .flatMap((t) => t.type === BUILDER_NAME ? namedTargets(t, "mods") : [t])
     .find((t) => ENCODE_NAMES.has(t.type));
   let src = enc && refsIn(enc) >= 0 ? originNode(enc, refsIn(enc)) : null;
   if (src?.type === BUILDER_NAME) src = refsIn(src) >= 0 ? originNode(src, refsIn(src)) : null;

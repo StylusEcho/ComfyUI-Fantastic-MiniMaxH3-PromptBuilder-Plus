@@ -55,17 +55,22 @@ DEFAULTS = {
     "short_side": 768,
     "megapixels": 1.0,
     "auto": False,
+    # What the bundle's `length` carries: frames (an INT on the 17k+5 grid)
+    # or seconds (a FLOAT, that many frames at 24 fps).
+    "length_unit": "frames",
 }
+LENGTH_UNITS = ("frames", "seconds")
 
 # Which picture Auto takes its aspect from, per mode; T2VA and Reference
 # have no keyframe, so Auto does nothing there.
 AUTO_SOURCE = {"I2VA": "first_frame", "FL2VA": "first_frame", "L2VA": "last_frame"}
 
 # The bundle, in output order (PlagueKind's Bundle Out hands input_N to
-# output_N). The first seven are the node's outputs from before 3.6.0, in
-# their old order, so an older workflow's links move across slot for slot.
+# output_N). The first six are the node's outputs from before 3.6.0 in their
+# old order, less the old `model` (the node passes on only the model's file
+# name now), so an older workflow's links move across one slot up.
 BUNDLE_NAMES = (
-    "model", "prompt", "references", "first_frame", "last_frame",
+    "prompt", "references", "first_frame", "last_frame",
     "ref2va_needed", "mods",
     "width", "height", "length",
     "model_name", "sampler", "scheduler", "steps", "seed",
@@ -98,6 +103,8 @@ def parse(gen_state):
         st[key] = val
     if st["scale_mode"] not in SCALE_MODES:
         st["scale_mode"] = DEFAULTS["scale_mode"]
+    if st["length_unit"] not in LENGTH_UNITS:
+        st["length_unit"] = DEFAULTS["length_unit"]
     if st["aspect"] not in ASPECT_RATIOS:
         st["aspect"] = DEFAULTS["aspect"]
     st["steps"] = max(1, min(10000, st["steps"]))
@@ -119,6 +126,11 @@ def snap_length(seconds):
     frames = max(5, int(round(seconds * 24)))
     frames += (5 - (frames % 17) + 17) % 17
     return frames
+
+
+def length_out(frames, st):
+    """The bundle's `length`: frames, or the same span in seconds."""
+    return frames if st["length_unit"] == "frames" else round(frames / 24.0, 4)
 
 
 def duration_of(builder_state):
