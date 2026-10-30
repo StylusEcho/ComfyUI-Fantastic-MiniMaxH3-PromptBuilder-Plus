@@ -3,14 +3,17 @@ A guided prompt-composition and reference-media node for the open-weight
 MiniMax H3 model (FL2VA family: T2VA / I2VA / FL2VA / L2VA, and Ref2VA
 full-reference mode).
 
-Outputs the final prompt STRING plus the mode-gated reference bundle and the
-loaded keyframe(s) as first_frame / last_frame, so a plain graph needs
-nothing else wired in.
+Outputs one BUNDLE (PlagueKind's format, unpacked by its Bundle Out node):
+the model for the mode, the final prompt, the mode-gated reference bundle,
+the loaded keyframe(s) as first_frame / last_frame, ref2va_needed and the
+RefMods, then the generation settings from the bar above the media panel —
+width, height, length, the diffusion model's name, sampler, scheduler,
+steps and seed. See gen_settings.BUNDLE_NAMES for the order.
 """
 
 import json
 
-from . import media_io, subject
+from . import gen_settings, media_io, subject
 
 PICTURES = 9
 VIDEOS = 3
@@ -359,47 +362,40 @@ class MiniMaxH3PromptStudio:
 
     CATEGORY = "conditioning/video_models"
     DESCRIPTION = (
-        "MiniMax H3 prompt writing and reference media in a single node. "
-        "Click 'Edit Prompt' to open the guided editor, and load media in the "
-        "panel below it. Outputs the MODEL for the mode being used, the final "
-        "prompt STRING, an H3_REFS bundle holding only what the chosen mode "
-        "can actually send, the loaded keyframe(s) as first_frame / "
-        "last_frame IMAGEs (I2VA fills first_frame, L2VA fills last_frame, "
-        "FL2VA fills both, T2VA and full-reference fill neither), a "
-        "ref2va_needed BOOLEAN that is true in full-reference mode, and the "
-        "RefMods picked on the node's RefMods tab as a 'mods' bundle for "
-        "RefMod Text Encode (after anything wired into the 'mods' input)."
+        "MiniMax H3 prompt writing, reference media and generation settings in "
+        "a single node. Click 'Edit Prompt' to open the guided editor, load "
+        "media in the panel, and pick the model, sampler, seed and size in the "
+        "bar above it. Everything comes out on one BUNDLE: unpack it with "
+        "PlagueKind's Bundle Out node, whose outputs are, in order: model (the "
+        "MODEL for the mode being used), prompt, references (an H3_REFS "
+        "bundle holding only what the mode can send), first_frame, last_frame "
+        "(the keyframes, resized to width x height: I2VA fills first_frame, "
+        "L2VA last_frame, FL2VA both), ref2va_needed (true in full-reference "
+        "mode), mods (the RefMods tab's picks after anything wired into "
+        "'mods'), width, height, length (frames, 17k+5 at 24 fps), model_name "
+        "(the diffusion model's file, for Load Diffusion Model), sampler, "
+        "scheduler, steps and seed."
     )
 
-    # model leads, matching the order the chain is actually wired in: the
-    # checkpoint reaches the sampler first, then the prompt and its media.
+    # One output since 3.6.0: everything travels on a PlagueKind BUNDLE (a
+    # dict of input_1..input_N, which Bundle Out hands to output_1..output_N)
+    # so the node stays one wire however many settings it grows. The order is
+    # gen_settings.BUNDLE_NAMES; the first seven are the outputs this node had
+    # before, in their old order (model leading, as the chain is wired:
+    # checkpoint first, then the prompt and its media), and a workflow saved
+    # with those is moved onto a Bundle Out slot for slot when it opens
+    # (gensettings.js). Anything added later is appended, never inserted.
     #
-    # Slots are positional in a saved workflow, so moving it here shifts every
-    # other output down one and any graph built before this release will come
-    # back mis-wired — prompt landing where model belongs, and so on. That is a
-    # deliberate one-off, taken in the same breaking release that dropped the
-    # standalone nodes rather than spent as a second break later. Anything
-    # added from here on gets appended last, as references and the pictures
-    # originally were — mods included, so a workflow saved before RefMods
-    # existed here is unaffected.
-    RETURN_TYPES = ("MODEL", "STRING", "H3_REFS", "IMAGE", "IMAGE", "BOOLEAN",
-                    "H3_REF_MODS")
-    RETURN_NAMES = ("model", "prompt", "references", "first_frame", "last_frame",
-                    "ref2va_needed", "mods")
     # model carries whichever checkpoint the saved mode runs on — ref2va in
     # full-reference mode, fl2va everywhere else — so both can stay wired and
-    # the mode picks between them.
-    # ref2va_needed is True only in full-reference mode — the one mode whose
-    # prompt has to go to MiniMaxH3ReferenceToVideo rather than ImageToVideo.
-    # Wire it into a switch to pick the branch from the editor's mode instead
-    # of rewiring by hand.
-    # first_frame / last_frame name the outputs after what MiniMaxH3ImageToVideo
-    # actually calls its two picture inputs, so both wire in directly with no
-    # splitter: I2VA fills only first_frame, L2VA fills only last_frame (its
-    # one loaded picture IS the last frame, not the first), and FL2VA fills
-    # both. T2VA and full-reference load no keyframes of their own — REF's
-    # pictures are reference tags on the `references` bundle instead — so
-    # both outputs carry nothing in those two modes.
+    # the mode picks between them. ref2va_needed is True only in
+    # full-reference mode, the one mode whose prompt goes to
+    # MiniMaxH3ReferenceToVideo rather than ImageToVideo. first_frame /
+    # last_frame are named after MiniMaxH3ImageToVideo's two picture inputs:
+    # I2VA fills only first_frame, L2VA only last_frame (its one picture IS
+    # the last frame), FL2VA both; T2VA and full-reference carry neither.
+    RETURN_TYPES = ("BUNDLE",)
+    RETURN_NAMES = ("bundle",)
     FUNCTION = "build"
 
     @classmethod
@@ -417,6 +413,9 @@ class MiniMaxH3PromptStudio:
                 # Last on purpose: widget values are saved positionally, so a
                 # workflow from before this existed loads it as the default.
                 "stack_state": ("STRING", {"multiline": False, "default": "{}"}),
+                # The generation-settings bar (gen_settings.py); last for the
+                # same reason, so older workflows load the defaults.
+                "gen_state": ("STRING", {"multiline": False, "default": "{}"}),
             },
             # Wire both checkpoints once and let the mode pick. Lazy, so the
             # one this mode isn't using is never pulled into memory — loading
@@ -456,12 +455,16 @@ class MiniMaxH3PromptStudio:
 
     @classmethod
     def IS_CHANGED(cls, prompt_text="", builder_state="{}", media_state="[]",
-                   stack_state="{}", **kwargs):
+                   stack_state="{}", gen_state="{}", **kwargs):
         # Media decoding is driven entirely by widget state, so cache on all
         # of it: without media_state here a re-added clip would be ignored,
         # and a RefMod rewritten on disk has to re-run the node too.
+        # A "random each time" seed the browser didn't swap for a real one is
+        # drawn in build(), so it has to run again every time.
+        if gen_settings.parse(gen_state)["seed"] in gen_settings.SPECIAL_SEEDS:
+            return float("nan")
         return json.dumps([prompt_text, builder_state, media_state,
-                           _stack_stamps(stack_state)], default=str)
+                           _stack_stamps(stack_state), gen_state], default=str)
 
     @classmethod
     def VALIDATE_INPUTS(cls, media_state="[]", stack_state="{}", **kwargs):
@@ -471,8 +474,8 @@ class MiniMaxH3PromptStudio:
         return _validate_stack(stack_state)
 
     def build(self, prompt_text="", builder_state="{}", media_state="[]",
-              stack_state="{}", fl2va_model=None, ref2va_model=None, mods=None,
-              prompt=None, unique_id=None):
+              stack_state="{}", gen_state="{}", fl2va_model=None,
+              ref2va_model=None, mods=None, prompt=None, unique_id=None):
         mode = _mode_of(builder_state)
         # Subject masking is for references: keyframe modes send pictures as edited.
         bundle = build_bundle(media_state, label="Studio", subjects=(mode == "REF"))
@@ -505,6 +508,21 @@ class MiniMaxH3PromptStudio:
         first_frame = keyframes[0] if mode in ("I2VA", "FL2VA") else None
         last_frame = (keyframes[1] if mode == "FL2VA"
                       else keyframes[0] if mode == "L2VA" else None)
+        # The bar's size: Auto takes the keyframe's aspect in I2VA / FL2VA
+        # (Picture 1) and L2VA (its last frame), and does nothing in T2VA and
+        # full-reference. The keyframes are then made exactly that size —
+        # scaled to cover it and centre-cropped, in linear light — so they
+        # match the latent. Reference pictures are left as they are.
+        gen = gen_settings.parse(gen_state)
+        width, height, source = gen_settings.resolution(
+            gen, mode, {"first_frame": first_frame, "last_frame": last_frame})
+        first_frame = gen_settings.cover_resize(first_frame, width, height)
+        last_frame = gen_settings.cover_resize(last_frame, width, height)
+        length = gen_settings.snap_length(gen_settings.duration_of(builder_state))
+        seed = gen_settings.run_seed(gen)
+        print(f"[MiniMaxH3 Studio] {width}x{height} ({gen['scale_mode']}, {source}), "
+              f"{length} frames; {gen['model'] or '(no model picked)'}, "
+              f"{gen['sampler']}/{gen['scheduler']}, {gen['steps']} steps, seed {seed}")
         tail = f"{sent} reference(s) on the bundle" if sent else \
             "prompt only, no references"
         named = [name for name, v in
@@ -526,8 +544,12 @@ class MiniMaxH3PromptStudio:
         # neither it is an empty bundle, which Text Encode treats as "no
         # RefMods" rather than an error.
         out_mods = _build_mods(stack_state, mods)
-        return (model, prompt_text.strip(), gated, first_frame, last_frame,
-                mode == "REF", out_mods)
+        values = (model, prompt_text.strip(), gated, first_frame, last_frame,
+                  mode == "REF", out_mods,
+                  width, height, length,
+                  gen["model"], gen["sampler"], gen["scheduler"], gen["steps"], seed)
+        assert len(values) == len(gen_settings.BUNDLE_NAMES)
+        return ({f"input_{i + 1}": v for i, v in enumerate(values)},)
 
 
 NODE_CLASS_MAPPINGS = {

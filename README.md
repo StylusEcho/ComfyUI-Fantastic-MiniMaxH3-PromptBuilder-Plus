@@ -51,6 +51,67 @@ any frame straight out of a video into your picture references.*
 
 ---
 
+## What's new in 3.6.0
+
+**Breaks saved workflows' wiring, and repairs it on open** (see
+[Upgrading to 3.6.0](#upgrading-to-360)). Needs
+[PlagueKind's nodes](https://github.com/PlagueKind/ComfyUI-PlagueKind-Nodes)
+installed for their **Bundle Out**. All Plus only.
+
+- **Generation settings bar.** Two rows above the media panel:
+  - **Row 1:** the diffusion model (from `models/diffusion_models`), sampler,
+    scheduler, steps, seed, and presets.
+  - **Row 2:** scale mode, aspect ratio, the size, Auto, and the video length.
+  - **Readout:** the right end of row 2 shows the size the video is made at
+    (hover it for the details).
+- **Model name only.** Prompt Studio doesn't load the model. Its file name
+  travels on the bundle as `model_name`, for a **Load Diffusion Model** node.
+- **Seed works like rgthree's Seed node.** Type a number, or use 🎲 for:
+  - **Randomize each time** (-1), shown as "random";
+  - **New fixed random**;
+  - **Increment** (-2) or **decrement** (-3) each time;
+  - **♻️ the last queued seed**.
+
+  A special value is swapped for a real seed when you queue, and the workflow
+  saved with the run records the seed actually used. A prompt queued without
+  the browser (the API) gets a random seed, with a console note.
+- **Presets** save the model, sampler, scheduler and steps together:
+  - **💾 Save current as…** adds one. Picking one applies it.
+  - **🗑 Delete** removes the one in use.
+  - The dropdown names the preset that matches the current settings.
+  - They're stored per user, in ComfyUI's
+    `user/default/minimax_h3_plus/gen_presets.json`.
+- **Size works like PlagueKind's Unified Resize Image.**
+  - Three scale modes: **Long side**, **Short side** (both in pixels) and
+    **Megapixels**.
+  - The eight aspect ratios from 1:1 to 21:9.
+  - Sizes snap to multiples of 32 and keep the aspect ratio. The longer side
+    is rounded down first, so 16:9 at 1344 is 1344×736.
+- **Auto** takes the aspect ratio from the input picture, so the aspect
+  dropdown greys out while it's being used:
+
+  | Mode | What Auto uses |
+  |---|---|
+  | I2VA | Picture 1 |
+  | FL2VA | Picture 1 (the first frame) |
+  | L2VA | the last frame |
+  | T2VA, Reference | nothing: the picked ratio is used |
+
+- **Keyframes come out at the video's size.** `first_frame` and `last_frame`
+  are scaled to cover width × height and centre-cropped, in linear light, as
+  Unified Resize does. Reference pictures aren't touched.
+- **Length is the Prompt Builder's duration**, the same setting: change it
+  in either place. The bundle's `length` is that duration in frames, snapped
+  to H3's 17k+5 grid at 24 fps (5 s → 124 frames).
+- **One output.** Everything the node made before, plus the new settings,
+  goes out on a single `bundle`. Unpack it with **Bundle Out (PlagueKind)**:
+  - **Add Bundle Out (unpack the bundle)** on the node's right-click menu
+    puts one beside the node, wired up.
+  - Bundle Out shows all fifteen slots, named after what they carry (see
+    [Prompt Studio](#prompt-studio)).
+- **Video import** (dropping a video on the prompt bar) can bring back a
+  video's generation settings too, including the seed it was made with.
+
 ## What's new in 3.5.0
 
 Folds in the original pack's 1.8.3. No breakage of saved workflows; it wants
@@ -1003,19 +1064,31 @@ media, they need no separate node and no wiring. ◈ shows how many RefMods are
 picked, turns amber while the RefMods are showing, and the node remembers
 which one you left showing.
 
-It takes **no required inputs** — one optional `mods` for
-[RefMods](#refmods), alongside the two optional checkpoint inputs below — and
-has seven outputs:
+It takes **no required inputs**: one optional `mods` for
+[RefMods](#refmods), plus the two optional checkpoint inputs below.
 
-| Output | Type | Goes to |
-|---|---|---|
-| `model` | `MODEL` | the sampler, once you've wired both checkpoints in (see below) |
-| `prompt` | `STRING` | the `prompt` input on **Image to Video**, **Reference to Video**, or **RefMod Text Encode** |
-| `references` | `H3_REFS` | a **Reference Splitter**, whose slots feed **Reference to Video** — from the original pack, if you have it installed too |
-| `first_frame` | `IMAGE` | `first_frame` on **Image to Video** |
-| `last_frame` | `IMAGE` | `last_frame` on **Image to Video** |
-| `ref2va_needed` | `BOOLEAN` | a switch node, to pick which H3 node runs |
-| `mods` | `H3_REF_MODS` | the node's RefMod picks (after anything chained into the `mods` input) — to **RefMod Text Encode**'s `mods` input, which **◈ RefMods** wires for you |
+Since 3.6.0 it has **one output, `bundle`**. Unpack it with
+[PlagueKind's](https://github.com/PlagueKind/ComfyUI-PlagueKind-Nodes)
+**Bundle Out**: right-click the node and choose **Add Bundle Out (unpack the
+bundle)**. Bundle Out's slots, in order:
+
+| # | Slot | Type | Goes to |
+|---|---|---|---|
+| 1 | `model` | `MODEL` | the sampler, once you've wired both checkpoints in (see below) |
+| 2 | `prompt` | `STRING` | the `prompt` input on **Image to Video**, **Reference to Video**, or **RefMod Text Encode** |
+| 3 | `references` | `H3_REFS` | a **Reference Splitter**, whose slots feed **Reference to Video** — from the original pack, if you have it installed too |
+| 4 | `first_frame` | `IMAGE` | `first_frame` on **Image to Video** |
+| 5 | `last_frame` | `IMAGE` | `last_frame` on **Image to Video** |
+| 6 | `ref2va_needed` | `BOOLEAN` | a switch node, to pick which H3 node runs |
+| 7 | `mods` | `H3_REF_MODS` | the node's RefMod picks (after anything chained into the `mods` input) — to **RefMod Text Encode**'s `mods` input, which **◈ RefMods** wires for you |
+| 8 | `width` | `INT` | **Empty MiniMax H3 Latent AV**'s `width` (the size from the bar) |
+| 9 | `height` | `INT` | its `height` |
+| 10 | `length` | `INT` | its `length`: the duration in frames, 17k+5 at 24 fps |
+| 11 | `model_name` | `STRING` | **Load Diffusion Model**'s `unet_name` |
+| 12 | `sampler` | `STRING` | the sampler's `sampler_name` |
+| 13 | `scheduler` | `STRING` | the sampler's `scheduler` |
+| 14 | `steps` | `INT` | the sampler's `steps` |
+| 15 | `seed` | `INT` | the sampler's `seed` (the real one, never -1) |
 
 `ref2va_needed` is true only in **Reference** mode — the one mode whose prompt
 goes to **Reference to Video** instead of **Image to Video**. Feed it to a
@@ -1048,6 +1121,22 @@ actually runs on (`ref2va` in Reference mode, `fl2va` everywhere else). Both
 are lazy, so the checkpoint the mode isn't using is never pulled into memory —
 wire both in once and let the mode decide, instead of rewiring the sampler by
 hand every time you switch modes.
+
+### Upgrading to 3.6.0
+
+Before 3.6.0, slots 1–7 were the node's own outputs, in the same order.
+
+**When a workflow saved before 3.6.0 opens:**
+- The node gets its one `bundle` output.
+- A **Bundle Out** is added beside it.
+- Each old link moves to the Bundle Out slot with the same number, so the
+  graph runs as before. Subgraphs are handled too.
+
+**Without PlagueKind's nodes installed**, the missing-nodes dialog names
+**PlagueKindBundleOut**. Install
+[ComfyUI-PlagueKind-Nodes](https://github.com/PlagueKind/ComfyUI-PlagueKind-Nodes)
+and reopen the workflow. Saving it first would save it in the new form, with
+the Bundle Out still missing.
 
 A third optional input, `mods`, is only for **chaining**: a RefMod Stack (or
 another pack's RefMod loader) wired there is sent first, and the node's own
@@ -2491,6 +2580,12 @@ RefMods: the format and the encode/apply runtime are adapted from
 [ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod)
 by Luisa (luisacaotica), MIT License; the library's layout took cues from
 FranckyB's [ComfyUI-H3RefMods](https://github.com/FranckyB/ComfyUI-H3RefMods).
+
+Generation settings: the size follows
+[PlagueKind](https://github.com/PlagueKind/ComfyUI-PlagueKind-Nodes)'s
+Unified Resize Image (MIT License), whose Bundle Out unpacks the node's
+bundle; the seed follows [rgthree](https://github.com/rgthree/rgthree-comfy)'s
+Seed node.
 
 Mask layers: the keyframed shapes follow BISAM20's
 [ComfyUI-AnimatedMaskEditor](https://github.com/BISAM20/ComfyUI-AnimatedMaskEditor),

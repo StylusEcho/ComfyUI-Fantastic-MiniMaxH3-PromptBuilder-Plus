@@ -8682,6 +8682,9 @@ export function promptFields(node) {
   const save = () => {
     const pw = node.widgets?.find((w) => w.name === "prompt_text");
     const sw = node.widgets?.find((w) => w.name === "builder_state");
+    // These fields don't edit the duration, but the generation bar's length
+    // can change while they're open; take its value, not this copy's.
+    state.duration = loadState(node).duration;
     if (pw) pw.value = generate(state);
     if (sw) sw.value = JSON.stringify(state);
     updateSummary(node);
@@ -9308,6 +9311,33 @@ function setMode(node, mode) {
     node.setDirtyCanvas?.(true, true);
     app.graph.setDirtyCanvas(true, true);
   } catch (e) { /* Vue redraws itself */ }
+}
+
+/** Set the video length (seconds) straight from the node — the generation
+ *  bar's length box (gensettings.js) — as the editor's duration row does. It
+ *  is one setting: the prompt's instruction line (FL2VA / L2VA) is rewritten
+ *  to match, and an open editor takes the new value. */
+export function setDuration(node, seconds) {
+  const sw = node.widgets?.find((w) => w.name === "builder_state");
+  const v = Math.min(15, Math.max(0.2, Number(seconds) || 5));
+  if (!sw) return v;
+  const state = loadState(node);
+  if (state.duration === v) return v;
+  state.duration = v;
+  sw.value = JSON.stringify(state);
+  const pw = node.widgets?.find((w) => w.name === "prompt_text");
+  if (pw && (pw.value || "").trim()) pw.value = generate(state);
+  const ed = node._mmh3Editor;
+  if (ed?.state && ed.overlay?.isConnected) {
+    ed.state.duration = v;
+    try { ed.render?.(); } catch (e) { /* the editor redraws on its next change */ }
+  }
+  updateSummary(node);
+  try {
+    node.setDirtyCanvas?.(true, true);
+    app.graph.setDirtyCanvas(true, true);
+  } catch (e) { /* Vue redraws itself */ }
+  return v;
 }
 
 /** Mode list, anchored to the button. Lives on document.body so the summary's

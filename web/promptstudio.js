@@ -18,6 +18,7 @@ import {
   injectCSS, restoreDraftFlag, toast,
 } from "./promptbuilder.js";
 import { StackPanel, readStack, openStackModal, refreshStackLabels } from "./refmodstack.js";
+import { GenBar, GEN_H, addBundleOut } from "./gensettings.js";
 
 // Logged at module scope: if this line is missing from the console the file
 // never loaded (or one of its imports threw), which is a very different fault
@@ -47,7 +48,8 @@ const BOTTOM_GAP = 8;
    toolbar and the prompt fields. Two heights, one of them stale. They are one
    element now and the browser does the split, so there is no second number to
    fall out of step. */
-const STACK_H = PANEL_H + SUMMARY_H;
+// The generation-settings bar sits on top of both (gensettings.js).
+const STACK_H = GEN_H + PANEL_H + SUMMARY_H;
 const BAR_TITLE = "Quick-edit the prompt \u2014 the scroll opens the full editor";
 
 /** Show the media panel or the RefMods grid in the node's panel area. Both
@@ -217,7 +219,7 @@ async function mediaFile(src) {
  *  its RefMods picks, as chosen. Undo restores all four values. */
 function applyVideoSettings(node, studio, pick, srcName) {
   const w = (name) => node.widgets?.find((x) => x.name === name);
-  const names = ["prompt_text", "builder_state", "media_state", "stack_state"];
+  const names = ["prompt_text", "builder_state", "media_state", "stack_state", "gen_state"];
   const before = Object.fromEntries(names.map((n) => [n, w(n)?.value]));
   const st = studio.state || {};
   let dropped = [];
@@ -236,8 +238,10 @@ function applyVideoSettings(node, studio, pick, srcName) {
     w("media_state").value = JSON.stringify(keep);
   }
   if (pick.refmods && w("stack_state") && st.stack_state) w("stack_state").value = st.stack_state;
+  if (pick.gen && w("gen_state") && st.gen_state) w("gen_state").value = st.gen_state;
   refreshNode(node);
-  const what = [pick.prompt && "prompts", pick.media && "media", pick.refmods && "RefMods"].filter(Boolean).join(", ");
+  const what = [pick.prompt && "prompts", pick.media && "media", pick.refmods && "RefMods",
+    pick.gen && "generation settings"].filter(Boolean).join(", ");
   const msg = `Imported ${what} from ${srcName}` +
     (dropped.length ? ` — left out ${dropped.length} file${dropped.length > 1 ? "s" : ""} no longer in input: ${dropped.join(", ")}` : "") + ".";
   // say() only records the line; the panel shows it on its next draw.
@@ -262,6 +266,7 @@ function refreshNode(node) {
       node._mmh3Summary.classList.remove("mmh3p-summary-open");
     }
     node._mmlOnCommit?.();
+    node._mmh3GenBar?.paint();
     updateSummary(node);
     node.setDirtyCanvas?.(true, true);
     app.graph?.setDirtyCanvas?.(true, true);
@@ -311,7 +316,7 @@ function openVideoDropDialog(node, src) {
       return;
     }
     let cur = studios[0];
-    const pick = { prompt: true, media: true, refmods: true };
+    const pick = { prompt: true, media: true, refmods: true, gen: true };
     const detail = el("div", { class: "mmh3p-vimp-detail" });
     const check = (key, label, hint) => el("label", { class: "mmh3p-vimp-check", title: hint },
       el("input", { type: "checkbox", checked: pick[key], onchange: (e) => { pick[key] = e.target.checked; sync(); } }), label);
@@ -329,16 +334,22 @@ function openVideoDropDialog(node, src) {
           `${missing.length} file${missing.length > 1 ? "s are" : " is"} no longer in ComfyUI's input folder and will be left out; ` +
           "tags after it renumber.") : null,
         cur.refmods ? el("div", { class: "mmh3p-vimp-row" }, el("b", {}, "RefMods "), `${cur.refmods} picked`) : null,
+        cur.gen ? el("div", { class: "mmh3p-vimp-row" }, el("b", {}, "Settings "),
+          [cur.gen.model, cur.gen.sampler && `${cur.gen.sampler}/${cur.gen.scheduler}`,
+            cur.gen.steps != null && `${cur.gen.steps} steps`, cur.gen.seed != null && `seed ${cur.gen.seed}`]
+            .filter(Boolean).join(", ")) : null,
         el("div", { class: "mmh3p-vimp-checks" },
           check("prompt", "Prompts", "Mode, every prompt field, and the prompt it sent"),
           check("media", "Media", "The media it had loaded"),
-          cur.refmods ? check("refmods", "RefMods", "Its RefMods picks") : null),
+          cur.refmods ? check("refmods", "RefMods", "Its RefMods picks") : null,
+          cur.gen ? check("gen", "Settings", "Its generation settings: model, sampler, scheduler, steps, "
+            + "the seed it was made with, size and Auto") : null),
         el("div", { class: "mmh3p-vimp-note" },
           "Import replaces what's ticked on this node; Undo is in its media panel afterwards.")].filter(Boolean));
       sync();
     };
     const sync = () => {
-      const any = pick.prompt || pick.media || (pick.refmods && cur.refmods > 0);
+      const any = pick.prompt || pick.media || (pick.refmods && cur.refmods > 0) || (pick.gen && !!cur.gen);
       importBtn.disabled = !any;
     };
     importBtn.onclick = () => {
@@ -347,7 +358,7 @@ function openVideoDropDialog(node, src) {
         return;
       }
       close();
-      applyVideoSettings(node, cur, { ...pick, refmods: pick.refmods && cur.refmods > 0 }, src.name);
+      applyVideoSettings(node, cur, { ...pick, refmods: pick.refmods && cur.refmods > 0, gen: pick.gen && !!cur.gen }, src.name);
     };
     body.replaceChildren(...[
       studios.length > 1 ? el("label", { class: "mmh3p-vimp-row" }, el("b", {}, "From "),
@@ -531,6 +542,7 @@ app.registerExtension({
         hideWidget(this, "builder_state");
         hideWidget(this, "media_state");
         hideWidget(this, "stack_state");
+        hideWidget(this, "gen_state");
       } catch (e) {
         console.error("[MiniMaxH3 PromptStudio] could not hide the state "
           + "widgets; they stay visible but still work:", e);
@@ -555,6 +567,8 @@ app.registerExtension({
         // to trigger a re-fit.
         this._mmlOnCommit = () => {
           refreshBar(this);
+          // Auto's size follows the keyframe and the mode.
+          this._mmh3GenBar?.paint();
           fitPanel(this, baseComputeSize);
         };
         // Read by the full-size media loader window (medialoader.js) for its
@@ -626,8 +640,16 @@ app.registerExtension({
           console.error("[MiniMaxH3 PromptStudio] RefMods tab failed:", e);
           this._mmrPanel = null;
         }
+        // The generation settings on top, over either view of the panel.
+        let genRoot = null;
+        try {
+          this._mmh3GenBar = new GenBar(this);
+          genRoot = this._mmh3GenBar.root;
+        } catch (e) {
+          console.error("[MiniMaxH3 PromptStudio] generation settings bar failed:", e);
+        }
         this._mmh3Stack = el("div", { class: "mmh3p-nodestack" },
-          this._mmlPanel.root, stackRoot, barGrip(), summary);
+          genRoot, this._mmlPanel.root, stackRoot, barGrip(), summary);
         // hideInPanel: the side panel's Parameters tab would otherwise draw
         // the panel as a legacy widget, and that sets widget.width to the
         // side panel's width; the canvas sizes a DOM widget from
@@ -674,6 +696,7 @@ app.registerExtension({
     const onRemoved = nodeType.prototype.onRemoved;
     nodeType.prototype.onRemoved = function () {
       try { this._mmrPanel?.destroy(); } catch (e) { /* nothing to undo */ }
+      try { this._mmh3GenBar?.destroy(); } catch (e) { /* nothing to undo */ }
       return onRemoved?.apply(this, arguments);
     };
 
@@ -684,6 +707,17 @@ app.registerExtension({
     nodeType.prototype.onConnectionsChange = function () {
       const r = onConnectionsChange?.apply(this, arguments);
       setTimeout(() => { try { refreshStackLabels(); } catch (e) { /* cosmetic */ } }, 0);
+      return r;
+    };
+
+    // Everything leaves on the one bundle; this puts the node that unpacks it
+    // beside the node, wired.
+    const getExtraMenuOptions = nodeType.prototype.getExtraMenuOptions;
+    nodeType.prototype.getExtraMenuOptions = function (canvas, options) {
+      const r = getExtraMenuOptions?.apply(this, arguments);
+      try {
+        options?.unshift?.({ content: "Add Bundle Out (unpack the bundle)", callback: () => addBundleOut(this) }, null);
+      } catch (e) { /* menu is cosmetic */ }
       return r;
     };
 
@@ -717,6 +751,7 @@ app.registerExtension({
         // A saved node restores its own height, so re-fit after that lands.
         fitPanel(this, baseComputeSize);
         refreshBar(this);
+        this._mmh3GenBar?.paint();
         restoreDraftFlag(this);
       }, 0);
       return r;

@@ -1944,3 +1944,94 @@ when hiding, makes it a mouse-over caption for the respective section.
       setup: ui_round 30, quickgrip 19, barrows 15, dropcrop 10, vdrop 16,
       regress, side, tabs, arrowleak; stub rig subj, auto (5 scenarios),
       cssom, load, long2; lint and py_compile clean.
+
+## Generation settings — 3.6.0
+
+124. 🟩 a generation-settings bar above the media panel; every output on one bundle
+    - Asked for:
+      - **Row 1:** diffusion model, sampler, scheduler, steps, seed (as
+        rgthree's), a preset for the first four.
+      - **Row 2:** scale mode, aspect (no Auto), long side / short side /
+        megapixels, an Auto toggle, video length.
+      - **Auto:** I2VA uses Picture 1, FL2VA the first frame, L2VA the last
+        frame; T2VA and Reference use the picked ratio.
+      - **Outputs:** width / height / length added; everything on one bundle
+        for PlagueKind's Bundle Out.
+    - Settled with the user:
+      - The model is its name only.
+      - Bundle only, with old workflows migrated.
+      - Keyframes resized to the size, centre-cropped.
+      - Length is the Prompt Builder's duration.
+    - `gen_settings.py` (new):
+      - `parse()` fills in defaults and clamps.
+      - Unified Resize's `resolve_size` and `apply_divisible` (32, aspect
+        kept), and its linear-light cover-and-centre-crop as
+        `cover_resize`.
+      - `snap_length` matches the JS `snapLength`.
+      - `run_seed` replaces a special seed with a random one and logs it, for
+        prompts queued without the browser.
+      - `BUNDLE_NAMES`: the old seven outputs in their old order, then width,
+        height, length, model_name, sampler, scheduler, steps, seed.
+    - `nodes.py`:
+      - A hidden `gen_state` input, appended last so older workflows load
+        the defaults.
+      - `RETURN_TYPES = ("BUNDLE",)`; `build()` returns
+        `{input_1..input_15}`, PlagueKind's format.
+      - Keyframes are resized after the mode gate.
+      - IS_CHANGED reruns on a special seed.
+    - `web/gensettings.js` (new):
+      - **GenBar:** model / sampler / scheduler lists from object_info
+        (UNETLoader, KSampler), re-read on focus. A new node takes the
+        first model; a model that isn't there shows "(not found)".
+      - **Seed:** the 🎲 menu offers random, new fixed, ♻ last (disabled until
+        there is a last seed), increment and decrement. Special seeds show
+        as words.
+      - **Presets:** in ComfyUI userdata `minimax_h3_plus/gen_presets.json`,
+        through the select (save, apply, delete), with the match named.
+      - **Size and length:** the size readout is computed as Python does it,
+        with Auto from the first switched-on picture's turned and cropped
+        size. Length goes through promptbuilder's new `setDuration()`, which
+        also regenerates the instruction line.
+      - **Queue hook:** wraps `api.queuePrompt` and swaps special seeds in
+        the prompt and in the saved workflow's widget value, then records
+        `_mmh3LastSeed`.
+      - **Bundle Out:** instances are wrapped so that, when fed by Studio,
+        they show exactly fifteen outputs, named.
+      - **Migration:** `beforeConfigureGraph` → `migrateOutputs()` rewrites
+        an old Studio's seven outputs to one bundle, adds a Bundle Out wired
+        to it, and re-points each old link to the same slot. It handles
+        tuple and object links and subgraph definitions, and adds
+        PlagueKindBundleOut to the missing list when it isn't installed.
+      - **Prompting:** a right-click entry, "Add Bundle Out", and a one-time
+        toast when PlagueKind's nodes are missing.
+    - Also:
+      - Quick edit's save takes the duration from the widget, so a change
+        on the bar isn't overwritten.
+      - The video-import dialog offers the generation settings (video_meta
+        reads `gen_state` from both the prompt and the workflow).
+      - STACK_H includes the bar's 64px.
+      - README: What's new in 3.6.0, the fifteen-slot table, Upgrading to
+        3.6.0, credits. Version 3.6.0.
+    - Verified: real ComfyUI with the original pack and PlagueKind's two
+      bundle nodes installed.
+      - `realui/t/gen.cjs`, 36 checks:
+        - **Bar:** above the panel, no overflow; the model, sampler and
+          scheduler lists; every control writes gen_state; the readouts
+          (1344×736 by default, 9:16 short 720 → 704×1280, MP); length 10 s
+          → duration 10 / 243f.
+        - **Seed and presets:** the seed menu's five actions; save, apply
+          and delete a preset.
+        - **Auto:** 400×600 → 896×1344 in I2VA; no effect in T2VA or REF.
+        - **Bundle Out:** the right-click entry wires one with 15 named
+          outputs, which survive a reload.
+        - **A real run:** width / height / length / model_name / sampler /
+          steps / seed / prompt read back through PreviewAny; first_frame is
+          896×1344; -1 sends a random seed while the widget stays -1, and
+          the saved workflow records the seed; -2 gives last + 1; ♻ sets it.
+        - **Migration:** an old seven-output workflow (tuple links) opens
+          with its links on the same Bundle Out slots; object-format
+          subgraph links migrate.
+      - Python `gen_settings` checks: 23.
+      - Earlier suites unchanged: ui_round 30, quickgrip 19, barrows 15,
+        dropcrop 10, vdrop 16, merge183 7, regress, side, tabs, arrowleak.
+        Node height is steady across modes. Lint and py_compile clean.

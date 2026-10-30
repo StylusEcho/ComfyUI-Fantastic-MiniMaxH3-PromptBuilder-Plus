@@ -20,7 +20,7 @@ import os
 from . import media_io
 
 STUDIO = "MiniMaxH3PromptStudio"
-STATE_INPUTS = ("prompt_text", "builder_state", "media_state", "stack_state")
+STATE_INPUTS = ("prompt_text", "builder_state", "media_state", "stack_state", "gen_state")
 PREVIEW_CHARS = 240
 
 
@@ -79,7 +79,12 @@ def _from_widgets(values):
         b, m, s = _json(builder), _json(media), _json(stack)
         if isinstance(text, str) and isinstance(b, dict) and b.get("version") \
                 and isinstance(m, list) and isinstance(s, dict):
-            return dict(zip(STATE_INPUTS, (text, builder, media, stack)))
+            out = dict(zip(STATE_INPUTS, (text, builder, media, stack)))
+            # gen_state (3.6.0+) follows; older workflows end at stack_state.
+            gen = values[i + 4] if i + 4 < len(values) else None
+            if isinstance(gen, str) and isinstance(_json(gen), dict):
+                out["gen_state"] = gen
+            return out
     return None
 
 
@@ -110,6 +115,7 @@ def _summary(node_id, title, state):
         "id": str(node_id), "title": title or "Prompt Studio", "mode": mode,
         "preview": text[:PREVIEW_CHARS] + ("…" if len(text) > PREVIEW_CHARS else ""),
         "media": items, "refmods": len(picks),
+        "gen": _json(state.get("gen_state")) if isinstance(_json(state.get("gen_state")), dict) else None,
         "state": {k: state.get(k) for k in STATE_INPUTS if isinstance(state.get(k), str)},
     }
 

@@ -76,7 +76,12 @@ name = "fantastic-minimax-h3-promptstudio"
 # 3.5.0 folds in upstream 1.8.3 (subgraph support, paste, upload reuse,
 # RefMod Create uploads cleared once used; the Reference Cache node is the
 # original pack's) — no breakage of saved workflows.
-version = "3.5.0"
+# 3.6.0 adds the generation-settings bar (model name, sampler, scheduler,
+# steps, rgthree-style seed, presets; Unified Resize-style size with Auto;
+# length) and puts every output on one BUNDLE for PlagueKind's Bundle Out.
+# Saved workflows' links break with that, so they are moved onto a Bundle Out
+# on open, slot for slot — which needs PlagueKind's nodes installed.
+version = "3.6.0"
 description = "MiniMax H3 Prompt Studio: a single guided prompt-writing and reference-media node for the H3 video model, with live checking against MiniMax's prompt guide."
 license = { file = "LICENSE" }
 requires-python = ">=3.9"

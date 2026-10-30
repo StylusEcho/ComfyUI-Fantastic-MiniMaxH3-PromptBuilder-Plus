@@ -16,7 +16,7 @@ jobs:
     # before the version-bump push, since registry versions are immutable.
     env:
       COMFY_NODE_CHANGELOG: |
-        Folds in the original pack's 1.8.3: Prompt Studio, its RefMods and the RefMod library work across subgraphs (KJNodes Set/Get pairs too), and Clean up counts Prompt Studios inside them; Ctrl+V pastes pictures, clips and audio into Prompt Studio, the media window or the RefMod Create tab (added once even with the original pack installed); uploading a file that's already there reuses it; RefMod Create uploads are deleted once used. The new Reference Cache node comes from the original pack, which this wants at 1.8.3 or newer.
+        Generation settings bar on Prompt Studio: diffusion model name, sampler, scheduler, steps, an rgthree-style seed (random / increment / decrement, swapped on queue) and presets; size by long side, short side or megapixels with an aspect ratio, or Auto from the keyframe (I2VA / FL2VA / L2VA); video length shared with the Prompt Builder. Keyframes come out at that size. Every output now travels on one BUNDLE for PlagueKind's Bundle Out (ComfyUI-PlagueKind-Nodes, needed); workflows saved with the old outputs get a Bundle Out with their links moved over on open.
     steps:
       - name: Check out code
         uses: actions/checkout@v4
