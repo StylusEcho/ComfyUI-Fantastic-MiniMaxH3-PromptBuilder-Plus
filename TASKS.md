@@ -1856,3 +1856,31 @@ when hiding, makes it a mouse-over caption for the respective section.
       only, plain video (Import disabled, Add to media works), pictures not
       taken, refusal with the Prompt Builder open, Escape. Earlier suites
       30/19/8/10; lint and py_compile clean.
+
+120. 🟩 pictures dragged onto the prompt bar are added to the media as normal
+    - The bar is a drop target for all media now (`mediaDropTarget`):
+      pictures and audio go straight to the media panel's own `add()` (same
+      checks, upload and messages as a drop on the panel), as files or as
+      cards from ComfyUI's assets/queue panel (fetched first); a video still
+      opens the add-or-import dialog (one at a time; any further videos in
+      the same drop are just added). Taking the drop keeps ComfyUI's own
+      handler from loading a dropped picture's workflow over the graph.
+    - Verified (`vdrop.cjs`, 16 checks): a picture file and a picture card
+      are added with no dialog and the graph untouched; the video flow
+      unchanged.
+
+121. 🟩 why focus is sometimes stolen for the arrow keys in input fields
+    - Probed every kind of field in the real UI (node T2VA fields, ⚙ number
+      inputs, preset search, Quick edit, Prompt Builder), with the node
+      selected and not: arrows always moved the caret, so not ComfyUI's
+      keybindings (they skip text fields, and bind no bare arrows) nor the
+      pack's other listeners (all Escape-only, or already skip typing).
+    - Cause: the enlarged picture view's window keydown listener (← → step
+      between pictures, with preventDefault) was only removed by Escape;
+      closing with Close or the backdrop left it behind, so ← → in every
+      field afterwards did nothing until an Escape anywhere cleaned it up —
+      hence "sometimes". Reproduced on the code before item 118 (caret
+      stuck at 5 after Close and after the backdrop; fine after Escape) and
+      gone since item 118's close(). Hardened: the viewer's arrows also
+      ignore anything typed in a field. `realui/t/arrowleak.cjs` keeps the
+      check.

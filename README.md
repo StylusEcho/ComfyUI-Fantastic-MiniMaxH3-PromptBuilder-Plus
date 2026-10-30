@@ -109,7 +109,14 @@ Interface changes, all Plus only. No breakage of saved workflows.
   marked and left out. If the run had more than one Prompt Studio, you pick
   which. Undo is in the media panel afterwards. A video with no ComfyUI
   workflow in it (re-encoded, or downloaded from a sharing site) can still
-  be added as media. Pictures dropped on the bar go to ComfyUI as before.
+  be added as media. Pictures and audio dropped on the bar are simply added
+  to the media, as they would be on the media panel.
+- **Arrow keys in text fields no longer go missing.** After a picture had
+  been opened full size and closed with Close or a click outside it, ← and →
+  in any field stopped moving the caret: the viewer's key listener stayed
+  behind, stepping through pictures that were no longer on screen, until an
+  Escape happened to remove it. It's removed however the viewer closes now,
+  and never takes keys from a field being typed in.
 - **▣ Crop… in the enlarged view.** Clicking a picture in the media panel
   opens it full size; a **▣ Crop…** button beside Close now goes straight
   to the picture editor for the one on show (**✂ Trim & crop…** on a clip).

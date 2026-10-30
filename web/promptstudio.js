@@ -150,22 +150,25 @@ function refreshBar(node) {
    video_meta.py reads them out; this applies them to the node, with Undo. */
 
 const VIDEO_RE = /\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg)$/i;
+// The media panel's other kinds (web_api.py's IMAGE_EXT / AUDIO_EXT).
+const OTHER_MEDIA_RE = /\.(png|jpe?g|webp|bmp|gif|tiff?|wav|mp3|flac|ogg|m4a|aac|opus)$/i;
 const ASSET_MIME = "application/x-comfy-asset-info";   // ComfyUI's assets/queue panel
 
-/** Could this drag be a video? Only types are readable while dragging: a file
- *  whose type is video (or unknown, as .mkv often is), or one of ComfyUI's own
- *  asset cards, which are checked properly on drop. */
-function mightBeVideo(dt) {
+const isVideoFile = (f) => f.type.startsWith("video/") || VIDEO_RE.test(f.name);
+const isOtherMedia = (f) => !isVideoFile(f) && (/^(image|audio)\//.test(f.type) || OTHER_MEDIA_RE.test(f.name));
+
+/** Could this drag be media? Only types are readable while dragging: a file
+ *  whose type is a picture, video or audio (or unknown, as .mkv often is), or
+ *  one of ComfyUI's own asset cards; each is checked properly on drop. */
+function mightBeMedia(dt) {
   if (!dt) return false;
   if ([...(dt.types || [])].includes(ASSET_MIME)) return true;
-  return [...(dt.items || [])].some((i) => i.kind === "file" && (!i.type || i.type.startsWith("video/")));
+  return [...(dt.items || [])].some((i) => i.kind === "file" && (!i.type || /^(image|video|audio)\//.test(i.type)));
 }
 
-/** What a drop carries: a video file, or a video ComfyUI already has (an
- *  asset card, or a plain /view link) as an annotated path. */
-function dropSource(dt) {
-  const file = [...(dt?.files || [])].find((f) => f.type.startsWith("video/") || VIDEO_RE.test(f.name));
-  if (file) return { file, name: file.name };
+/** A file ComfyUI already has, dragged from its assets or queue panel (an
+ *  asset card, or a plain /view link): its info and annotated path. */
+function droppedAsset(dt) {
   let info = null;
   try { info = JSON.parse(dt.getData(ASSET_MIME) || "null"); } catch (e) { info = null; }
   if (!info?.filename) {
@@ -177,7 +180,7 @@ function dropSource(dt) {
       }
     } catch (e) { /* not a link */ }
   }
-  if (!info?.filename || !VIDEO_RE.test(info.filename)) return null;
+  if (!info?.filename) return null;
   return { info, name: info.display_name || info.filename,
     ref: `${info.subfolder ? `${info.subfolder}/` : ""}${info.filename} [${info.type || "output"}]` };
 }
@@ -197,15 +200,16 @@ async function readVideoSettings(src) {
   return data;
 }
 
-/** The dropped video as a File, for the media panel's own add(). */
-async function videoFile(src) {
+/** The dropped media as a File, for the media panel's own add(): the file
+ *  itself, or one ComfyUI has, fetched. */
+async function mediaFile(src) {
   if (src.file) return src.file;
   const q = new URLSearchParams({ filename: src.info.filename, subfolder: src.info.subfolder || "",
     type: src.info.type || "output" });
   const resp = await api.fetchApi(`/view?${q}`);
   if (!resp.ok) throw new Error(`couldn't fetch ${src.name} (${resp.status})`);
   const blob = await resp.blob();
-  return new File([blob], src.info.filename, { type: blob.type || "video/mp4" });
+  return new File([blob], src.info.filename, { type: blob.type || "" });
 }
 
 /** Put a video's Prompt Studio settings on this node: its prompts (mode,
@@ -278,7 +282,7 @@ function openVideoDropDialog(node, src) {
     title: "Add this video to the node's media, as a reference",
     onclick: async () => {
       close();
-      try { await node._mmlPanel?.add([await videoFile(src)]); }
+      try { await node._mmlPanel?.add([await mediaFile(src)]); }
       catch (e) { toast(`Couldn't add ${src.name}: ${e.message}`, 6000); }
     } }, "➕ Add to media");
   const importBtn = el("button", { class: "mmh3p-btn primary", disabled: true,
@@ -356,11 +360,12 @@ function openVideoDropDialog(node, src) {
   });
 }
 
-/** Make the prompt bar a drop target for videos. Anything else passes through
- *  to ComfyUI as before. */
-function videoDropTarget(node, bar) {
+/** Make the prompt bar a drop target for media, like the media panel above
+ *  it: pictures and audio are added to the media as they would be there; a
+ *  video asks first, since it may carry the settings it was made with. */
+function mediaDropTarget(node, bar) {
   bar.addEventListener("dragover", (e) => {
-    if (!mightBeVideo(e.dataTransfer)) return;
+    if (!mightBeMedia(e.dataTransfer)) return;
     e.preventDefault(); e.stopPropagation();
     e.dataTransfer.dropEffect = "copy";
     bar.classList.add("mmh3p-vdrop");
@@ -368,15 +373,36 @@ function videoDropTarget(node, bar) {
   bar.addEventListener("dragleave", (e) => {
     if (!bar.contains(e.relatedTarget)) bar.classList.remove("mmh3p-vdrop");
   });
-  bar.addEventListener("drop", (e) => {
-    if (!mightBeVideo(e.dataTransfer)) return;
+  bar.addEventListener("drop", async (e) => {
+    const dt = e.dataTransfer;
+    if (!mightBeMedia(dt)) return;
     // Ours: preventDefault also tells ComfyUI's own drop handler to stand
-    // down, or it would load the video's workflow over the whole graph.
+    // down, or it would load a dropped file's workflow over the whole graph.
     e.preventDefault(); e.stopPropagation();
     bar.classList.remove("mmh3p-vdrop");
-    const src = dropSource(e.dataTransfer);
-    if (!src) { toast("Drop a video here — pictures go on the media panel", 4500); return; }
-    openVideoDropDialog(node, src);
+    const files = [...(dt.files || [])];
+    const videos = files.filter(isVideoFile), others = files.filter(isOtherMedia);
+    const asset = files.length ? null : droppedAsset(dt);
+    if (!videos.length && !others.length && !asset) {
+      toast("Drop pictures, videos or audio here", 4500);
+      return;
+    }
+    try {
+      // The media panel's own add(): same checks, upload and messages as a drop there.
+      if (asset && !VIDEO_RE.test(asset.info.filename)) {
+        if (!OTHER_MEDIA_RE.test(asset.info.filename)) { toast(`${asset.name} isn't a picture, video or audio`, 4500); return; }
+        await node._mmlPanel?.add([await mediaFile(asset)]);
+        return;
+      }
+      // One video at a time can be asked about; any further ones are just added.
+      const extra = [...others, ...videos.slice(1)];
+      if (extra.length) await node._mmlPanel?.add(extra);
+    } catch (err) {
+      toast(`Couldn't add that: ${err.message}`, 6000);
+      return;
+    }
+    const video = asset || (videos[0] && { file: videos[0], name: videos[0].name });
+    if (video) openVideoDropDialog(node, video);
   });
 }
 
@@ -526,7 +552,7 @@ app.registerExtension({
           onclick: () => { if (!this._mmh3Expanded) openQuickEdit(this); },
         });
         this._mmh3Summary = summary;
-        videoDropTarget(this, summary);
+        mediaDropTarget(this, summary);
 
         // ONE widget for the pair, not one each. They were two, and their
         // heights had to be reconciled by hand every time the layout changed

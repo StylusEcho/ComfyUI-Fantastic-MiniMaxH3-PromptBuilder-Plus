@@ -5493,8 +5493,12 @@ function lightbox(item, tag, siblings = [], panel = null) {
   const keys = (e) => {
     if (e.key === "Escape") { close(); return; }
     // Leave the arrows alone while a video's own controls have focus, or
-    // seeking with the keyboard would jump to the next clip instead.
+    // seeking with the keyboard would jump to the next clip instead — and
+    // never take them from a field being typed in. (Before close() existed,
+    // Close and the backdrop left this listener behind, and it went on
+    // swallowing ← → in every input until an Escape happened to remove it.)
     if (e.target instanceof HTMLMediaElement) return;
+    if (e.target?.closest?.("input, textarea, select, [contenteditable=true]")) return;
     if (e.key === "ArrowLeft") { e.preventDefault(); step(-1); }
     if (e.key === "ArrowRight") { e.preventDefault(); step(1); }
   };
