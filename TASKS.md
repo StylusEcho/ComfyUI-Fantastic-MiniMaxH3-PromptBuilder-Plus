@@ -1884,3 +1884,19 @@ when hiding, makes it a mouse-over caption for the respective section.
       gone since item 118's close(). Hardened: the viewer's arrows also
       ignore anything typed in a field. `realui/t/arrowleak.cjs` keeps the
       check.
+
+122. 🟩 replace the prompt bar rows setting with a slider on top of the bar, 2–4 rows in steps
+    - The ⚙ row (`barRowsPrefRow`, 1–8) is gone. `barGrip()` (promptstudio.js)
+      sits on the bar's top edge — in the stack just above the bar, since
+      the bar's contents are rebuilt whenever the prompt changes, with
+      negative margins so it takes no room. Dragging up adds a row per row
+      of travel (line height × canvas zoom), down removes one, clamped 2–4;
+      double-click resets to 2. `setBarRows()` saves and applies through
+      `--mmh3-barrows`, so every node follows; old saved values clamp into
+      range. Hidden while the bar holds T2VA's fields. The pointer never
+      starts a node drag.
+    - Verified (`realui/t/barrows.cjs`, 15 checks): no ⚙ row; 2 rows/52px by
+      default with the grip on the edge and no gap; 18px up → 3, again → 4,
+      further stays 4, far down → 2, a 40px pull = two steps; node never
+      moved; double-click → 2; steps at 70% zoom; survives reload; saved 8 →
+      4 and 1 → 2; hidden in T2VA's fields view. Other suites 30/19/10/16.

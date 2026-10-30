@@ -2593,6 +2593,16 @@ ${RAISE_CSS}
    (promptstudio.js: add it to the media, or import its Prompt Studio
    settings). */
 .mmh3p-summary.mmh3p-vdrop{outline:2px dashed #5aa0e0;outline-offset:-3px;background:#16263a;}
+/* The prompt bar's rows grip (barGrip in promptstudio.js), on the bar's top
+   edge. Its negative margins cancel its height, so it takes no room and the
+   layout doesn't shift; hidden while the bar holds T2VA's fields. */
+.mmh3p-nodestack>.mmh3p-bargrip{flex:0 0 auto;height:12px;margin:-6px 0;position:relative;z-index:3;
+  cursor:ns-resize;touch-action:none;display:flex;align-items:center;justify-content:center;}
+.mmh3p-nodestack>.mmh3p-bargrip::before{content:"";width:40px;height:4px;border-radius:2px;
+  background:#3a4252;border:1px solid #191c22;}
+.mmh3p-nodestack>.mmh3p-bargrip:hover::before,.mmh3p-nodestack>.mmh3p-bargrip.on::before{
+  background:#6f86b8;width:64px;}
+.mmh3p-nodestack>.mmh3p-bargrip:has(+ .mmh3p-summary-open){display:none;}
 .mmh3p-vimp-overlay{z-index:10040;}
 .mmh3p-vimp{box-sizing:border-box;width:min(620px,94vw);max-height:86vh;display:flex;flex-direction:column;
   background:#191c22;color:#d7dbe2;border:1px solid #303642;border-radius:10px;overflow:hidden;

@@ -65,9 +65,10 @@ name = "fantastic-minimax-h3-promptstudio"
 # 3.3.0 adds subject masking to the media panel's pictures (blur the
 # background around the subject and/or crop to it, Reference mode only) —
 # no breakage of saved workflows.
-# 3.4.0 reworks the interface: text size and prompt-bar rows on the node's ⚙
-# (the text size now reaches
-# the prompt bar and the RefMods view), the RefMods view matching the media
+# 3.4.0 reworks the interface: text size only on the node's ⚙ (it now reaches
+# the prompt bar and the RefMods view), a grip for the prompt bar's 2-4 rows,
+# drag-and-drop on the prompt bar (a generated video's settings can be
+# imported), Quick edit's resize grip, the RefMods view matching the media
 # view, the Prompt Builder's header reordered with two columns in its ⚙, one
 # grip for the audio boxes, masking offered in Reference mode only, and the
 # Used view showing the pictures actually sent — no breakage of saved

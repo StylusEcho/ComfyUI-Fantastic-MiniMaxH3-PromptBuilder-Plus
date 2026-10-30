@@ -11,7 +11,7 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import {
   LoaderPanel, applyCanvasSizing, applyTextScale, loadScalePrefs,
-  PANEL_H, NODE_W, postApi,
+  PANEL_H, NODE_W, postApi, barRows, setBarRows, BAR_ROWS_MIN, BAR_ROWS_MAX, BAR_ROWS_DEFAULT,
 } from "./medialoader.js";
 import {
   openEditor, openQuickEdit, updateSummary, promptFields, hideWidget, el,
@@ -406,6 +406,44 @@ function mediaDropTarget(node, bar) {
   });
 }
 
+/** The grip on the prompt bar's top edge: drag it up for more rows of the
+ *  prompt, down for fewer, in whole-row steps from 2 to 4 (one row's height
+ *  of travel per step). The count is per user, so every node's bar follows
+ *  (setBarRows). It sits in the stack just above the bar rather than in it,
+ *  because the bar's contents are rebuilt whenever the prompt changes; CSS
+ *  overlaps it onto the bar's edge and hides it while the bar holds T2VA's
+ *  fields, which size themselves. A double-click goes back to 2 rows. */
+function barGrip() {
+  const grip = el("div", { class: "mmh3p-bargrip",
+    title: `Drag to show ${BAR_ROWS_MIN}–${BAR_ROWS_MAX} rows of the prompt; double-click for ${BAR_ROWS_DEFAULT}`,
+    ondblclick: (e) => { e.stopPropagation(); setBarRows(BAR_ROWS_DEFAULT); },
+    onpointerdown: (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault(); e.stopPropagation();      // not a node drag on the canvas
+      grip.setPointerCapture?.(e.pointerId);
+      grip.classList.add("on");
+      const text = grip.nextElementSibling?.querySelector(".mmh3p-sumtext");
+      // One row's height on screen: the line height times the canvas zoom.
+      const scale = text ? text.getBoundingClientRect().height / (text.offsetHeight || 1) : 1;
+      const row = (parseFloat(text ? getComputedStyle(text).lineHeight : "") || 16.5) * (scale || 1);
+      const y0 = e.clientY, rows0 = barRows();
+      const move = (ev) => {
+        const want = rows0 + Math.round((y0 - ev.clientY) / row);
+        if (want !== barRows()) setBarRows(want);
+      };
+      const up = () => {
+        grip.classList.remove("on");
+        grip.removeEventListener("pointermove", move);
+        grip.removeEventListener("pointerup", up);
+        grip.removeEventListener("pointercancel", up);
+      };
+      grip.addEventListener("pointermove", move);
+      grip.addEventListener("pointerup", up);
+      grip.addEventListener("pointercancel", up);
+    } });
+  return grip;
+}
+
 /** The panel widget's current height, read back off the widget rather than
  *  kept in a cache that could drift out of step with it. */
 function panelHeight(widget) {
@@ -589,7 +627,7 @@ app.registerExtension({
           this._mmrPanel = null;
         }
         this._mmh3Stack = el("div", { class: "mmh3p-nodestack" },
-          this._mmlPanel.root, stackRoot, summary);
+          this._mmlPanel.root, stackRoot, barGrip(), summary);
         // hideInPanel: the side panel's Parameters tab would otherwise draw
         // the panel as a legacy widget, and that sets widget.width to the
         // side panel's width; the canvas sizes a DOM widget from

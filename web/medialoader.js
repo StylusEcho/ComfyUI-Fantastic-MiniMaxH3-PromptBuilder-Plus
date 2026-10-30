@@ -2792,19 +2792,29 @@ export const SAM_KEY = "mmh3.samCheckpoint";
 
 const CLEANUP_KEY = "mmh3.maskCleanupMB";
 
-/* How many lines of the prompt Prompt Studio's bar shows (the ⚙'s "Prompt
-   bar rows"). Per user, like the text size, and applied through one custom
-   property on the document so every node follows it at once; the bar's CSS
-   (promptbuilder.js, .mmh3p-sumtext) clamps to it. */
+/* How many lines of the prompt Prompt Studio's bar shows, 2 to 4: set by
+   dragging the grip on the bar's top edge (barGrip in promptstudio.js). Per
+   user, like the text size, and applied through one custom property on the
+   document so every node follows it at once; the bar's CSS (promptbuilder.js,
+   .mmh3p-sumtext) clamps to it. A value saved by the old ⚙ setting (1-8) is
+   clamped into range. */
 const BAR_ROWS_KEY = "mmh3.barRows";
-export const BAR_ROWS_MIN = 1, BAR_ROWS_MAX = 8, BAR_ROWS_DEFAULT = 2;
+export const BAR_ROWS_MIN = 2, BAR_ROWS_MAX = 4, BAR_ROWS_DEFAULT = 2;
+const clampRows = (v) => Math.min(BAR_ROWS_MAX, Math.max(BAR_ROWS_MIN, Math.round(Number(v) || BAR_ROWS_DEFAULT)));
 export function barRows() {
   let v = BAR_ROWS_DEFAULT;
-  try { v = Math.round(Number(localStorage.getItem(BAR_ROWS_KEY)) || BAR_ROWS_DEFAULT); } catch (e) { /* default */ }
-  return Math.min(BAR_ROWS_MAX, Math.max(BAR_ROWS_MIN, v));
+  try { v = localStorage.getItem(BAR_ROWS_KEY); } catch (e) { /* default */ }
+  return clampRows(v);
 }
 function applyBarRows(v = barRows()) {
   try { document.documentElement.style.setProperty("--mmh3-barrows", String(v)); } catch (e) { /* the CSS default applies */ }
+}
+/** Save and apply a row count; returns the one applied. */
+export function setBarRows(v) {
+  const rows = clampRows(v);
+  try { localStorage.setItem(BAR_ROWS_KEY, String(rows)); } catch (e) { /* this session only */ }
+  applyBarRows(rows);
+  return rows;
 }
 applyBarRows();
 
@@ -6135,9 +6145,6 @@ export class LoaderPanel {
     const menu = el("div", { class: "mmlp-scalemenu" },
       sized ? slider("node", "Window size") : null,
       slider("text", "Text size"),
-      // Only where there is a prompt bar: Prompt Studio's node, not its
-      // full-size window (the bar stays on the node).
-      !sized && this.node?._mmh3Summary ? this.barRowsPrefRow() : null,
       cleanup.row,
       el("div", { class: "mmlp-scalefoot" },
         el("span", {}, "Remembered for every node"),
@@ -6166,27 +6173,6 @@ export class LoaderPanel {
     const wrap = el("span", { class: "mmlp-scalewrap" }, btn, menu);
     (this._scaleClosers = this._scaleClosers || new Set()).add(close);
     return wrap;
-  }
-
-  /** "Prompt bar rows": how many lines of the prompt the bar under the panel
-   *  shows. Applied as you change it, like the clean-up row below it (it
-   *  doesn't move the menu, so there's nothing to defer to Apply); Reset
-   *  leaves it alone, since it isn't a size. */
-  barRowsPrefRow() {
-    const input = el("input", { type: "number", class: "mmlp-scaleval",
-      min: String(BAR_ROWS_MIN), max: String(BAR_ROWS_MAX), step: "1", value: String(barRows()),
-      onchange: (e) => {
-        const v = Math.min(BAR_ROWS_MAX, Math.max(BAR_ROWS_MIN, Math.round(+e.target.value || BAR_ROWS_DEFAULT)));
-        e.target.value = String(v);
-        try { localStorage.setItem(BAR_ROWS_KEY, String(v)); } catch (err) { /* this session only */ }
-        applyBarRows(v);
-      },
-      onkeydown: (e) => { if (e.key === "Enter") e.target.blur(); } });
-    return el("label", { class: "mmlp-scalerow",
-      title: `How many lines of the prompt the bar under the panel shows (${BAR_ROWS_MIN}\u2013${BAR_ROWS_MAX}). ` +
-        "A taller bar takes its room from the media panel; drag the node taller to give it back." },
-      el("span", { class: "mmlp-scalelabel mmlp-preflabel" }, "Prompt bar rows"), input,
-      el("span", { class: "mmlp-scalepct" }, "rows"));
   }
 
   /** The clean-up reminder's size, as a row in the ⚙ menu. Upstream gives it
